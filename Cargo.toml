@@ -1,9 +1,36 @@
 [package]
-name = "nullspace"
+name = "nullspaceclient"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O4', '--all-features', '--no-validation', '--enable-bulk-memory', '--strip-debug', '--strip-producers']
+
+[profile.release]
+strip = true
+opt-level = 3
+
+[lib]
+name = "nullspace"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-ctrlc = "3.5.2"
 miniz_oxide = "0.9.1"
 thiserror = "2.0.18"
+wgpu = { version = "28.0.0", default-features = false, features = ["vulkan", "webgpu", "wgsl"] }
+image = { version = "0.25.10", default-features = false, features = ["bmp", "jpeg", "png"] }
+winit = "0.30.13"
+env_logger = "0.11.10"
+log = "0.4.29"
+pollster = "0.4.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ctrlc = "3.5.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+wgpu = { version = "28.0", default-features = false, features = ["webgpu"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.30"
+web-sys = { version = "0.3", default-features = false, features = [ "Document", "Window", "Element" ] }
