@@ -47,16 +47,18 @@ enum ApplicationCreateError {
 
 #[derive(Error, Debug)]
 enum ApplicationRenderError {
-    #[error("{0}")]
-    SurfaceError(#[from] wgpu::SurfaceError),
+    #[error("lost device")]
+    LostDevice,
 }
 
 struct Application {
+    instance: wgpu::Instance,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     surface: wgpu::Surface<'static>,
     is_surface_configured: bool,
+    render_pipeline: wgpu::RenderPipeline,
     window: Arc<Window>,
 }
 
@@ -64,7 +66,7 @@ impl Application {
     pub async fn new(window: Arc<Window>) -> Result<Self, ApplicationCreateError> {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::PRIMARY,
             #[cfg(target_arch = "wasm32")]
@@ -72,6 +74,7 @@ impl Application {
             flags: Default::default(),
             memory_budget_thresholds: Default::default(),
             backend_options: Default::default(),
+            display: None,
         });
 
         let surface = instance.create_surface(window.clone())?;
@@ -96,29 +99,99 @@ impl Application {
             .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
+
+        let mut req_present_mode = wgpu::PresentMode::AutoVsync;
+
+        // wgpu has a bug with vsync and resizing windows on Windows, so select a better mode if it's available.
+        // AutoVsync is available everywhere and will be the default if the better modes aren't available.
+        for present_mode in surface_caps.present_modes {
+            if present_mode == wgpu::PresentMode::Mailbox {
+                req_present_mode = present_mode;
+                break;
+            } else if present_mode == wgpu::PresentMode::Immediate {
+                req_present_mode = present_mode;
+            }
+        }
+
+        log::info!("Using present mode {:?}", req_present_mode);
+
         let surface_format = surface_caps
             .formats
             .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0], // TODO: Probably just want to use Fifo (works on all platforms) for vsync or make it configurable
+            //present_mode: surface_caps.present_modes[0], // TODO: Probably just want to use Fifo (works on all platforms) for vsync or make it configurable
+            present_mode: req_present_mode,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
         Ok(Self {
+            instance,
             device,
             queue,
             config,
             surface,
             is_surface_configured: false,
+            render_pipeline,
             window,
         })
     }
@@ -143,29 +216,42 @@ impl Application {
         //
     }
 
-    pub fn render(&mut self) -> Result<(), ApplicationRenderError> {
-        self.window.request_redraw();
-
+    pub fn render(&mut self) -> Result<bool, ApplicationRenderError> {
         if !self.is_surface_configured {
-            return Ok(());
+            return Ok(true);
         }
 
         // Grab the current texture in the swap chain so it can be rendered to and queued to be presented.
         let output_texture = match self.surface.get_current_texture() {
-            Ok(surface_texture) => surface_texture,
-            Err(e) => {
-                match e {
-                    wgpu::SurfaceError::Outdated => {
-                        self.surface.configure(&self.device, &self.config);
-                        return Ok(());
-                    }
-                    wgpu::SurfaceError::Timeout => {
-                        return Ok(());
-                    }
-                    _ => {}
-                }
+            wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => {
+                drop(surface_texture);
+                self.surface.configure(&self.device, &self.config);
+                return Ok(true);
+            }
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded
+            | wgpu::CurrentSurfaceTexture::Validation => {
+                return Ok(true);
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                let size = self.window.inner_size();
 
-                return Err(e.into());
+                self.resize(size.width, size.height);
+
+                let redraw = size.width > 0 && size.height > 0;
+
+                return Ok(redraw);
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface = match self.instance.create_surface(self.window.clone()) {
+                    Ok(surface) => surface,
+                    Err(e) => {
+                        log::error!("{e}");
+                        return Err(ApplicationRenderError::LostDevice);
+                    }
+                };
+                return Ok(true);
             }
         };
 
@@ -180,7 +266,7 @@ impl Application {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -201,12 +287,16 @@ impl Application {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+        self.window.pre_present_notify();
         output_texture.present();
 
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -305,7 +395,11 @@ impl ApplicationHandler<Application> for EventProcessor {
                 app.update();
 
                 match app.render() {
-                    Ok(_) => {}
+                    Ok(redraw) => {
+                        if redraw {
+                            app.window.request_redraw();
+                        }
+                    }
                     Err(e) => {
                         log::error!("{e}");
                         event_loop.exit();
@@ -314,6 +408,16 @@ impl ApplicationHandler<Application> for EventProcessor {
             }
             WindowEvent::Resized(size) => {
                 app.resize(size.width, size.height);
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // Switch to waiting for events when minimized so we don't spin cpu.
+                    if size.width > 0 && size.height > 0 {
+                        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+                    } else {
+                        event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+                    }
+                }
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -345,7 +449,10 @@ impl ApplicationHandler<Application> for EventProcessor {
 pub fn run() {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        env_logger::Builder::new()
+            .filter(None, log::LevelFilter::Warn)
+            .filter(Some("nullspace"), log::LevelFilter::Debug)
+            .init()
     }
     #[cfg(target_arch = "wasm32")]
     {

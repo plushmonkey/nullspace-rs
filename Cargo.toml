@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 miniz_oxide = "0.9.1"
 thiserror = "2.0.18"
-wgpu = { version = "28.0.0", default-features = false, features = ["vulkan", "webgpu", "wgsl"] }
+wgpu = { version = "29.0.1", default-features = false, features = ["vulkan", "webgpu", "wgsl"] }
 image = { version = "0.25.10", default-features = false, features = ["bmp", "jpeg", "png"] }
 winit = "0.30.13"
 env_logger = "0.11.10"
@@ -30,7 +30,7 @@ ctrlc = "3.5.2"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
 console_log = "1.0"
-wgpu = { version = "28.0", default-features = false, features = ["webgpu"] }
+wgpu = { version = "29.0.1", default-features = false, features = ["webgpu"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.30"
 web-sys = { version = "0.3", default-features = false, features = [ "Document", "Window", "Element" ] }
