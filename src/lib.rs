@@ -2,6 +2,7 @@
 //use ctrlc;
 
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{RequestAdapterOptions, wgt::DeviceDescriptor};
 use winit::{
     application::ApplicationHandler,
@@ -51,6 +52,41 @@ enum ApplicationRenderError {
     LostDevice,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRIBS: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &ATTRIBS,
+        }
+    }
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        color: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        color: [0.0, 0.0, 1.0],
+    },
+];
+
 struct Application {
     instance: wgpu::Instance,
     device: wgpu::Device,
@@ -59,6 +95,10 @@ struct Application {
     surface: wgpu::Surface<'static>,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
+
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
+
     window: Arc<Window>,
 }
 
@@ -152,7 +192,7 @@ impl Application {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[Vertex::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -184,6 +224,12 @@ impl Application {
             cache: None,
         });
 
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Ok(Self {
             instance,
             device,
@@ -192,6 +238,8 @@ impl Application {
             surface,
             is_surface_configured: false,
             render_pipeline,
+            vertex_buffer,
+            num_vertices: VERTICES.len() as u32,
             window,
         })
     }
@@ -289,7 +337,8 @@ impl Application {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
