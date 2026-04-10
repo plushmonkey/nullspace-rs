@@ -2,7 +2,9 @@
 //use ctrlc;
 
 use std::sync::Arc;
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+
 use wgpu::{RequestAdapterOptions, wgt::DeviceDescriptor};
 use winit::{
     application::ApplicationHandler,
@@ -19,6 +21,9 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
+use crate::render::camera::Camera;
+use crate::render::map_renderer::MapRenderer;
+
 pub mod arena_settings;
 pub mod checksum;
 pub mod client;
@@ -28,11 +33,21 @@ pub mod math;
 pub mod net;
 pub mod player;
 pub mod prize;
+pub mod render;
 pub mod rng;
 pub mod ship;
 pub mod simulation;
 pub mod spawn;
 pub mod weapon;
+
+#[derive(Default, Copy, Clone)]
+struct Input {
+    pub left: bool,
+    pub right: bool,
+    pub down: bool,
+    pub up: bool,
+    pub shift: bool,
+}
 
 #[derive(Error, Debug)]
 enum ApplicationCreateError {
@@ -52,40 +67,46 @@ enum ApplicationRenderError {
     LostDevice,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
+struct Timer {
+    #[cfg(not(target_arch = "wasm32"))]
+    last_update_time: Instant,
+
+    #[cfg(target_arch = "wasm32")]
+    last_update_time: f64,
 }
 
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBS: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+impl Timer {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            last_update_time: Instant::now(),
+            #[cfg(target_arch = "wasm32")]
+            last_update_time: web_sys::window().unwrap().performance().unwrap().now(),
+        }
+    }
 
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &ATTRIBS,
+    // Returns time since last elapsed call and updates timer value to 'now'.
+    pub fn elapsed(&mut self) -> f32 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let elapsed = self.last_update_time.elapsed().as_secs_f32();
+
+            self.last_update_time = Instant::now();
+
+            elapsed
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            let elapsed = now - self.last_update_time;
+
+            self.last_update_time = now;
+
+            (elapsed / 1000.0) as f32
         }
     }
 }
-
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 0.0],
-        color: [1.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
-    },
-];
 
 struct Application {
     instance: wgpu::Instance,
@@ -94,10 +115,12 @@ struct Application {
     config: wgpu::SurfaceConfiguration,
     surface: wgpu::Surface<'static>,
     is_surface_configured: bool,
-    render_pipeline: wgpu::RenderPipeline,
 
-    vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
+    camera: Camera,
+    map_renderer: MapRenderer,
+    input: Input,
+
+    timer: Timer,
 
     window: Arc<Window>,
 }
@@ -161,6 +184,7 @@ impl Application {
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
+        log::info!("Surface format {:?}", surface_format);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -174,61 +198,20 @@ impl Application {
             desired_maximum_frame_latency: 2,
         };
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
+        let mut map_renderer = MapRenderer::new(&device, &config.format);
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
+        let map_bytes = include_bytes!("../map.lvl");
+        let map = map::Map::new("map.lvl", map_bytes).expect("included map should load");
+        let map_tileset = render::map_renderer::MapTileset::new(map_bytes);
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        });
+        map_renderer.set_map(&map, &map_tileset, &queue);
 
-        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let camera = Camera::new(
+            size.width as f32,
+            size.height as f32,
+            glam::Vec2::new(512.0f32, 512.0f32),
+            1.0f32 / 16.0f32,
+        );
 
         Ok(Self {
             instance,
@@ -237,9 +220,10 @@ impl Application {
             config,
             surface,
             is_surface_configured: false,
-            render_pipeline,
-            vertex_buffer,
-            num_vertices: VERTICES.len() as u32,
+            map_renderer,
+            camera,
+            input: Input::default(),
+            timer: Timer::new(),
             window,
         })
     }
@@ -250,18 +234,70 @@ impl Application {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
+
+            self.camera
+                .set_surface_dimensions(width as f32, height as f32);
         }
     }
 
-    pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
+            _ => {}
+        }
+
+        match code {
+            KeyCode::ArrowLeft => {
+                self.input.left = is_pressed;
+            }
+            KeyCode::ArrowRight => {
+                self.input.right = is_pressed;
+            }
+            KeyCode::ArrowDown => {
+                self.input.down = is_pressed;
+            }
+            KeyCode::ArrowUp => {
+                self.input.up = is_pressed;
+            }
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+                self.input.shift = is_pressed;
+            }
             _ => {}
         }
     }
 
     pub fn update(&mut self) {
-        //
+        const CAMERA_SPEED: f32 = 100.0f32;
+
+        let dt = self.timer.elapsed();
+
+        let mut offset = glam::Vec2::ZERO;
+
+        if self.input.down {
+            offset.y += 1.0f32;
+        }
+        if self.input.up {
+            offset.y -= 1.0f32;
+        }
+        if self.input.right {
+            offset.x += 1.0f32;
+        }
+        if self.input.left {
+            offset.x -= 1.0f32;
+        }
+
+        let speed = if self.input.shift {
+            CAMERA_SPEED * 3.0f32
+        } else {
+            CAMERA_SPEED
+        };
+
+        self.camera.position += offset * speed * dt;
+
+        self.camera.position.x = self.camera.position.x.clamp(0.0f32, 1024.0f32);
+        self.camera.position.y = self.camera.position.y.clamp(0.0f32, 1024.0f32);
+
+        self.map_renderer.update(&self.camera, &self.queue);
     }
 
     pub fn render(&mut self) -> Result<bool, ApplicationRenderError> {
@@ -322,9 +358,9 @@ impl Application {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -336,9 +372,7 @@ impl Application {
                 multiview_mask: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1);
+            self.map_renderer.render(&mut render_pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
