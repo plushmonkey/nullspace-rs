@@ -9,14 +9,14 @@ use crate::net::packet::c2s::EncryptionRequestMessage;
 use crate::net::packet::s2c::*;
 use crate::net::packet::sequencer::*;
 use crate::net::packet::{MAX_PACKET_SIZE, Packet, Serialize};
+use crate::net::udp_socket::UdpSocket;
 use crate::player::PlayerId;
 use thiserror::Error;
 
 use std::net::AddrParseError;
-use std::{
-    net::{IpAddr, SocketAddr, UdpSocket},
-    str::FromStr,
-};
+
+#[cfg(target_arch = "wasm32")]
+use crate::net::webtransport_socket::WebTransportSocket;
 
 pub enum ConnectionState {
     EncryptionHandshake,
@@ -107,9 +107,14 @@ impl ClockSyncHistory {
     }
 }
 
+pub enum SocketKind {
+    Udp(UdpSocket),
+    #[cfg(target_arch = "wasm32")]
+    WebTransport(WebTransportSocket),
+}
+
 pub struct Connection {
-    pub remote_addr: SocketAddr,
-    pub socket: UdpSocket,
+    pub socket: SocketKind,
     pub state: ConnectionState,
     sequencer: PacketSequencer,
     pub player_id: PlayerId,
@@ -122,17 +127,10 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(remote_ip: &str, remote_port: u16) -> Result<Self, ConnectionError> {
-        let remote_addr = std::net::Ipv4Addr::from_str(remote_ip)?;
-        let remote_addr = SocketAddr::new(IpAddr::V4(remote_addr), remote_port);
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-
-        socket.set_nonblocking(true)?;
-
+    pub fn new(socket: SocketKind) -> Result<Self, ConnectionError> {
         let client_key = VieEncrypt::generate_key();
 
         let mut result = Self {
-            remote_addr,
             socket,
             state: ConnectionState::Disconnected,
             sequencer: PacketSequencer::new(),
@@ -192,8 +190,15 @@ impl Connection {
         //println!("Sending {:02x?}", buf);
         //println!("Sending {:02x?}", &encrypted.data[..buf.len()]);
 
-        self.socket
-            .send_to(&encrypted.data[..buf.len()], &self.remote_addr)?;
+        match &self.socket {
+            SocketKind::Udp(socket) => {
+                socket.send(&encrypted.data[..buf.len()])?;
+            }
+            #[cfg(target_arch = "wasm32")]
+            SocketKind::WebTransport(socket) => {
+                socket.send(&encrypted.data[..buf.len()])?;
+            }
+        }
 
         Ok(())
     }
@@ -385,11 +390,15 @@ impl Connection {
         }
     }
 
-    fn recv_packet(&self) -> Result<Option<Packet>, std::io::Error> {
-        let mut packet = Packet::empty();
+    fn recv_packet(&mut self) -> Result<Option<Packet>, std::io::Error> {
+        let packet = match &mut self.socket {
+            SocketKind::Udp(socket) => socket.try_recv(),
+            #[cfg(target_arch = "wasm32")]
+            SocketKind::WebTransport(socket) => socket.try_recv(),
+        };
 
-        let (size, _) = match self.socket.recv_from(&mut packet.data[..]) {
-            Ok(r) => r,
+        let packet = match packet {
+            Ok(packet) => packet,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
                     return Ok(None);
@@ -399,7 +408,9 @@ impl Connection {
             }
         };
 
-        packet.size = size;
+        let Some(mut packet) = packet else {
+            return Ok(None);
+        };
 
         //println!("RecvRaw: {:02x?}", &packet.data[..size]);
 

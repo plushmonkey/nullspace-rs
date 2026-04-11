@@ -21,8 +21,12 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-use crate::render::camera::Camera;
 use crate::render::map_renderer::MapRenderer;
+use crate::{
+    client::Client,
+    net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
+    render::camera::Camera,
+};
 
 pub mod arena_settings;
 pub mod checksum;
@@ -123,6 +127,7 @@ struct Application {
     timer: Timer,
 
     window: Arc<Window>,
+    client: Client,
 }
 
 impl Application {
@@ -213,6 +218,33 @@ impl Application {
             1.0f32 / 16.0f32,
         );
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let socket = crate::net::udp_socket::UdpSocket::new("127.0.0.1", 5000).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        let socket =
+            crate::net::webtransport_socket::WebTransportSocket::new("https://127.0.0.1:4433").unwrap();
+
+        let registration = RegistrationFormMessage::new(
+            "puppet",
+            "puppet@puppet.com",
+            "puppet city",
+            "puppet state",
+            RegistrationSex::Female,
+            20,
+        );
+
+        let client = Client::new(
+            "nullspace",
+            "password",
+            "zone_name",
+            #[cfg(not(target_arch = "wasm32"))]
+            net::connection::SocketKind::Udp(socket),
+            #[cfg(target_arch = "wasm32")]
+            net::connection::SocketKind::WebTransport(socket),
+            registration,
+        )
+        .unwrap();
+
         Ok(Self {
             instance,
             device,
@@ -225,6 +257,7 @@ impl Application {
             input: Input::default(),
             timer: Timer::new(),
             window,
+            client,
         })
     }
 
@@ -298,6 +331,9 @@ impl Application {
         self.camera.position.y = self.camera.position.y.clamp(0.0f32, 1024.0f32);
 
         self.map_renderer.update(&self.camera, &self.queue);
+        if let Err(e) = self.client.update() {
+            log::error!("{e}");
+        }
     }
 
     pub fn render(&mut self) -> Result<bool, ApplicationRenderError> {
@@ -537,6 +573,7 @@ pub fn run() {
             .filter(Some("nullspace"), log::LevelFilter::Debug)
             .init()
     }
+        
     #[cfg(target_arch = "wasm32")]
     {
         console_log::init_with_level(log::Level::Info).unwrap_throw();

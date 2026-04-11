@@ -6,6 +6,7 @@ use crate::math::PixelUnit;
 use crate::math::PositionUnit;
 use crate::math::{Position, Velocity};
 use crate::net::connection::ConnectionError;
+use crate::net::connection::SocketKind;
 use crate::net::connection::{Connection, ConnectionState};
 use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
@@ -52,11 +53,10 @@ impl Client {
         username: &str,
         password: &str,
         zone: &str,
-        remote_ip: &str,
-        remote_port: u16,
+        socket: SocketKind,
         registration: RegistrationFormMessage,
     ) -> Result<Client, ConnectionError> {
-        let connection = Connection::new(remote_ip, remote_port)?;
+        let connection = Connection::new(socket)?;
 
         Ok(Client {
             connection,
@@ -72,6 +72,87 @@ impl Client {
         })
     }
 
+    pub fn update(&mut self) -> Result<(), ConnectionError> {
+        loop {
+            let message = self.connection.receive_message();
+            if let Err(e) = message {
+                println!("Error: {}", e);
+
+                match e {
+                    ConnectionError::IoError(_) => {
+                        break;
+                    }
+                    _ => {}
+                }
+
+                continue;
+            }
+
+            let message = message.unwrap();
+
+            if let Some(message) = message {
+                self.process_message(message)?;
+            } else {
+                // We are done processing everything now.
+                break;
+            }
+        }
+
+        let local_now = GameTick::now(0);
+        let tick_count = local_now.diff(&self.local_tick);
+
+        for _ in 0..tick_count {
+            self.connection.current_tick = self.connection.current_tick + 1;
+
+            self.simulation.tick(&self.map, &self.settings);
+
+            if self.connection.current_tick.value() % 100 == 0 {
+                if let Some(player) = self.simulation.player_manager.get_by_name("monkey") {
+                    println!(
+                        "L {} at {:?} {:?}",
+                        player.name, player.position, player.velocity
+                    );
+                }
+            }
+
+            match self.connection.state {
+                ConnectionState::Playing => {
+                    if self
+                        .connection
+                        .get_game_tick()
+                        .diff(&self.last_position_tick)
+                        > 300
+                    {
+                        let position = PositionMessage {
+                            direction: 0,
+                            timestamp: self.connection.get_game_tick(),
+                            x_position: 0,
+                            y_position: 0,
+                            x_velocity: 0,
+                            y_velocity: 0,
+                            togglables: 0,
+                            bounty: 0,
+                            energy: 0,
+                            weapon_info: 0,
+                        };
+
+                        self.connection.send(&position)?;
+
+                        self.last_position_tick = self.connection.get_game_tick();
+                    }
+                }
+                ConnectionState::Disconnected => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        self.local_tick = self.local_tick + tick_count;
+
+        Ok(())
+    }
+
     pub fn run(&mut self, rx: std::sync::mpsc::Receiver<()>) -> Result<(), ConnectionError> {
         'main_loop: loop {
             // Exit loop if we receive a control-c signal.
@@ -79,82 +160,7 @@ impl Client {
                 break 'main_loop;
             }
 
-            loop {
-                let message = self.connection.receive_message();
-                if let Err(e) = message {
-                    println!("Error: {}", e);
-
-                    match e {
-                        ConnectionError::IoError(_) => {
-                            break;
-                        }
-                        _ => {}
-                    }
-
-                    continue;
-                }
-
-                let message = message.unwrap();
-
-                if let Some(message) = message {
-                    self.process_message(message)?;
-                } else {
-                    // We are done processing everything now.
-                    break;
-                }
-            }
-
-            let local_now = GameTick::now(0);
-            let tick_count = local_now.diff(&self.local_tick);
-
-            for _ in 0..tick_count {
-                self.connection.current_tick = self.connection.current_tick + 1;
-
-                self.simulation.tick(&self.map, &self.settings);
-
-                if self.connection.current_tick.value() % 100 == 0 {
-                    if let Some(player) = self.simulation.player_manager.get_by_name("monkey") {
-                        println!(
-                            "L {} at {:?} {:?}",
-                            player.name, player.position, player.velocity
-                        );
-                    }
-                }
-
-                match self.connection.state {
-                    ConnectionState::Playing => {
-                        if self
-                            .connection
-                            .get_game_tick()
-                            .diff(&self.last_position_tick)
-                            > 300
-                        {
-                            let position = PositionMessage {
-                                direction: 0,
-                                timestamp: self.connection.get_game_tick(),
-                                x_position: 0,
-                                y_position: 0,
-                                x_velocity: 0,
-                                y_velocity: 0,
-                                togglables: 0,
-                                bounty: 0,
-                                energy: 0,
-                                weapon_info: 0,
-                            };
-
-                            self.connection.send(&position)?;
-
-                            self.last_position_tick = self.connection.get_game_tick();
-                        }
-                    }
-                    ConnectionState::Disconnected => {
-                        break 'main_loop;
-                    }
-                    _ => {}
-                }
-            }
-
-            self.local_tick = self.local_tick + tick_count;
+            self.update()?;
 
             std::thread::sleep(std::time::Duration::from_millis(1));
         }

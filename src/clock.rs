@@ -1,7 +1,6 @@
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::convert::From;
 use std::ops::{Add, Sub};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct GameTick {
@@ -10,10 +9,14 @@ pub struct GameTick {
 
 impl GameTick {
     pub fn now(offset: i32) -> Self {
-        let tick: u128 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        #[cfg(not(target_arch = "wasm32"))]
+        let tick: u128 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .expect("Now must be later than unix epoch")
             .as_millis();
+        #[cfg(target_arch = "wasm32")]
+        let tick = web_sys::window().unwrap().performance().unwrap().now() as u128;
+
         let tick = (tick / 10) as u32;
 
         Self::new(tick, offset)
