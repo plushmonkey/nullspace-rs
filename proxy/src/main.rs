@@ -1,9 +1,14 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use tokio::net::UdpSocket;
 use wtransport::{
-    Endpoint, Identity, ServerConfig, config::IpBindConfig, endpoint::IncomingSession,
+    Endpoint, Identity, ServerConfig, VarInt, config::IpBindConfig, endpoint::IncomingSession,
 };
+
+const WTRANSPORT_TIMEOUT_SECONDS: u64 = 10;
 
 /*
 
@@ -35,6 +40,9 @@ async fn main() {
     let config = ServerConfig::builder()
         .with_bind_config(IpBindConfig::InAddrAnyV4, 4433)
         .with_identity(identity)
+        .keep_alive_interval(None)
+        .max_idle_timeout(Some(Duration::from_secs(WTRANSPORT_TIMEOUT_SECONDS)))
+        .unwrap()
         .build();
 
     let server = Endpoint::server(config).unwrap();
@@ -69,7 +77,7 @@ async fn send_to_server(socket: &UdpSocket, _from: &SocketAddr, data: &[u8]) {
     println!("Sending {:?} to game server.", data);
 
     if let Err(e) = socket.send(data).await {
-        println!("{e}");
+        println!("socket_send_error: {e}");
     }
 }
 
@@ -109,17 +117,29 @@ async fn handle_connection(incoming_session: IncomingSession) {
     }
 
     let mut buffer = [0; 1024];
+    let mut last_activity = Instant::now();
 
     loop {
+        // Perform timeout manually because Firefox doesn't always close the connection and wtransport doesn't seem to consider it inactive either.
+        if last_activity.elapsed() > Duration::from_secs(WTRANSPORT_TIMEOUT_SECONDS) {
+            connection.close(VarInt::from_u32(0), &[]);
+        }
+
         tokio::select! {
+            e = connection.closed() => {
+                println!("connection closed: {e}");
+                return;
+            }
             dgram = connection.receive_datagram() => {
                 let dgram = match dgram {
                     Ok(dgram) => dgram,
                     Err(e) => {
-                        println!("{e}");
+                        println!("receive_dgram_error: {e}");
                         return;
                     }
                 };
+
+                last_activity = Instant::now();
 
                 send_to_server(&socket, &remote_addr, &dgram).await;
             }
@@ -127,16 +147,17 @@ async fn handle_connection(incoming_session: IncomingSession) {
                 let bytes_recv = match bytes_recv {
                     Ok(bytes_recv) => bytes_recv,
                     Err(e) => {
-                        println!("{e}");
+                        println!("socket_recv_error: {e}");
                         return;
                     }
                 };
 
                 if let Err(e) = connection.send_datagram(&buffer[..bytes_recv]) {
-                    println!("{e}");
+                    println!("send_dgram_error{e}");
                     return;
                 }
             }
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {}
         }
     }
 }

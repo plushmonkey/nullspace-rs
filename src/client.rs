@@ -76,7 +76,7 @@ impl Client {
         loop {
             let message = self.connection.receive_message();
             if let Err(e) = message {
-                println!("Error: {}", e);
+                log::error!("Error: {}", e);
 
                 match e {
                     ConnectionError::IoError(_) => {
@@ -108,7 +108,7 @@ impl Client {
 
             if self.connection.current_tick.value() % 100 == 0 {
                 if let Some(player) = self.simulation.player_manager.get_by_name("monkey") {
-                    println!(
+                    log::debug!(
                         "L {} at {:?} {:?}",
                         player.name, player.position, player.velocity
                     );
@@ -191,7 +191,7 @@ impl Client {
                 self.connection.send(&sync_request)?;
             }
             CoreServerMessage::SyncResponse(_) => {
-                println!("Got sync response");
+                log::debug!("Got sync response");
             }
             _ => {}
         }
@@ -204,38 +204,38 @@ impl Client {
             GameServerMessage::Chat(chat) => match chat.kind {
                 ChatKind::Public | ChatKind::PublicMacro => {
                     if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        println!("{}> {}", sender.name, chat.message);
+                        log::debug!("{}> {}", sender.name, chat.message);
                     }
                 }
                 ChatKind::Team => {
                     if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        println!("T {}> {}", sender.name, chat.message);
+                        log::debug!("T {}> {}", sender.name, chat.message);
                     }
                 }
                 ChatKind::Frequency => {
                     if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        println!("F {}> {}", sender.name, chat.message);
+                        log::debug!("F {}> {}", sender.name, chat.message);
                     }
                 }
                 ChatKind::Arena | ChatKind::Error | ChatKind::Warning => {
                     if !chat.message.is_empty() {
-                        println!("A {}", chat.message);
+                        log::debug!("A {}", chat.message);
                     }
                 }
                 ChatKind::Private => {
                     if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        println!("P {}> {}", sender.name, chat.message);
+                        log::debug!("P {}> {}", sender.name, chat.message);
                     }
                 }
                 ChatKind::RemotePrivate => {
-                    println!("RP {}", chat.message);
+                    log::debug!("RP {}", chat.message);
                 }
                 ChatKind::Channel => {
-                    println!("C {}", chat.message);
+                    log::debug!("C {}", chat.message);
                 }
             },
             GameServerMessage::PasswordResponse(password_response) => {
-                println!("Got password response: {}", password_response.response);
+                log::debug!("Got password response: {}", password_response.response);
 
                 match &password_response.response {
                     LoginResponse::Ok => {
@@ -251,7 +251,7 @@ impl Client {
                         if password_response.registration_request {
                             let mut registration_packet = vec![0; 766].into_boxed_slice();
 
-                            println!("Sending registration");
+                            log::debug!("Sending registration");
 
                             self.registration.serialize(&mut registration_packet);
                             self.connection.send_reliable_data(&registration_packet)?;
@@ -270,20 +270,20 @@ impl Client {
                         }
                     }
                     _ => {
-                        println!("Failed to login: {:?}", password_response.response);
+                        log::debug!("Failed to login: {:?}", password_response.response);
                         self.connection.state = ConnectionState::Disconnected;
                     }
                 }
             }
             GameServerMessage::ArenaSettings(settings_message) => {
-                println!("Received arena settings");
+                log::debug!("Received arena settings");
                 // println!("{:?}", settings);
                 self.settings = settings_message.clone();
             }
             GameServerMessage::SynchronizationRequest(sync) => {
                 if sync.checksum_key != 0 && self.map.checksum != 0 {
                     // Send security packet
-                    println!("Sync requested");
+                    log::debug!("Sync requested");
 
                     let settings_checksum =
                         checksum::settings_checksum(sync.checksum_key, &self.settings);
@@ -292,7 +292,7 @@ impl Client {
 
                     let response =
                         SecurityMessage::new(0, settings_checksum, exe_checksum, level_checksum);
-                    println!("Sending security packet");
+                    log::debug!("Sending security packet");
                     self.connection.send_reliable(&response)?;
                 }
             }
@@ -316,10 +316,10 @@ impl Client {
                     // If there was someone already in this place, say that they left.
                     // This can happen when joining at the same exact time as other players.
                     if let Some(old_player) = self.simulation.player_manager.add_player(player) {
-                        println!("{} left arena", old_player.name);
+                        log::debug!("{} left arena", old_player.name);
                     }
 
-                    println!("{} entered arena {:?}", entry.name, entry.ship_kind);
+                    log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
 
                     if !sent_spectate_request && entry.ship_kind != ShipKind::Spectator {
                         let spectate_request = SpectateMessage {
@@ -327,7 +327,7 @@ impl Client {
                         };
 
                         self.connection.send_reliable(&spectate_request)?;
-                        println!("Spectating target {}", entry.name);
+                        log::debug!("Spectating target {}", entry.name);
                         sent_spectate_request = true;
                     }
                 }
@@ -338,7 +338,7 @@ impl Client {
                     .player_manager
                     .remove_player(leaving.player_id)
                 {
-                    println!("{} left arena", player.name);
+                    log::debug!("{} left arena", player.name);
                 }
             }
 
@@ -378,7 +378,7 @@ impl Client {
                         player.ping = message.ping;
                         player.last_position_timestamp = message_timestamp;
 
-                        println!(
+                        log::debug!(
                             "[SmallPosition] {} at {:?} {:?}",
                             player.name, player.position, player.velocity
                         );
@@ -421,7 +421,7 @@ impl Client {
                         player.ping = message.ping;
                         player.last_position_timestamp = message_timestamp;
 
-                        println!(
+                        log::debug!(
                             "[LargePosition] {} at {:?} {}",
                             player.name, player.position, message.weapon
                         );
@@ -463,7 +463,7 @@ impl Client {
                             player.direction = message.direction;
                             player.last_position_timestamp = message_timestamp;
 
-                            println!(
+                            log::debug!(
                                 "[BatchedSmall] {} at {:?} {:?}",
                                 player.name, player.position, player.velocity
                             );
@@ -509,7 +509,7 @@ impl Client {
                                 player.status = status;
                             }
 
-                            println!(
+                            log::debug!(
                                 "[BatchedLarge] {} at {:?} {:?}",
                                 player.name, player.position, player.velocity
                             );
@@ -522,7 +522,7 @@ impl Client {
                     if let Some(killed) =
                         self.simulation.player_manager.get_by_id(message.killed_id)
                     {
-                        println!("{} killed by {}", killed.name, killer.name);
+                        log::debug!("{} killed by {}", killed.name, killer.name);
                     }
                 }
 
@@ -554,7 +554,7 @@ impl Client {
                 }
             }
             GameServerMessage::MapInformation(info) => {
-                println!("Map name: {}", info.filename);
+                log::debug!("Map name: {}", info.filename);
 
                 self.connection.state = ConnectionState::MapDownload;
 
@@ -571,7 +571,7 @@ impl Client {
                         if let Ok(new_map) = Map::new(&info.filename, &map_data) {
                             self.handle_map_load(new_map, info.checksum);
                         } else {
-                            println!("Map read error: failed to load tiles");
+                            log::debug!("Map read error: failed to load tiles");
                             self.connection.state = ConnectionState::Disconnected;
                         }
                     }
@@ -597,27 +597,27 @@ impl Client {
                             let map_path = get_zone_path(&self.zone, &compressed.filename);
 
                             if let Err(e) = build_zone_directory(&self.zone) {
-                                println!("Error creating zone directory: {}", e);
+                                log::debug!("Error creating zone directory: {}", e);
                             }
 
                             if let Err(e) = fs::write(map_path, inflated.as_slice()) {
-                                println!("Error writing map: {}", e);
+                                log::debug!("Error writing map: {}", e);
                             }
 
                             if let Ok(new_map) = Map::new(&self.map.filename, &inflated) {
                                 self.handle_map_load(new_map, checksum::crc32(&inflated));
                             } else {
-                                println!("Map read error: failed to load tiles");
+                                log::debug!("Map read error: failed to load tiles");
                             }
                         }
                         Err(e) => {
-                            println!("Error: {}", e);
+                            log::debug!("Error: {}", e);
                         }
                     }
                 }
             }
             GameServerMessage::ArenaDirectory(directory) => {
-                println!("directory: {:?}", directory);
+                log::debug!("directory: {:?}", directory);
             }
             _ => {}
         }

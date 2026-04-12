@@ -54,7 +54,7 @@ struct Input {
 }
 
 #[derive(Error, Debug)]
-enum ApplicationCreateError {
+pub enum ApplicationCreateError {
     #[error("{0}")]
     CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
 
@@ -66,7 +66,7 @@ enum ApplicationCreateError {
 }
 
 #[derive(Error, Debug)]
-enum ApplicationRenderError {
+pub enum ApplicationRenderError {
     #[error("lost device")]
     LostDevice,
 }
@@ -112,7 +112,7 @@ impl Timer {
     }
 }
 
-struct Application {
+pub struct Application {
     instance: wgpu::Instance,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -222,7 +222,8 @@ impl Application {
         let socket = crate::net::udp_socket::UdpSocket::new("127.0.0.1", 5000).unwrap();
         #[cfg(target_arch = "wasm32")]
         let socket =
-            crate::net::webtransport_socket::WebTransportSocket::new("https://127.0.0.1:4433").unwrap();
+            crate::net::webtransport_socket::WebTransportSocket::new("https://127.0.0.1:4433")
+                .unwrap();
 
         let registration = RegistrationFormMessage::new(
             "puppet",
@@ -419,26 +420,100 @@ impl Application {
     }
 }
 
-struct EventProcessor {
+pub enum ApplicationEvent {
+    Application(Application),
+    Update,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    fn setInterval(closure: &Closure<dyn FnMut()>, millis: u32) -> f64;
+    fn clearInterval(token: f64);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub struct Interval {
+    _closure: Closure<dyn FnMut()>,
+    token: f64,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Interval {
+    pub fn new<F: 'static>(millis: u32, f: F) -> Interval
+    where
+        F: FnMut(),
+    {
+        let closure = Closure::new(f);
+        let token = setInterval(&closure, millis);
+
+        Interval {
+            _closure: closure,
+            token,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for Interval {
+    fn drop(&mut self) {
+        clearInterval(self.token);
+    }
+}
+
+pub struct EventProcessor {
     application: Option<Application>,
     #[cfg(target_arch = "wasm32")]
-    proxy: Option<winit::event_loop::EventLoopProxy<Application>>,
+    proxy: Option<winit::event_loop::EventLoopProxy<ApplicationEvent>>,
+
+    #[cfg(target_arch = "wasm32")]
+    _update_interval: Interval,
 }
 
 impl EventProcessor {
-    pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Application>) -> Self {
+    pub fn new(event_loop: &EventLoop<ApplicationEvent>) -> Self {
         #[cfg(target_arch = "wasm32")]
         let proxy = Some(event_loop.create_proxy());
+
+        let interval_proxy = event_loop.create_proxy();
+
+        #[cfg(target_arch = "wasm32")]
+        let update_interval = Interval::new(1, move || {
+            let _ = interval_proxy.send_event(ApplicationEvent::Update);
+        });
+
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(move || {
+            loop {
+                let _ = interval_proxy.send_event(ApplicationEvent::Update);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        });
 
         Self {
             application: None,
             #[cfg(target_arch = "wasm32")]
             proxy,
+
+            #[cfg(target_arch = "wasm32")]
+            _update_interval: update_interval,
         }
     }
 }
 
-impl ApplicationHandler<Application> for EventProcessor {
+impl ApplicationHandler<ApplicationEvent> for EventProcessor {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(app) = &mut self.application {
+            use crate::net::packet::Serialize;
+
+            let packet = crate::net::packet::bi::DisconnectMessage {};
+
+            if let Err(e) = app.client.connection.send_packet(&packet.serialize()) {
+                log::error!("{e}");
+            }
+        }
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes().with_title("nullspace");
@@ -483,13 +558,13 @@ impl ApplicationHandler<Application> for EventProcessor {
                 wasm_bindgen_futures::spawn_local(async move {
                     assert!(
                         proxy
-                            .send_event(
+                            .send_event(ApplicationEvent::Application(
                                 Application::new(window)
                                     .await
                                     .expect("unable to create surface")
-                            )
+                            ))
                             .is_ok()
-                    )
+                    );
                 });
             }
         }
@@ -510,21 +585,17 @@ impl ApplicationHandler<Application> for EventProcessor {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
-            WindowEvent::RedrawRequested => {
-                app.update();
-
-                match app.render() {
-                    Ok(redraw) => {
-                        if redraw {
-                            app.window.request_redraw();
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("{e}");
-                        event_loop.exit();
+            WindowEvent::RedrawRequested => match app.render() {
+                Ok(redraw) => {
+                    if redraw {
+                        app.window.request_redraw();
                     }
                 }
-            }
+                Err(e) => {
+                    log::error!("{e}");
+                    event_loop.exit();
+                }
+            },
             WindowEvent::Resized(size) => {
                 app.resize(size.width, size.height);
 
@@ -552,16 +623,25 @@ impl ApplicationHandler<Application> for EventProcessor {
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: Application) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            event.window.request_redraw();
-            event.resize(
-                event.window.inner_size().width,
-                event.window.inner_size().height,
-            );
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: ApplicationEvent) {
+        match event {
+            ApplicationEvent::Application(mut application) => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    application.window.request_redraw();
+                    application.resize(
+                        application.window.inner_size().width,
+                        application.window.inner_size().height,
+                    );
+                }
+                self.application = Some(application);
+            }
+            ApplicationEvent::Update => {
+                if let Some(app) = &mut self.application {
+                    app.update();
+                }
+            }
         }
-        self.application = Some(event);
     }
 }
 
@@ -573,19 +653,20 @@ pub fn run() {
             .filter(Some("nullspace"), log::LevelFilter::Debug)
             .init()
     }
-        
+
     #[cfg(target_arch = "wasm32")]
     {
-        console_log::init_with_level(log::Level::Info).unwrap_throw();
+        console_log::init_with_level(log::Level::Debug).unwrap_throw();
     }
 
-    let event_loop: EventLoop<Application> = EventLoop::with_user_event()
+    let event_loop: EventLoop<ApplicationEvent> = EventLoop::with_user_event()
         .build()
         .expect("event loop must be supported on this platform");
     #[cfg(not(target_arch = "wasm32"))]
     {
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-        let mut event_processor = EventProcessor::new();
+        let mut event_processor = EventProcessor::new(&event_loop);
+
         event_loop
             .run_app(&mut event_processor)
             .expect("event loop should run");
