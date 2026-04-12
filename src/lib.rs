@@ -44,6 +44,9 @@ pub mod simulation;
 pub mod spawn;
 pub mod weapon;
 
+#[cfg(target_arch = "wasm32")]
+pub mod web_util;
+
 #[derive(Default, Copy, Clone)]
 struct Input {
     pub left: bool,
@@ -246,6 +249,54 @@ impl Application {
         )
         .unwrap();
 
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            match crate::web_util::load_image("graphics/tiles.png").await {
+                Ok(img_data) => {
+                    log::info!(
+                        "tiles image data loaded {}, {}",
+                        img_data.width(),
+                        img_data.height()
+                    );
+                }
+                Err(e) => {
+                    log::error!("{e}");
+                }
+            }
+        });
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            match crate::web_util::load_image("graphics/ships.png").await {
+                Ok(img_data) => {
+                    log::info!(
+                        "ships data loaded {}, {}",
+                        img_data.width(),
+                        img_data.height()
+                    );
+                }
+                Err(e) => {
+                    log::error!("{e}");
+                }
+            }
+        });
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            match crate::web_util::load_image("graphics/tallfont.bm2").await {
+                Ok(img_data) => {
+                    log::info!(
+                        "tallfont data loaded {}, {}",
+                        img_data.width(),
+                        img_data.height()
+                    );
+                }
+                Err(e) => {
+                    log::error!("{e}");
+                }
+            }
+        });
+
         Ok(Self {
             instance,
             device,
@@ -425,50 +476,13 @@ pub enum ApplicationEvent {
     Update,
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-extern "C" {
-    fn setInterval(closure: &Closure<dyn FnMut()>, millis: u32) -> f64;
-    fn clearInterval(token: f64);
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub struct Interval {
-    _closure: Closure<dyn FnMut()>,
-    token: f64,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Interval {
-    pub fn new<F: 'static>(millis: u32, f: F) -> Interval
-    where
-        F: FnMut(),
-    {
-        let closure = Closure::new(f);
-        let token = setInterval(&closure, millis);
-
-        Interval {
-            _closure: closure,
-            token,
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Drop for Interval {
-    fn drop(&mut self) {
-        clearInterval(self.token);
-    }
-}
-
 pub struct EventProcessor {
     application: Option<Application>,
     #[cfg(target_arch = "wasm32")]
     proxy: Option<winit::event_loop::EventLoopProxy<ApplicationEvent>>,
 
     #[cfg(target_arch = "wasm32")]
-    _update_interval: Interval,
+    _update_interval: crate::web_util::Interval,
 }
 
 impl EventProcessor {
@@ -479,7 +493,7 @@ impl EventProcessor {
         let interval_proxy = event_loop.create_proxy();
 
         #[cfg(target_arch = "wasm32")]
-        let update_interval = Interval::new(1, move || {
+        let update_interval = crate::web_util::Interval::new(1, move || {
             let _ = interval_proxy.send_event(ApplicationEvent::Update);
         });
 
