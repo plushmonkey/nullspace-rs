@@ -56,26 +56,28 @@ impl WebTransportSocket {
     }
 
     fn spawn_recv_task(&mut self) {
-        let promise = self.reader.read();
-        let future = JsFuture::from(promise);
-
+        let reader = self.reader.clone();
         let sender = self.sender.clone();
 
         wasm_bindgen_futures::spawn_local(async move {
-            let result = future.await.unwrap(); // TODO: Handle error
-            let chunk_value = js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
-            let chunk_array: js_sys::Uint8Array = chunk_value.dyn_into().unwrap();
-            let chunk = chunk_array.to_vec();
+            loop {
+                let result = JsFuture::from(reader.read()).await.unwrap();
 
-            let mut packet = Packet::empty();
+                let chunk_value =
+                    js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
+                let chunk_array: js_sys::Uint8Array = chunk_value.dyn_into().unwrap();
+                let chunk = chunk_array.to_vec();
 
-            let size = chunk.len().min(MAX_PACKET_SIZE);
+                let mut packet = Packet::empty();
 
-            packet.data[..size].copy_from_slice(&chunk);
-            packet.size = size;
+                let size = chunk.len().min(MAX_PACKET_SIZE);
 
-            if let Err(e) = sender.send(Some(packet)) {
-                log::error!("{e}");
+                packet.data[..size].copy_from_slice(&chunk);
+                packet.size = size;
+
+                if let Err(e) = sender.send(Some(packet)) {
+                    log::error!("{e}");
+                }
             }
         });
     }
@@ -92,8 +94,6 @@ impl WebTransportSocket {
         };
 
         let packet = packet.clone();
-
-        self.spawn_recv_task();
 
         Ok(Some(packet))
     }

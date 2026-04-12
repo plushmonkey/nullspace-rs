@@ -265,38 +265,6 @@ impl Application {
             }
         });
 
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            match crate::web_util::load_image("graphics/ships.png").await {
-                Ok(img_data) => {
-                    log::info!(
-                        "ships data loaded {}, {}",
-                        img_data.width(),
-                        img_data.height()
-                    );
-                }
-                Err(e) => {
-                    log::error!("{e}");
-                }
-            }
-        });
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            match crate::web_util::load_image("graphics/tallfont.bm2").await {
-                Ok(img_data) => {
-                    log::info!(
-                        "tallfont data loaded {}, {}",
-                        img_data.width(),
-                        img_data.height()
-                    );
-                }
-                Err(e) => {
-                    log::error!("{e}");
-                }
-            }
-        });
-
         Ok(Self {
             instance,
             device,
@@ -326,8 +294,10 @@ impl Application {
     }
 
     pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+        let _ = event_loop;
+        
         match (code, is_pressed) {
-            (KeyCode::Escape, true) => event_loop.exit(),
+            //(KeyCode::Escape, true) => event_loop.exit(),
             _ => {}
         }
 
@@ -604,6 +574,12 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
                     if redraw {
                         app.window.request_redraw();
                     }
+
+                    // TODO: Remove this once vsync works properly on Windows.
+                    // Only here now to reduce cpu/gpu spin, but it makes the game choppy.
+                    // Could manually time vsync, but this works well enough for now.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    std::thread::sleep(std::time::Duration::from_millis(5));
                 }
                 Err(e) => {
                     log::error!("{e}");

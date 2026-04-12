@@ -17,15 +17,16 @@ use crate::simulation::game_simulation::Simulation;
 use crate::simulation::player_simulation::update_player_lerp_target;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
-use std::fs::{self, DirBuilder};
 
+#[cfg(not(target_arch = "wasm32"))]
 fn build_zone_directory(zone: &str) -> Result<(), std::io::Error> {
-    DirBuilder::new()
+    std::fs::DirBuilder::new()
         .recursive(true)
         .create(format!("zones/{}", zone))?;
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_zone_path(zone: &str, filename: &str) -> String {
     format!("zones/{}/{}", zone, filename)
 }
@@ -110,7 +111,9 @@ impl Client {
                 if let Some(player) = self.simulation.player_manager.get_by_name("monkey") {
                     log::debug!(
                         "L {} at {:?} {:?}",
-                        player.name, player.position, player.velocity
+                        player.name,
+                        player.position,
+                        player.velocity
                     );
                 }
             }
@@ -380,7 +383,9 @@ impl Client {
 
                         log::debug!(
                             "[SmallPosition] {} at {:?} {:?}",
-                            player.name, player.position, player.velocity
+                            player.name,
+                            player.position,
+                            player.velocity
                         );
                     }
                 }
@@ -423,7 +428,9 @@ impl Client {
 
                         log::debug!(
                             "[LargePosition] {} at {:?} {}",
-                            player.name, player.position, message.weapon
+                            player.name,
+                            player.position,
+                            message.weapon
                         );
                     }
                 }
@@ -465,7 +472,9 @@ impl Client {
 
                             log::debug!(
                                 "[BatchedSmall] {} at {:?} {:?}",
-                                player.name, player.position, player.velocity
+                                player.name,
+                                player.position,
+                                player.velocity
                             );
                         }
                     }
@@ -511,7 +520,9 @@ impl Client {
 
                             log::debug!(
                                 "[BatchedLarge] {} at {:?} {:?}",
-                                player.name, player.position, player.velocity
+                                player.name,
+                                player.position,
+                                player.velocity
                             );
                         }
                     }
@@ -561,18 +572,21 @@ impl Client {
                 let chat = SendChatMessage::public("?arena");
                 self.connection.send_reliable(&chat)?;
 
-                let map_path = get_zone_path(&self.zone, &info.filename);
-                let map_data = fs::read(map_path);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let map_path = get_zone_path(&self.zone, &info.filename);
+                    let map_data = std::fs::read(map_path);
 
-                if let Ok(map_data) = map_data {
-                    let checksum = checksum::crc32(&map_data);
+                    if let Ok(map_data) = map_data {
+                        let checksum = checksum::crc32(&map_data);
 
-                    if checksum == info.checksum {
-                        if let Ok(new_map) = Map::new(&info.filename, &map_data) {
-                            self.handle_map_load(new_map, info.checksum);
-                        } else {
-                            log::debug!("Map read error: failed to load tiles");
-                            self.connection.state = ConnectionState::Disconnected;
+                        if checksum == info.checksum {
+                            if let Ok(new_map) = Map::new(&info.filename, &map_data) {
+                                self.handle_map_load(new_map, info.checksum);
+                            } else {
+                                log::debug!("Map read error: failed to load tiles");
+                                self.connection.state = ConnectionState::Disconnected;
+                            }
                         }
                     }
                 }
@@ -594,14 +608,17 @@ impl Client {
 
                     match inflated {
                         Ok(inflated) => {
-                            let map_path = get_zone_path(&self.zone, &compressed.filename);
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                let map_path = get_zone_path(&self.zone, &compressed.filename);
 
-                            if let Err(e) = build_zone_directory(&self.zone) {
-                                log::debug!("Error creating zone directory: {}", e);
-                            }
+                                if let Err(e) = build_zone_directory(&self.zone) {
+                                    log::debug!("Error creating zone directory: {}", e);
+                                }
 
-                            if let Err(e) = fs::write(map_path, inflated.as_slice()) {
-                                log::debug!("Error writing map: {}", e);
+                                if let Err(e) = std::fs::write(map_path, inflated.as_slice()) {
+                                    log::debug!("Error writing map: {}", e);
+                                }
                             }
 
                             if let Ok(new_map) = Map::new(&self.map.filename, &inflated) {
