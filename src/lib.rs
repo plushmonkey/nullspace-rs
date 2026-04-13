@@ -21,7 +21,12 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-use crate::render::map_renderer::MapRenderer;
+use crate::render::{
+    layer::Layer,
+    map_renderer::MapRenderer,
+    sprite_renderer::{SheetIndex, SpriteRenderer},
+    texture::Texture,
+};
 use crate::{
     client::Client,
     net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
@@ -122,15 +127,44 @@ pub struct Application {
     config: wgpu::SurfaceConfiguration,
     surface: wgpu::Surface<'static>,
     is_surface_configured: bool,
+    depth_texture: Texture,
 
     camera: Camera,
+    ui_camera: Camera,
+
     map_renderer: MapRenderer,
+    sprite_renderer: SpriteRenderer,
+
+    test_texture: Texture,
+    test_sheet_index: SheetIndex,
+
     input: Input,
 
     timer: Timer,
 
     window: Arc<Window>,
     client: Client,
+}
+
+fn buffer_texture(queue: &wgpu::Queue, texture: &Texture, data: &[u8]) {
+    let width = texture.texture.width();
+    let height = texture.texture.height();
+
+    let texture_info = texture.texture.as_image_copy();
+    queue.write_texture(
+        texture_info,
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(texture.texture.width() * 4),
+            rows_per_image: Some(texture.texture.height()),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 impl Application {
@@ -206,7 +240,9 @@ impl Application {
             desired_maximum_frame_latency: 2,
         };
 
-        let mut map_renderer = MapRenderer::new(&device, &config.format);
+        let depth_texture = Texture::new_depth(&device, &config);
+
+        let mut map_renderer = MapRenderer::new(&device, &config.format, &depth_texture);
 
         let map_bytes = include_bytes!("../map.lvl");
         let map = map::Map::new("map.lvl", map_bytes).expect("included map should load");
@@ -219,6 +255,13 @@ impl Application {
             size.height as f32,
             glam::Vec2::new(512.0f32, 512.0f32),
             1.0f32 / 16.0f32,
+        );
+
+        let ui_camera = Camera::new(
+            size.width as f32,
+            size.height as f32,
+            glam::Vec2::new((size.width as f32) / 2.0f32, (size.height as f32) / 2.0f32),
+            1.0f32,
         );
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -265,6 +308,27 @@ impl Application {
             }
         });
 
+        let mut sprite_renderer =
+            SpriteRenderer::new(&device, &config.format, &depth_texture, 2048);
+
+        // TODO: Load image and create test texture for sprite renderer testing.
+
+        let view_format = if surface_format.is_srgb() {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        };
+
+        const TEST_DATA: &[u8] = include_bytes!("../www/graphics/tiles.png");
+
+        let test_img = image::load_from_memory(TEST_DATA).unwrap();
+
+        let test_texture =
+            Texture::new_2d(&device, test_img.width(), test_img.height(), view_format);
+        let test_sheet_index = sprite_renderer.create_sprite_sheet(&device, &test_texture);
+
+        buffer_texture(&queue, &test_texture, &test_img.as_bytes());
+
         Ok(Self {
             instance,
             device,
@@ -272,8 +336,13 @@ impl Application {
             config,
             surface,
             is_surface_configured: false,
+            depth_texture,
             map_renderer,
+            sprite_renderer,
+            test_sheet_index,
+            test_texture,
             camera,
+            ui_camera,
             input: Input::default(),
             timer: Timer::new(),
             window,
@@ -291,11 +360,20 @@ impl Application {
             self.camera
                 .set_surface_dimensions(width as f32, height as f32);
         }
+
+        self.ui_camera = Camera::new(
+            width as f32,
+            height as f32,
+            glam::Vec2::new((width as f32) / 2.0f32, (height as f32) / 2.0f32),
+            1.0f32,
+        );
+
+        self.depth_texture = Texture::new_depth(&self.device, &self.config);
     }
 
     pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         let _ = event_loop;
-        
+
         match (code, is_pressed) {
             //(KeyCode::Escape, true) => event_loop.exit(),
             _ => {}
@@ -424,13 +502,45 @@ impl Application {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
             });
 
             self.map_renderer.render(&mut render_pass);
+
+            if let Some(sheet) = self.sprite_renderer.get_sheet(self.test_sheet_index) {
+                let renderable = sheet.create_renderable(0, 0, 16, 16);
+                let renderable2 = sheet.create_renderable(16, 0, 16, 16);
+
+                self.sprite_renderer.draw(
+                    &self.camera,
+                    &renderable,
+                    512 * 16,
+                    512 * 16,
+                    Layer::TopMost,
+                );
+
+                self.sprite_renderer.draw(
+                    &self.ui_camera,
+                    &renderable2,
+                    self.config.width - 16,
+                    0,
+                    Layer::BelowAll,
+                );
+
+                let _ = &self.test_texture;
+            }
+
+            self.sprite_renderer.render(&mut render_pass, &self.queue);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -1,4 +1,7 @@
-use crate::{map::Map, render::camera::Camera};
+use crate::{
+    map::Map,
+    render::{camera::Camera, texture::Texture},
+};
 
 use bytemuck::{Pod, Zeroable};
 use encase::ShaderType;
@@ -73,12 +76,16 @@ pub struct MapRenderer {
 
     vertex_buffer: wgpu::Buffer,
 
-    tileset_texture: wgpu::Texture,
-    tiledata_texture: wgpu::Texture,
+    pub tileset_texture: Texture,
+    tiledata_texture: Texture,
 }
 
 impl MapRenderer {
-    pub fn new(device: &wgpu::Device, format: &wgpu::TextureFormat) -> MapRenderer {
+    pub fn new(
+        device: &wgpu::Device,
+        format: &wgpu::TextureFormat,
+        depth_texture: &Texture,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("map.wgsl"));
 
         let vertex_size = size_of::<Vertex>();
@@ -102,61 +109,15 @@ impl MapRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let tiledata_texture_extent = wgpu::Extent3d {
-            width: 1024,
-            height: 1024,
-            depth_or_array_layers: 1,
-        };
-
-        let tiledata_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: tiledata_texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let tiledata_texture_view =
-            tiledata_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let tileset_texture_extent = wgpu::Extent3d {
-            width: 16,
-            height: 16,
-            depth_or_array_layers: 190,
-        };
-
         let tileset_view_format = if format.is_srgb() {
             wgpu::TextureFormat::Rgba8UnormSrgb
         } else {
             wgpu::TextureFormat::Rgba8Unorm
         };
 
-        let tileset_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: tileset_texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: tileset_view_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let tileset_texture_view =
-            tileset_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let tileset_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            lod_max_clamp: 0.0,
-            ..Default::default()
-        });
+        let tiledata_texture = Texture::new_2d(device, 1024, 1024, wgpu::TextureFormat::R8Uint);
+        let tileset_texture = Texture::new_2d_array(device, 16, 16, 190, tileset_view_format);
+        let tileset_sampler = Texture::create_nearest_sampler(device);
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -210,7 +171,7 @@ impl MapRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&tileset_texture_view),
+                    resource: wgpu::BindingResource::TextureView(&tileset_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -218,7 +179,7 @@ impl MapRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&tiledata_texture_view),
+                    resource: wgpu::BindingResource::TextureView(&tiledata_texture.view),
                 },
             ],
         });
@@ -256,7 +217,13 @@ impl MapRenderer {
                 targets: &[Some((*format).into())],
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_texture.texture.format(),
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -295,7 +262,7 @@ impl MapRenderer {
                     .copy_from_slice(&tileset_texels[read_index_start..read_index_end]);
             }
 
-            let mut texture_info = self.tileset_texture.as_image_copy();
+            let mut texture_info = self.tileset_texture.texture.as_image_copy();
             texture_info.origin.z = tile_id;
 
             queue.write_texture(
@@ -322,7 +289,7 @@ impl MapRenderer {
         }
 
         queue.write_texture(
-            self.tiledata_texture.as_image_copy(),
+            self.tiledata_texture.texture.as_image_copy(),
             &tiledata,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,

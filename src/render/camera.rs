@@ -1,3 +1,5 @@
+use crate::render::layer::Layer;
+
 pub struct Camera {
     pub projection: glam::Mat4,
     pub position: glam::Vec2,
@@ -59,6 +61,9 @@ impl Camera {
         let bottom = height * scale;
         let top = -height * scale;
 
-        glam::Mat4::orthographic_rh(left, right, bottom, top, 0.0f32, 1.0f32)
+        let near = -Layer::get_max_z();
+        let far = Layer::get_max_z();
+
+        glam::Mat4::orthographic_rh(left, right, bottom, top, near, far)
     }
 }

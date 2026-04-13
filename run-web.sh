@@ -1,1 +1,1 @@
-static-web-server -d www/
+static-web-server -a 0.0.0.0 -d www/
