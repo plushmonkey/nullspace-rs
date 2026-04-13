@@ -5,6 +5,7 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
+use image::EncodableLayout;
 use wgpu::{RequestAdapterOptions, wgt::DeviceDescriptor};
 use winit::{
     application::ApplicationHandler,
@@ -22,10 +23,8 @@ use wasm_bindgen::prelude::*;
 use winit::platform::web::EventLoopExtWebSys;
 
 use crate::render::{
-    layer::Layer,
-    map_renderer::MapRenderer,
-    sprite_renderer::{SheetIndex, SpriteRenderer},
-    texture::Texture,
+    layer::Layer, map_renderer::MapRenderer, sprite_renderer::SpriteRenderer,
+    text_renderer::TextRenderer, texture::Texture,
 };
 use crate::{
     client::Client,
@@ -134,9 +133,7 @@ pub struct Application {
 
     map_renderer: MapRenderer,
     sprite_renderer: SpriteRenderer,
-
-    test_texture: Texture,
-    test_sheet_index: SheetIndex,
+    text_renderer: TextRenderer,
 
     input: Input,
 
@@ -253,7 +250,7 @@ impl Application {
         let camera = Camera::new(
             size.width as f32,
             size.height as f32,
-            glam::Vec2::new(512.0f32, 512.0f32),
+            glam::Vec2::new(512.5f32, 512.5f32),
             1.0f32 / 16.0f32,
         );
 
@@ -309,9 +306,7 @@ impl Application {
         });
 
         let mut sprite_renderer =
-            SpriteRenderer::new(&device, &config.format, &depth_texture, 2048);
-
-        // TODO: Load image and create test texture for sprite renderer testing.
+            SpriteRenderer::new(&device, &config.format, &depth_texture, 4096);
 
         let view_format = if surface_format.is_srgb() {
             wgpu::TextureFormat::Rgba8UnormSrgb
@@ -319,15 +314,16 @@ impl Application {
             wgpu::TextureFormat::Rgba8Unorm
         };
 
-        const TEST_DATA: &[u8] = include_bytes!("../www/graphics/tiles.png");
+        const TEXT_IMG_DATA: &[u8] = include_bytes!("../www/graphics/tallfont.bm2");
 
-        let test_img = image::load_from_memory(TEST_DATA).unwrap();
+        let text_img = image::load_from_memory(TEXT_IMG_DATA).unwrap();
 
-        let test_texture =
-            Texture::new_2d(&device, test_img.width(), test_img.height(), view_format);
-        let test_sheet_index = sprite_renderer.create_sprite_sheet(&device, &test_texture);
+        let text_texture =
+            Texture::new_2d(&device, text_img.width(), text_img.height(), view_format);
 
-        buffer_texture(&queue, &test_texture, &test_img.as_bytes());
+        buffer_texture(&queue, &text_texture, &text_img.to_rgba8().as_bytes());
+
+        let text_renderer = TextRenderer::new(&device, &text_texture, &mut sprite_renderer);
 
         Ok(Self {
             instance,
@@ -339,8 +335,7 @@ impl Application {
             depth_texture,
             map_renderer,
             sprite_renderer,
-            test_sheet_index,
-            test_texture,
+            text_renderer,
             camera,
             ui_camera,
             input: Input::default(),
@@ -517,28 +512,49 @@ impl Application {
 
             self.map_renderer.render(&mut render_pass);
 
-            if let Some(sheet) = self.sprite_renderer.get_sheet(self.test_sheet_index) {
-                let renderable = sheet.create_renderable(0, 0, 16, 16);
-                let renderable2 = sheet.create_renderable(16, 0, 16, 16);
+            self.text_renderer.draw(
+                &mut self.sprite_renderer,
+                &self.ui_camera,
+                "top_left",
+                0,
+                0,
+                Layer::TopMost,
+                render::text_renderer::TextColor::Blue,
+                render::text_renderer::TextAlignment::Left,
+            );
 
-                self.sprite_renderer.draw(
-                    &self.camera,
-                    &renderable,
-                    512 * 16,
-                    512 * 16,
-                    Layer::TopMost,
-                );
+            self.text_renderer.draw(
+                &mut self.sprite_renderer,
+                &self.ui_camera,
+                "top_right",
+                self.config.width,
+                0,
+                Layer::TopMost,
+                render::text_renderer::TextColor::Pink,
+                render::text_renderer::TextAlignment::Right,
+            );
 
-                self.sprite_renderer.draw(
-                    &self.ui_camera,
-                    &renderable2,
-                    self.config.width - 16,
-                    0,
-                    Layer::BelowAll,
-                );
+            self.text_renderer.draw(
+                &mut self.sprite_renderer,
+                &self.ui_camera,
+                "center\nmultiline",
+                self.config.width / 2,
+                0,
+                Layer::TopMost,
+                render::text_renderer::TextColor::Yellow,
+                render::text_renderer::TextAlignment::Center,
+            );
 
-                let _ = &self.test_texture;
-            }
+            self.text_renderer.draw(
+                &mut self.sprite_renderer,
+                &self.camera,
+                "world",
+                512 * 16 + 8,
+                512 * 16 + 8,
+                Layer::TopMost,
+                render::text_renderer::TextColor::Yellow,
+                render::text_renderer::TextAlignment::Center,
+            );
 
             self.sprite_renderer.render(&mut render_pass, &self.queue);
         }
@@ -626,7 +642,7 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
 
             window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
 
-            // Allow keyboard events and right clicking on canvas. TODO: Maybe disable later
+            // Allow keyboard events and right clicking on canvas.
             window_attributes = window_attributes.with_prevent_default(false);
         }
 

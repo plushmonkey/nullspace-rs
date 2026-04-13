@@ -186,24 +186,23 @@ impl SpriteRenderer {
         }
     }
 
-    pub fn draw(
+    pub fn draw_with_transform(
         &mut self,
-        camera: &Camera,
+        transform: glam::Mat4,
+        scale: f32,
         renderable: &SpriteRenderable,
         x_pixels: u32,
         y_pixels: u32,
         layer: Layer,
     ) {
-        let mvp = camera.projection() * camera.view();
+        let x = x_pixels as f32 * scale;
+        let y = y_pixels as f32 * scale;
 
-        let x = x_pixels as f32 * camera.scale;
-        let y = y_pixels as f32 * camera.scale;
+        let width = (renderable.size[0] as f32) * scale;
+        let height = (renderable.size[1] as f32) * scale;
 
-        let width = (renderable.size[0] as f32) * camera.scale;
-        let height = (renderable.size[1] as f32) * camera.scale;
-
-        let position = mvp * glam::Vec4::new(x, y, layer.z(), 1.0f32);
-        let position_br = mvp * glam::Vec4::new(x + width, y + height, layer.z(), 1.0f32);
+        let position = transform * glam::Vec4::new(x, y, layer.z(), 1.0f32);
+        let position_br = transform * glam::Vec4::new(x + width, y + height, layer.z(), 1.0f32);
 
         let position = glam::Vec3::new(position.x, position.y, position.z);
         let position_br = glam::Vec3::new(position_br.x, position_br.y, position_br.z);
@@ -259,6 +258,19 @@ impl SpriteRenderer {
                 uv: uv3,
             });
         }
+    }
+
+    pub fn draw(
+        &mut self,
+        camera: &Camera,
+        renderable: &SpriteRenderable,
+        x_pixels: u32,
+        y_pixels: u32,
+        layer: Layer,
+    ) {
+        let mvp = camera.projection() * camera.view();
+
+        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer);
     }
 
     pub fn render(&mut self, renderpass: &mut wgpu::RenderPass, queue: &wgpu::Queue) {

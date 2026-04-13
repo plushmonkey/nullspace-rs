@@ -128,6 +128,7 @@ async fn handle_connection(incoming_session: IncomingSession) {
         tokio::select! {
             e = connection.closed() => {
                 println!("connection closed: {e}");
+                send_to_server(&socket, &remote_addr, &[0, 7]).await;
                 return;
             }
             dgram = connection.receive_datagram() => {
@@ -135,6 +136,7 @@ async fn handle_connection(incoming_session: IncomingSession) {
                     Ok(dgram) => dgram,
                     Err(e) => {
                         println!("receive_dgram_error: {e}");
+                        send_to_server(&socket, &remote_addr, &[0, 7]).await;
                         return;
                     }
                 };
@@ -148,12 +150,14 @@ async fn handle_connection(incoming_session: IncomingSession) {
                     Ok(bytes_recv) => bytes_recv,
                     Err(e) => {
                         println!("socket_recv_error: {e}");
+                        send_to_server(&socket, &remote_addr, &[0, 7]).await;
                         return;
                     }
                 };
 
                 if let Err(e) = connection.send_datagram(&buffer[..bytes_recv]) {
                     println!("send_dgram_error{e}");
+                    send_to_server(&socket, &remote_addr, &[0, 7]).await;
                     return;
                 }
             }
