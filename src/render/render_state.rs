@@ -128,13 +128,7 @@ impl RenderState {
 
         let depth_texture = Texture::new_depth(&device, &config);
 
-        let mut map_renderer = MapRenderer::new(&device, &config.format, &depth_texture);
-
-        let map_bytes = include_bytes!("../../map.lvl");
-        let map = Map::new("map.lvl", map_bytes).expect("included map should load");
-        let map_tileset = MapTileset::new(map_bytes);
-
-        map_renderer.set_map(&map, &map_tileset, &queue);
+        let map_renderer = MapRenderer::new(&device, &config.format, &depth_texture);
 
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
@@ -299,7 +293,7 @@ impl RenderState {
                 &mut self.sprite_renderer,
                 &self.ui_camera,
                 "top_right",
-                self.config.width,
+                self.config.width as i32,
                 0,
                 Layer::TopMost,
                 TextColor::Pink,
@@ -310,7 +304,7 @@ impl RenderState {
                 &mut self.sprite_renderer,
                 &self.ui_camera,
                 "center\nmultiline",
-                self.config.width / 2,
+                (self.config.width / 2) as i32,
                 0,
                 Layer::TopMost,
                 TextColor::Yellow,
@@ -363,6 +357,54 @@ impl RenderState {
             height as f32,
             glam::Vec2::new((width as f32) / 2.0f32, (height as f32) / 2.0f32),
             1.0f32,
+        );
+    }
+
+    pub fn on_map_change(&mut self, map: &Map, bytes: &[u8]) {
+        let tileset = MapTileset::new(bytes);
+
+        self.map_renderer.set_map(map, &tileset, &self.queue);
+    }
+
+    pub fn draw_world_text(
+        &mut self,
+        text: &str,
+        x_pixels: i32,
+        y_pixels: i32,
+        layer: Layer,
+        color: TextColor,
+        align: TextAlignment,
+    ) {
+        self.text_renderer.draw(
+            &mut self.sprite_renderer,
+            &self.camera,
+            text,
+            x_pixels,
+            y_pixels,
+            layer,
+            color,
+            align,
+        );
+    }
+
+    pub fn draw_ui_text(
+        &mut self,
+        text: &str,
+        x_pixels: i32,
+        y_pixels: i32,
+        layer: Layer,
+        color: TextColor,
+        align: TextAlignment,
+    ) {
+        self.text_renderer.draw(
+            &mut self.sprite_renderer,
+            &self.ui_camera,
+            text,
+            x_pixels,
+            y_pixels,
+            layer,
+            color,
+            align,
         );
     }
 

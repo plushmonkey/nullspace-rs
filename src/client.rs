@@ -12,6 +12,10 @@ use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::player::*;
+use crate::render::layer::Layer;
+use crate::render::render_state::RenderState;
+use crate::render::text_renderer::TextAlignment;
+use crate::render::text_renderer::TextColor;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::player_simulation::update_player_lerp_target;
@@ -73,7 +77,33 @@ impl Client {
         })
     }
 
-    pub fn update(&mut self) -> Result<(), ConnectionError> {
+    pub fn render(&mut self, render_state: &mut RenderState) {
+        for player in &self.simulation.player_manager.players {
+            match player.ship_kind {
+                ShipKind::Warbird => {
+                    let x = player.position.x.0 / 1000;
+                    let y = player.position.y.0 / 1000;
+
+                    render_state.draw_world_text(
+                        &player.name,
+                        x,
+                        y,
+                        Layer::TopMost,
+                        TextColor::Blue,
+                        TextAlignment::Center,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        render_state: Option<&mut RenderState>,
+    ) -> Result<(), ConnectionError> {
+        let mut render_state = render_state;
+
         loop {
             let message = self.connection.receive_message();
             if let Err(e) = message {
@@ -92,7 +122,7 @@ impl Client {
             let message = message.unwrap();
 
             if let Some(message) = message {
-                self.process_message(message)?;
+                self.process_message(&mut render_state, message)?;
             } else {
                 // We are done processing everything now.
                 break;
@@ -106,17 +136,6 @@ impl Client {
             self.connection.current_tick = self.connection.current_tick + 1;
 
             self.simulation.tick(&self.map, &self.settings);
-
-            if self.connection.current_tick.value() % 100 == 0 {
-                if let Some(player) = self.simulation.player_manager.get_by_name("monkey") {
-                    log::debug!(
-                        "L {} at {:?} {:?}",
-                        player.name,
-                        player.position,
-                        player.velocity
-                    );
-                }
-            }
 
             match self.connection.state {
                 ConnectionState::Playing => {
@@ -156,26 +175,11 @@ impl Client {
         Ok(())
     }
 
-    pub fn run(&mut self, rx: std::sync::mpsc::Receiver<()>) -> Result<(), ConnectionError> {
-        'main_loop: loop {
-            // Exit loop if we receive a control-c signal.
-            if let Ok(_) = rx.try_recv() {
-                break 'main_loop;
-            }
-
-            self.update()?;
-
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-
-        // Always send disconnect when we are exiting so we don't linger on the server.
-        let disconnect = DisconnectMessage {};
-        self.connection.send(&disconnect)?;
-
-        Ok(())
-    }
-
-    fn process_core_message(&mut self, message: &CoreServerMessage) -> Result<(), ConnectionError> {
+    fn process_core_message(
+        &mut self,
+        _render_state: &mut Option<&mut RenderState>,
+        message: &CoreServerMessage,
+    ) -> Result<(), ConnectionError> {
         match message {
             CoreServerMessage::EncryptionResponse(_) => {
                 let password = PasswordMessage::new(
@@ -202,7 +206,11 @@ impl Client {
         Ok(())
     }
 
-    fn process_game_message(&mut self, message: &GameServerMessage) -> Result<(), ConnectionError> {
+    fn process_game_message(
+        &mut self,
+        render_state: &mut Option<&mut RenderState>,
+        message: &GameServerMessage,
+    ) -> Result<(), ConnectionError> {
         match message {
             GameServerMessage::Chat(chat) => match chat.kind {
                 ChatKind::Public | ChatKind::PublicMacro => {
@@ -582,6 +590,10 @@ impl Client {
 
                         if checksum == info.checksum {
                             if let Ok(new_map) = Map::new(&info.filename, &map_data) {
+                                if let Some(render_state) = render_state {
+                                    render_state.on_map_change(&new_map, &map_data);
+                                }
+
                                 self.handle_map_load(new_map, info.checksum);
                             } else {
                                 log::debug!("Map read error: failed to load tiles");
@@ -622,6 +634,10 @@ impl Client {
                             }
 
                             if let Ok(new_map) = Map::new(&self.map.filename, &inflated) {
+                                if let Some(render_state) = render_state {
+                                    render_state.on_map_change(&new_map, &inflated);
+                                }
+
                                 self.handle_map_load(new_map, checksum::crc32(&inflated));
                             } else {
                                 log::debug!("Map read error: failed to load tiles");
@@ -648,10 +664,18 @@ impl Client {
         self.connection.state = ConnectionState::Playing;
     }
 
-    fn process_message(&mut self, message: ServerMessage) -> Result<(), ConnectionError> {
+    fn process_message(
+        &mut self,
+        render_state: &mut Option<&mut RenderState>,
+        message: ServerMessage,
+    ) -> Result<(), ConnectionError> {
         match message {
-            ServerMessage::Core(core_message) => self.process_core_message(&core_message),
-            ServerMessage::Game(game_message) => self.process_game_message(&game_message),
+            ServerMessage::Core(core_message) => {
+                self.process_core_message(render_state, &core_message)
+            }
+            ServerMessage::Game(game_message) => {
+                self.process_game_message(render_state, &game_message)
+            }
         }
     }
 }

@@ -214,7 +214,7 @@ impl Application {
         self.render_state.camera.position.y =
             self.render_state.camera.position.y.clamp(0.0f32, 1024.0f32);
 
-        if let Err(e) = self.client.update() {
+        if let Err(e) = self.client.update(Some(&mut self.render_state)) {
             log::error!("{e}");
         }
     }
@@ -348,23 +348,27 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
-            WindowEvent::RedrawRequested => match app.render_state.render(app.window.clone()) {
-                Ok(redraw) => {
-                    if redraw {
-                        app.window.request_redraw();
-                    }
+            WindowEvent::RedrawRequested => {
+                app.client.render(&mut app.render_state);
 
-                    // TODO: Remove this once vsync works properly on Windows.
-                    // Only here now to reduce cpu/gpu spin, but it makes the game choppy.
-                    // Could manually time vsync, but this works well enough for now.
-                    #[cfg(not(target_arch = "wasm32"))]
-                    std::thread::sleep(std::time::Duration::from_millis(5));
+                match app.render_state.render(app.window.clone()) {
+                    Ok(redraw) => {
+                        if redraw {
+                            app.window.request_redraw();
+                        }
+
+                        // TODO: Remove this once vsync works properly on Windows.
+                        // Only here now to reduce cpu/gpu spin, but it makes the game choppy.
+                        // Could manually time vsync, but this works well enough for now.
+                        #[cfg(not(target_arch = "wasm32"))]
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(e) => {
+                        log::error!("{e}");
+                        event_loop.exit();
+                    }
                 }
-                Err(e) => {
-                    log::error!("{e}");
-                    event_loop.exit();
-                }
-            },
+            }
             WindowEvent::Resized(size) => {
                 app.resize(size.width, size.height);
 

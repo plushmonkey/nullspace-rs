@@ -32,8 +32,8 @@ pub enum TextAlignment {
 pub struct TextRenderer {
     _sprite_sheet_index: SheetIndex,
     renderables: Vec<SpriteRenderable>,
-    character_width: u32,
-    character_height: u32,
+    character_width: i32,
+    character_height: i32,
 }
 
 // TODO: Support foreign font
@@ -51,14 +51,15 @@ impl TextRenderer {
         let sheet = sprite_renderer.get_sheet(sprite_sheet_index).unwrap();
         let mut renderables = vec![];
 
-        let character_width = texture.texture.width() / Self::CHARACTERS_PER_ROW;
-        let character_height = texture.texture.height() / Self::CHARACTERS_PER_COL;
+        let character_width = (texture.texture.width() / Self::CHARACTERS_PER_ROW) as i32;
+        let character_height = (texture.texture.height() / Self::CHARACTERS_PER_COL) as i32;
 
         for i in 0..(Self::CHARACTERS_PER_ROW * Self::CHARACTERS_PER_COL) {
-            let x = (i % Self::CHARACTERS_PER_ROW) * character_width;
-            let y = (i / Self::CHARACTERS_PER_ROW) * character_height;
+            let x = (i % Self::CHARACTERS_PER_ROW) * character_width as u32;
+            let y = (i / Self::CHARACTERS_PER_ROW) * character_height as u32;
 
-            let renderable = sheet.create_renderable(x, y, character_width, character_height);
+            let renderable =
+                sheet.create_renderable(x, y, character_width as u32, character_height as u32);
 
             renderables.push(renderable);
         }
@@ -78,8 +79,8 @@ impl TextRenderer {
         sprite_renderer: &mut SpriteRenderer,
         camera: &Camera,
         text: &str,
-        x: u32,
-        y: u32,
+        x: i32,
+        y: i32,
         layer: Layer,
         color: TextColor,
         align: TextAlignment,
@@ -95,10 +96,10 @@ impl TextRenderer {
 
             match align {
                 TextAlignment::Center => {
-                    current_x -= (line.len() as u32 * self.character_width) / 2;
+                    current_x -= (line.len() as i32 * self.character_width) / 2;
                 }
                 TextAlignment::Right => {
-                    current_x -= line.len() as u32 * self.character_width;
+                    current_x -= line.len() as i32 * self.character_width;
                 }
                 _ => {}
             }

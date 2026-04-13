@@ -78,6 +78,8 @@ pub struct MapRenderer {
 
     pub tileset_texture: Texture,
     tiledata_texture: Texture,
+
+    map_loaded: bool,
 }
 
 impl MapRenderer {
@@ -238,6 +240,8 @@ impl MapRenderer {
 
             tileset_texture,
             tiledata_texture,
+
+            map_loaded: false,
         }
     }
 
@@ -246,6 +250,8 @@ impl MapRenderer {
         let mut custom_data = [0; 64 * 16 * 4];
 
         let tileset_texels = tileset.image.as_raw().as_slice();
+
+        self.map_loaded = true;
 
         for tile_id in 0..190 {
             let tile_x = (tile_id % 19) * 16;
@@ -310,6 +316,10 @@ impl MapRenderer {
         camera: &Camera,
         queue: &wgpu::Queue,
     ) {
+        if !self.map_loaded {
+            return;
+        }
+
         self.uniform_state.mvp = camera.projection() * camera.view();
 
         queue.write_buffer(

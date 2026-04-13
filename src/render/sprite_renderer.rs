@@ -191,8 +191,8 @@ impl SpriteRenderer {
         transform: glam::Mat4,
         scale: f32,
         renderable: &SpriteRenderable,
-        x_pixels: u32,
-        y_pixels: u32,
+        x_pixels: i32,
+        y_pixels: i32,
         layer: Layer,
     ) {
         let x = x_pixels as f32 * scale;
@@ -264,8 +264,8 @@ impl SpriteRenderer {
         &mut self,
         camera: &Camera,
         renderable: &SpriteRenderable,
-        x_pixels: u32,
-        y_pixels: u32,
+        x_pixels: i32,
+        y_pixels: i32,
         layer: Layer,
     ) {
         let mvp = camera.projection() * camera.view();
