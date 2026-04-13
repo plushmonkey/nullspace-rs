@@ -304,7 +304,12 @@ impl MapRenderer {
         );
     }
 
-    pub fn update(&mut self, camera: &Camera, queue: &wgpu::Queue) {
+    pub fn render(
+        &mut self,
+        renderpass: &mut wgpu::RenderPass,
+        camera: &Camera,
+        queue: &wgpu::Queue,
+    ) {
         self.uniform_state.mvp = camera.projection() * camera.view();
 
         queue.write_buffer(
@@ -315,9 +320,7 @@ impl MapRenderer {
                 .as_wgsl_bytes()
                 .expect("uniform buffer should transform itself into wgsl bytes"),
         );
-    }
 
-    pub fn render(&self, renderpass: &mut wgpu::RenderPass) {
         renderpass.set_pipeline(&self.pipeline);
         renderpass.set_bind_group(0, Some(&self.bind_group), &[]);
         renderpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
