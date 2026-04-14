@@ -40,12 +40,13 @@ impl WeaponManager {
         settings: &ArenaSettings,
         timestamp: GameTick,
         current_tick: GameTick,
-    ) {
+    ) -> usize {
         if player.ship_kind == ShipKind::Spectator {
-            return;
+            return 0;
         }
 
         let ship_settings = settings.get_ship_settings(player.ship_kind);
+        let mut spawn_count = 0;
 
         match &kind {
             WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
@@ -73,6 +74,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
 
                     self.spawn_weapon(
                         player,
@@ -85,6 +87,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
                 } else {
                     self.spawn_weapon(
                         player,
@@ -96,6 +99,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
                 }
 
                 if bullet.multi {
@@ -114,6 +118,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
 
                     self.spawn_weapon(
                         player,
@@ -125,6 +130,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
                 }
             }
             WeaponKind::Burst(_) => {
@@ -144,6 +150,7 @@ impl WeaponManager {
                         timestamp,
                         current_tick,
                     );
+                    spawn_count += 1;
                 }
             }
             _ => {
@@ -157,8 +164,11 @@ impl WeaponManager {
                     timestamp,
                     current_tick,
                 );
+                spawn_count += 1;
             }
         }
+
+        spawn_count
     }
 
     fn spawn_weapon(

@@ -91,6 +91,18 @@ impl Client {
             }
         }
 
+        let weapon_count = self.simulation.weapon_manager.weapons.len();
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format!("weapons: {}", weapon_count),
+            0,
+            0,
+            Layer::TopMost,
+            TextColor::Yellow,
+            TextAlignment::Left,
+        );
+
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
                 continue;
@@ -251,7 +263,7 @@ impl Client {
                                 renderable,
                                 x_pixels,
                                 y_pixels,
-                                Layer::Weapons,
+                                Layer::Explosions,
                             );
                         }
                     }
@@ -627,7 +639,11 @@ impl Client {
                             player.velocity
                         );
                     } else {
-                        self.validate_packet_timestamp(message_timestamp, "small");
+                        Self::validate_packet_timestamp(
+                            self.connection.get_game_tick(),
+                            message_timestamp,
+                            "small",
+                        );
                     }
                 } else {
                     log::warn!(
@@ -681,8 +697,13 @@ impl Client {
                             message.weapon
                         );
                     } else {
-                        self.validate_packet_timestamp(message_timestamp, "large");
-                        return Ok(());
+                        if Self::validate_packet_timestamp(
+                            self.connection.get_game_tick(),
+                            message_timestamp,
+                            "large",
+                        ) {
+                            return Ok(());
+                        }
                     }
 
                     let weapon_kind =
@@ -697,7 +718,7 @@ impl Client {
                             message_timestamp,
                             self.connection.get_game_tick(),
                         );
-                    } else if message.weapon != 0 {
+                    } else {
                         log::warn!("Failed to create WeaponKind from {}", message.weapon);
                     }
                 } else {
@@ -749,7 +770,11 @@ impl Client {
                                 player.velocity
                             );
                         } else {
-                            self.validate_packet_timestamp(message_timestamp, "small batched");
+                            Self::validate_packet_timestamp(
+                                self.connection.get_game_tick(),
+                                message_timestamp,
+                                "small batched",
+                            );
                         }
                     } else {
                         log::warn!(
@@ -804,7 +829,11 @@ impl Client {
                                 player.velocity
                             );
                         } else {
-                            self.validate_packet_timestamp(message_timestamp, "large batched");
+                            Self::validate_packet_timestamp(
+                                self.connection.get_game_tick(),
+                                message_timestamp,
+                                "large batched",
+                            );
                         }
                     } else {
                         log::warn!(
@@ -936,16 +965,18 @@ impl Client {
         Ok(())
     }
 
-    fn validate_packet_timestamp(&self, timestamp: GameTick, ctx: &str) {
-        let now = self.connection.get_game_tick();
-
-        if now.diff(&timestamp) > 300 {
+    fn validate_packet_timestamp(current_tick: GameTick, timestamp: GameTick, ctx: &str) -> bool {
+        if current_tick.diff(&timestamp) > 300 {
             log::warn!(
                 "Received {} packet timestamp that was far out of range of normal Recv: {} Now: {}",
                 ctx,
                 timestamp.value(),
-                now.value()
+                current_tick.value()
             );
+
+            true
+        } else {
+            false
         }
     }
 

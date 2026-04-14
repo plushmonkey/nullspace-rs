@@ -278,7 +278,10 @@ impl Connection {
 
         // If we received a packet and it got processed into a complete message, return it.
         if let Some(packet) = packet {
+            log::trace!("{:?}", &packet.data[..packet.size]);
+
             let result = ServerMessage::parse(&packet.data[..packet.size])?;
+
             if let Some(message) = &result {
                 self.process_packet(&message);
             }
