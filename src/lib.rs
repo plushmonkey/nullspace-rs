@@ -10,14 +10,16 @@ use winit::{
     window::Window,
 };
 
-use thiserror::Error;
-
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-use crate::render::render_state::{RenderState, RenderStateCreateError};
+use crate::render::{
+    game_sprites::{GameSpriteLoader, GameSprites},
+    layer::Layer,
+    render_state::{RenderError, RenderState, RenderStateCreateError},
+};
 use crate::{
     client::Client,
     net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
@@ -49,12 +51,6 @@ struct Input {
     pub down: bool,
     pub up: bool,
     pub shift: bool,
-}
-
-#[derive(Error, Debug)]
-pub enum ApplicationRenderError {
-    #[error("lost device")]
-    LostDevice,
 }
 
 struct Timer {
@@ -98,20 +94,41 @@ impl Timer {
     }
 }
 
-pub struct Application {
-    input: Input,
-
-    timer: Timer, // Used for delta time calculations for client update.
-    client: Client,
-
-    render_state: RenderState,
-    window: Arc<Window>,
+struct ApplicationLoadingState {
+    sprite_loader: GameSpriteLoader,
 }
 
-impl Application {
-    pub async fn new(window: Arc<Window>) -> Result<Self, RenderStateCreateError> {
-        let render_state = RenderState::new(window.clone()).await?;
+impl ApplicationLoadingState {
+    pub fn new() -> Self {
+        let sprite_loader = GameSpriteLoader::new();
 
+        Self { sprite_loader }
+    }
+
+    pub fn render(&mut self, render_state: &mut RenderState) {
+        let x_pixels = render_state.config.width / 2;
+        let y_pixels = render_state.config.height / 2;
+
+        render_state.draw_ui_text(
+            "Loading",
+            x_pixels as i32,
+            y_pixels as i32,
+            Layer::TopMost,
+            render::text_renderer::TextColor::Pink,
+            render::text_renderer::TextAlignment::Center,
+        );
+    }
+}
+
+struct ApplicationPlayingState {
+    input: Input,
+    timer: Timer, // Used for delta time calculations for client update.
+    client: Client,
+    sprites: GameSprites,
+}
+
+impl ApplicationPlayingState {
+    pub fn new(sprites: GameSprites) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let socket = crate::net::udp_socket::UdpSocket::new("127.0.0.1", 5000).unwrap();
         #[cfg(target_arch = "wasm32")]
@@ -140,48 +157,15 @@ impl Application {
         )
         .unwrap();
 
-        Ok(Self {
+        Self {
             input: Input::default(),
             timer: Timer::new(),
-            window,
             client,
-            render_state,
-        })
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.render_state.resize(width, height);
-    }
-
-    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
-        let _ = event_loop;
-
-        match (code, is_pressed) {
-            //(KeyCode::Escape, true) => event_loop.exit(),
-            _ => {}
-        }
-
-        match code {
-            KeyCode::ArrowLeft => {
-                self.input.left = is_pressed;
-            }
-            KeyCode::ArrowRight => {
-                self.input.right = is_pressed;
-            }
-            KeyCode::ArrowDown => {
-                self.input.down = is_pressed;
-            }
-            KeyCode::ArrowUp => {
-                self.input.up = is_pressed;
-            }
-            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
-                self.input.shift = is_pressed;
-            }
-            _ => {}
+            sprites,
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, render_state: &mut RenderState) {
         const CAMERA_SPEED: f32 = 100.0f32;
 
         let dt = self.timer.elapsed();
@@ -207,15 +191,119 @@ impl Application {
             CAMERA_SPEED
         };
 
-        self.render_state.camera.position += offset * speed * dt;
+        render_state.camera.position += offset * speed * dt;
 
-        self.render_state.camera.position.x =
-            self.render_state.camera.position.x.clamp(0.0f32, 1024.0f32);
-        self.render_state.camera.position.y =
-            self.render_state.camera.position.y.clamp(0.0f32, 1024.0f32);
+        render_state.camera.position.x = render_state.camera.position.x.clamp(0.0f32, 1024.0f32);
+        render_state.camera.position.y = render_state.camera.position.y.clamp(0.0f32, 1024.0f32);
 
-        if let Err(e) = self.client.update(Some(&mut self.render_state)) {
+        if let Err(e) = self.client.update(Some(render_state)) {
             log::error!("{e}");
+        }
+    }
+
+    pub fn render(&mut self, render_state: &mut RenderState) {
+        self.client.render(render_state, &self.sprites);
+    }
+
+    pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) {
+        match (code, is_pressed) {
+            //(KeyCode::Escape, true) => event_loop.exit(),
+            _ => {}
+        }
+
+        match code {
+            KeyCode::ArrowLeft => {
+                self.input.left = is_pressed;
+            }
+            KeyCode::ArrowRight => {
+                self.input.right = is_pressed;
+            }
+            KeyCode::ArrowDown => {
+                self.input.down = is_pressed;
+            }
+            KeyCode::ArrowUp => {
+                self.input.up = is_pressed;
+            }
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+                self.input.shift = is_pressed;
+            }
+            _ => {}
+        }
+    }
+}
+
+enum ApplicationState {
+    Loading(ApplicationLoadingState),
+    Playing(ApplicationPlayingState),
+}
+
+pub struct Application {
+    state: ApplicationState,
+
+    render_state: RenderState,
+    window: Arc<Window>,
+}
+
+impl Application {
+    pub async fn new(window: Arc<Window>) -> Result<Self, RenderStateCreateError> {
+        let render_state = RenderState::new(window.clone()).await?;
+
+        let state = ApplicationState::Loading(ApplicationLoadingState::new());
+
+        Ok(Self {
+            state,
+            window,
+            render_state,
+        })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.render_state.resize(width, height);
+    }
+
+    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+        let _ = event_loop;
+
+        match &mut self.state {
+            ApplicationState::Playing(playing) => playing.handle_key(code, is_pressed),
+            ApplicationState::Loading(_) => {}
+        }
+    }
+
+    pub fn update(&mut self) {
+        match &mut self.state {
+            ApplicationState::Playing(playing) => playing.update(&mut self.render_state),
+            ApplicationState::Loading(loading) => {
+                let sprites = loading.sprite_loader.try_create(&mut self.render_state);
+
+                if let Some(sprites) = sprites {
+                    self.state = ApplicationState::Playing(ApplicationPlayingState::new(sprites));
+                }
+            }
+        }
+    }
+
+    pub fn render(&mut self, window: Arc<Window>) -> Result<bool, RenderError> {
+        match &mut self.state {
+            ApplicationState::Playing(playing) => playing.render(&mut self.render_state),
+            ApplicationState::Loading(loading) => loading.render(&mut self.render_state),
+        }
+
+        self.render_state.render(window.clone())
+    }
+
+    pub fn exiting(&mut self) {
+        match &mut self.state {
+            ApplicationState::Playing(playing) => {
+                use crate::net::packet::Serialize;
+
+                let packet = crate::net::packet::bi::DisconnectMessage {};
+
+                if let Err(e) = playing.client.connection.send_packet(&packet.serialize()) {
+                    log::error!("{e}");
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -268,13 +356,7 @@ impl EventProcessor {
 impl ApplicationHandler<ApplicationEvent> for EventProcessor {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(app) = &mut self.application {
-            use crate::net::packet::Serialize;
-
-            let packet = crate::net::packet::bi::DisconnectMessage {};
-
-            if let Err(e) = app.client.connection.send_packet(&packet.serialize()) {
-                log::error!("{e}");
-            }
+            app.exiting();
         }
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -349,9 +431,7 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                app.client.render(&mut app.render_state);
-
-                match app.render_state.render(app.window.clone()) {
+                match app.render(app.window.clone()) {
                     Ok(redraw) => {
                         if redraw {
                             app.window.request_redraw();

@@ -12,6 +12,8 @@ use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::player::*;
+use crate::render::game_sprites::GameSpriteKind;
+use crate::render::game_sprites::GameSprites;
 use crate::render::layer::Layer;
 use crate::render::render_state::RenderState;
 use crate::render::text_renderer::TextAlignment;
@@ -77,23 +79,39 @@ impl Client {
         })
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState) {
+    pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         for player in &self.simulation.player_manager.players {
-            match player.ship_kind {
-                ShipKind::Warbird => {
-                    let x = player.position.x.0 / 1000;
-                    let y = player.position.y.0 / 1000;
+            if player.ship_kind == ShipKind::Spectator {
+                continue;
+            }
 
-                    render_state.draw_world_text(
-                        &player.name,
-                        x,
-                        y,
-                        Layer::TopMost,
-                        TextColor::Blue,
-                        TextAlignment::Center,
-                    );
-                }
-                _ => {}
+            if let Some(ship_renderables) = sprites.get_set(GameSpriteKind::Ships) {
+                let ship_kind_index = player.ship_kind.network_value() as usize * 40;
+                let ship_index = ship_kind_index + player.direction as usize;
+
+                let renderable = &ship_renderables.renderables[ship_index];
+                let x_pixels = player.position.x.0 / 1000;
+                let y_pixels = player.position.y.0 / 1000;
+
+                render_state.sprite_renderer.draw_centered(
+                    &render_state.camera,
+                    renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Ships,
+                );
+
+                let name_x = x_pixels + (renderable.size[0] as i32) / 2;
+                let name_y = y_pixels + (renderable.size[1] as i32) / 2;
+
+                render_state.draw_world_text(
+                    &player.name,
+                    name_x,
+                    name_y,
+                    Layer::Ships,
+                    TextColor::Yellow,
+                    TextAlignment::Left,
+                );
             }
         }
     }

@@ -146,8 +146,14 @@ impl RenderState {
             }
         });
 
-        let mut sprite_renderer =
-            SpriteRenderer::new(&device, &config.format, &depth_texture, 4096);
+        const SPRITE_RENDERER_PUSH_SIZE: usize = 4096 * 8;
+
+        let mut sprite_renderer = SpriteRenderer::new(
+            &device,
+            &config.format,
+            &depth_texture,
+            SPRITE_RENDERER_PUSH_SIZE,
+        );
 
         let view_format = if surface_format.is_srgb() {
             wgpu::TextureFormat::Rgba8UnormSrgb
@@ -278,50 +284,6 @@ impl RenderState {
             self.map_renderer
                 .render(&mut render_pass, &self.camera, &self.queue);
 
-            self.text_renderer.draw(
-                &mut self.sprite_renderer,
-                &self.ui_camera,
-                "top_left",
-                0,
-                0,
-                Layer::TopMost,
-                TextColor::Blue,
-                TextAlignment::Left,
-            );
-
-            self.text_renderer.draw(
-                &mut self.sprite_renderer,
-                &self.ui_camera,
-                "top_right",
-                self.config.width as i32,
-                0,
-                Layer::TopMost,
-                TextColor::Pink,
-                TextAlignment::Right,
-            );
-
-            self.text_renderer.draw(
-                &mut self.sprite_renderer,
-                &self.ui_camera,
-                "center\nmultiline",
-                (self.config.width / 2) as i32,
-                0,
-                Layer::TopMost,
-                TextColor::Yellow,
-                TextAlignment::Center,
-            );
-
-            self.text_renderer.draw(
-                &mut self.sprite_renderer,
-                &self.camera,
-                "world",
-                512 * 16 + 8,
-                512 * 16 + 8,
-                Layer::TopMost,
-                TextColor::Yellow,
-                TextAlignment::Center,
-            );
-
             self.sprite_renderer.render(&mut render_pass, &self.queue);
         }
 
@@ -408,7 +370,15 @@ impl RenderState {
         );
     }
 
-    fn buffer_texture(queue: &wgpu::Queue, texture: &Texture, data: &[u8]) {
+    pub fn get_texture_format(&self) -> wgpu::TextureFormat {
+        if self.config.format.is_srgb() {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        }
+    }
+
+    pub fn buffer_texture(queue: &wgpu::Queue, texture: &Texture, data: &[u8]) {
         let width = texture.texture.width();
         let height = texture.texture.height();
 

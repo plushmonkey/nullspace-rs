@@ -12,7 +12,7 @@ struct Vertex {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct SheetIndex(u32);
+pub struct SheetIndex(pub u32);
 
 pub struct SpriteSheet {
     bind_group: wgpu::BindGroup,
@@ -52,7 +52,7 @@ impl SpriteSheet {
 pub struct SpriteRenderable {
     uv_start: [f32; 2],
     uv_size: [f32; 2],
-    size: [u32; 2],
+    pub size: [u32; 2],
     sheet_index: SheetIndex,
 }
 
@@ -260,6 +260,22 @@ impl SpriteRenderer {
         }
     }
 
+    pub fn draw_centered(
+        &mut self,
+        camera: &Camera,
+        renderable: &SpriteRenderable,
+        x_pixels: i32,
+        y_pixels: i32,
+        layer: Layer,
+    ) {
+        let mvp = camera.projection() * camera.view();
+
+        let x_pixels = x_pixels - (renderable.size[0] as i32) / 2;
+        let y_pixels = y_pixels - (renderable.size[1] as i32) / 2;
+
+        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer);
+    }
+
     pub fn draw(
         &mut self,
         camera: &Camera,
@@ -276,6 +292,8 @@ impl SpriteRenderer {
     pub fn render(&mut self, renderpass: &mut wgpu::RenderPass, queue: &wgpu::Queue) {
         renderpass.set_pipeline(&self.pipeline);
 
+        let mut offset = 0;
+
         for i in 0..self.sprite_sheets.len() {
             let push_buffer = &mut self.push_buffers[i];
             let sheet = &self.sprite_sheets[i];
@@ -284,15 +302,25 @@ impl SpriteRenderer {
                 continue;
             }
 
-            //log::info!("{:?}", push_buffer);
+            let buffer_size = (push_buffer.len() * size_of::<Vertex>()) as u64;
 
-            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&push_buffer));
+            // We write out to the part of the vertex buffer we're currently using and then render from it.
+            // TODO: Might be better to queue these up for every sheet before we start rendering.
+            // Clearing the vertex buffer and writing from the start seems to not work with wgpu.
+            // It ends up overwriting the texture before it completes.
+            // This is something I've used before in opengl, but maybe it requires some extra synchronization in wgpu.
+            queue.write_buffer(
+                &self.vertex_buffer,
+                offset,
+                bytemuck::cast_slice(push_buffer),
+            );
             queue.submit([]);
 
             renderpass.set_bind_group(0, Some(&sheet.bind_group), &[]);
-            renderpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            renderpass.set_vertex_buffer(0, self.vertex_buffer.slice(offset..offset + buffer_size));
             renderpass.draw(0..push_buffer.len() as u32, 0..1);
 
+            offset += buffer_size;
             push_buffer.clear();
         }
     }

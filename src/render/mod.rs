@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod game_sprites;
 pub mod layer;
 pub mod map_renderer;
 pub mod render_state;
