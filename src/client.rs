@@ -163,11 +163,21 @@ impl Client {
                         .diff(&self.last_position_tick)
                         > 300
                     {
+                        let (x_position, y_position) = match &render_state {
+                            Some(render_state) => {
+                                let x_position = render_state.camera.position.x as i32 * 16;
+                                let y_position = render_state.camera.position.x as i32 * 16;
+
+                                (x_position, y_position)
+                            }
+                            None => (0, 0),
+                        };
+
                         let position = PositionMessage {
                             direction: 0,
                             timestamp: self.connection.get_game_tick(),
-                            x_position: 0,
-                            y_position: 0,
+                            x_position: x_position as u16,
+                            y_position: y_position as u16,
                             x_velocity: 0,
                             y_velocity: 0,
                             togglables: 0,
