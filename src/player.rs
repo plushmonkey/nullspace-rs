@@ -1,6 +1,6 @@
 use crate::{
     clock::GameTick,
-    math::{PixelUnit, Position, PositionUnit, Rectangle, Velocity},
+    math::{radians, PixelUnit, Position, PositionUnit, Rectangle, Velocity},
     ship::ShipKind,
 };
 
@@ -154,6 +154,15 @@ impl Player {
         let radius = radius as i32;
 
         Rectangle::from_radius(self.position, PixelUnit(radius))
+    }
+
+    pub fn get_heading(&self) -> glam::Vec2 {
+        let degrees = (40 - self.direction) as f32 * 9.0f32 + 90.0f32;
+        let rads = radians(degrees);
+        let x = f32::cos(rads);
+        let y = -f32::sin(rads);
+
+        glam::Vec2::new(x, y)
     }
 }
 

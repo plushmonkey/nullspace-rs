@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Sub};
+use std::ops::{Add, Sub};
 
 pub const MAX_POSITION: i32 = 1024 * 16000;
 
@@ -79,10 +79,21 @@ impl Position {
     }
 }
 
-impl Add<Velocity> for Position {
+impl Add<Position> for Position {
     type Output = Self;
 
-    fn add(self, rhs: Velocity) -> Self::Output {
+    fn add(self, rhs: Position) -> Self::Output {
+        let x = std::cmp::max(std::cmp::min(self.x.0 + rhs.x.0, MAX_POSITION), 0);
+        let y = std::cmp::max(std::cmp::min(self.y.0 + rhs.y.0, MAX_POSITION), 0);
+
+        Position::new(PositionUnit(x), PositionUnit(y))
+    }
+}
+
+impl Sub<Position> for Position {
+    type Output = Self;
+
+    fn sub(self, rhs: Position) -> Self::Output {
         let x = std::cmp::max(std::cmp::min(self.x.0 - rhs.x.0, MAX_POSITION), 0);
         let y = std::cmp::max(std::cmp::min(self.y.0 - rhs.y.0, MAX_POSITION), 0);
 
@@ -90,9 +101,15 @@ impl Add<Velocity> for Position {
     }
 }
 
-impl AddAssign<Velocity> for Position {
-    fn add_assign(&mut self, rhs: Velocity) {
-        *self = self.add(rhs);
+impl Into<glam::Vec2> for Position {
+    fn into(self) -> glam::Vec2 {
+        let x_pixels = self.x.0 / 1000;
+        let x_tile = x_pixels as f32 / 16.0f32;
+
+        let y_pixels = self.y.0 / 1000;
+        let y_tile = y_pixels as f32 / 16.0f32;
+
+        glam::Vec2::new(x_tile, y_tile)
     }
 }
 
@@ -195,4 +212,11 @@ impl Rectangle {
             max: Position::new(max_x, max_y),
         }
     }
+}
+
+pub fn rotate_vec2(vec: glam::Vec2, rads: f32) -> glam::Vec2 {
+    let cos_a = f32::cos(rads);
+    let sin_a = f32::sin(rads);
+
+    glam::Vec2::new(cos_a * vec.x - sin_a * vec.y, sin_a * vec.x + cos_a * vec.y)
 }

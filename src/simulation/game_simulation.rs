@@ -4,7 +4,6 @@ use crate::{
     map::Map,
     player::PlayerManager,
     simulation::{player_simulation, weapon_simulation::WeaponManager},
-    weapon::Weapon,
 };
 
 pub struct Simulation {
@@ -20,10 +19,6 @@ impl Simulation {
             weapon_manager: WeaponManager::new(),
             tick,
         }
-    }
-
-    pub fn add_weapon(&mut self, weapon: Weapon) {
-        self.weapon_manager.add_weapon(weapon);
     }
 
     pub fn tick(&mut self, map: &Map, settings: &ArenaSettings) {

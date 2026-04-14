@@ -21,6 +21,7 @@ use crate::render::text_renderer::TextColor;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::player_simulation::update_player_lerp_target;
+use crate::weapon::WeaponKind;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
 
@@ -80,18 +81,29 @@ impl Client {
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
+        // TODO: This is all test code.
+        // TODO: It should be spawning animations that are updated every tick, not tied to render calls.
+
+        for player in &self.simulation.player_manager.players {
+            if player.ship_kind != ShipKind::Spectator {
+                render_state.camera.position = player.position.into();
+                break;
+            }
+        }
+
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
                 continue;
             }
+
+            let x_pixels = player.position.x.0 / 1000;
+            let y_pixels = player.position.y.0 / 1000;
 
             if let Some(ship_renderables) = sprites.get_set(GameSpriteKind::Ships) {
                 let ship_kind_index = player.ship_kind.network_value() as usize * 40;
                 let ship_index = ship_kind_index + player.direction as usize;
 
                 let renderable = &ship_renderables.renderables[ship_index];
-                let x_pixels = player.position.x.0 / 1000;
-                let y_pixels = player.position.y.0 / 1000;
 
                 render_state.sprite_renderer.draw_centered(
                     &render_state.camera,
@@ -105,13 +117,146 @@ impl Client {
                 let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
                 render_state.draw_world_text(
-                    &player.name,
+                    &format!("{}({})", player.name, player.bounty),
                     name_x,
                     name_y,
                     Layer::Ships,
                     TextColor::Yellow,
                     TextAlignment::Left,
                 );
+            }
+
+            for weapon in &self.simulation.weapon_manager.weapons {
+                let x_pixels = weapon.position.x.0 / 1000;
+                let y_pixels = weapon.position.y.0 / 1000;
+
+                match weapon.kind {
+                    WeaponKind::Bullet(bullet) => {
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                            let renderable_index = (bullet.level * 4) as usize;
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    WeaponKind::BouncingBullet(bouncing) => {
+                        let renderable_index = (bouncing.level * 4) as usize + 5 * 4;
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                        if bomb.mine {
+                            let renderable_index = {
+                                if bomb.emp {
+                                    (bomb.level * 10) as usize + 40
+                                } else {
+                                    (bomb.level * 10) as usize
+                                }
+                            };
+
+                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Mines) {
+                                let renderable = &renderables.renderables[renderable_index];
+                                render_state.sprite_renderer.draw_centered(
+                                    &render_state.camera,
+                                    renderable,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::Weapons,
+                                );
+                            }
+                        } else {
+                            let renderable_index = {
+                                if bomb.emp {
+                                    (bomb.level * 10) as usize + 40
+                                } else {
+                                    if bomb.remaining_bounces > 0 {
+                                        (bomb.level * 10) as usize + 80
+                                    } else {
+                                        (bomb.level * 10) as usize
+                                    }
+                                }
+                            };
+
+                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
+                                let renderable = &renderables.renderables[renderable_index];
+                                render_state.sprite_renderer.draw_centered(
+                                    &render_state.camera,
+                                    renderable,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::Weapons,
+                                );
+                            }
+                        }
+                    }
+                    WeaponKind::Thor => {
+                        let renderable_index = 120;
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    WeaponKind::Shrapnel(shrapnel) => {
+                        let renderable_index =
+                            (shrapnel.level as usize * 10) + (shrapnel.bouncing as usize) * 30;
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Shrapnel) {
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    WeaponKind::Repel => {
+                        let renderable_index = 7;
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Repel) {
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    WeaponKind::Burst(burst) => {
+                        let renderable_index = (4 * 4) + 2 + (burst.active as usize) * (4 * 4);
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                            let renderable = &renderables.renderables[renderable_index];
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Weapons,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -436,16 +581,18 @@ impl Client {
                         GameTick::from_mini(self.connection.get_game_tick(), message.timestamp)
                             - message.ping as i32;
 
-                    if player.last_position_timestamp < message_timestamp {
-                        let position = Position::new(
-                            PixelUnit(message.x as i32).into(),
-                            PixelUnit(message.y as i32).into(),
-                        );
+                    let position = Position::new(
+                        PixelUnit(message.x as i32).into(),
+                        PixelUnit(message.y as i32).into(),
+                    );
 
-                        player.velocity = Velocity::new(
-                            PositionUnit(message.x_velocity as i32),
-                            PositionUnit(message.y_velocity as i32),
-                        );
+                    let velocity = Velocity::new(
+                        PositionUnit(message.x_velocity as i32),
+                        PositionUnit(message.y_velocity as i32),
+                    );
+
+                    if player.last_position_timestamp < message_timestamp {
+                        player.velocity = velocity;
 
                         let sim_ticks = self.connection.current_tick.diff(&message_timestamp);
                         update_player_lerp_target(
@@ -467,6 +614,20 @@ impl Client {
                             player.name,
                             player.position,
                             message.weapon
+                        );
+                    }
+
+                    let weapon_kind =
+                        WeaponKind::new(message.weapon, position, velocity, player, &self.settings);
+
+                    if let Some(weapon_kind) = weapon_kind {
+                        self.simulation.weapon_manager.spawn_weapons(
+                            player,
+                            velocity,
+                            weapon_kind,
+                            &self.settings,
+                            message_timestamp,
+                            self.connection.get_game_tick(),
                         );
                     }
                 }

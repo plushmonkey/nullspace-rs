@@ -119,7 +119,7 @@ impl MapRenderer {
 
         let tiledata_texture = Texture::new_2d(device, 1024, 1024, wgpu::TextureFormat::R8Uint);
         let tileset_texture = Texture::new_2d_array(device, 16, 16, 190, tileset_view_format);
-        let tileset_sampler = Texture::create_nearest_sampler(device);
+        let tileset_sampler = Texture::create_sampler(device);
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,

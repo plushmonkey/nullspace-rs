@@ -1,12 +1,15 @@
 use crate::{
+    arena_settings::ArenaSettings,
     clock::GameTick,
     math::{Position, Velocity},
-    player::PlayerId,
+    player::{Player, PlayerId},
+    ship::ShipKind,
 };
 
 #[derive(Copy, Clone)]
 pub struct BulletWeapon {
     pub level: u8,
+    pub multi: bool,
     pub link_id: Option<u32>,
 }
 
@@ -29,17 +32,29 @@ pub struct BombWeapon {
 
     pub remaining_bounces: u32,
     pub rng_seed: i32,
-    pub prox: Option<ProximityBombData>,
+    pub active_prox: Option<ProximityBombData>,
 }
 
 impl BombWeapon {
-    pub fn initialize_rng_seed(&mut self, position: Position, velocity: Velocity, frequency: u16) {
+    pub fn initialize_rng_seed(
+        &mut self,
+        position: Position,
+        velocity: Velocity,
+        heading: glam::Vec2,
+        speed: u32,
+        frequency: u16,
+    ) {
+        let mut velocity = velocity;
+
+        velocity.x.0 += (heading.x * speed as f32) as i32;
+        velocity.y.0 += (heading.y * speed as f32) as i32;
+
         self.rng_seed = (self.shrapnel_count as u32)
             .wrapping_add(self.level as u32)
             .wrapping_add(position.x.0 as u32)
             .wrapping_add(position.y.0 as u32)
-            .wrapping_add_signed(velocity.x.0 as i32)
-            .wrapping_add_signed(velocity.y.0 as i32)
+            .wrapping_add(velocity.x.0 as u32)
+            .wrapping_add(velocity.y.0 as u32)
             .wrapping_add(frequency as u32) as i32;
     }
 }
@@ -61,6 +76,41 @@ pub struct BurstWeapon {
 }
 
 #[derive(Copy, Clone)]
+struct WeaponPacketParameters {
+    value: u16,
+}
+
+impl WeaponPacketParameters {
+    pub fn new(value: u16) -> Self {
+        Self { value }
+    }
+
+    pub fn kind(&self) -> u16 {
+        self.value & 0x1F
+    }
+
+    pub fn level(&self) -> u8 {
+        ((self.value >> 5) & 0x03) as u8
+    }
+
+    pub fn shrapnel_bouncing(&self) -> bool {
+        (self.value >> 7) & 0x01 != 0
+    }
+
+    pub fn shrapnel_level(&self) -> u8 {
+        ((self.value >> 8) & 0x03) as u8
+    }
+
+    pub fn shrapnel_count(&self) -> u8 {
+        ((self.value >> 10) & 0x1F) as u8
+    }
+
+    pub fn alternate(&self) -> bool {
+        (self.value >> 15) & 0x01 != 0
+    }
+}
+
+#[derive(Copy, Clone)]
 pub enum WeaponKind {
     None,
     Bullet(BulletWeapon),
@@ -73,6 +123,109 @@ pub enum WeaponKind {
     Thor,
     Wormhole,
     Shrapnel(ShrapnelWeapon),
+}
+
+impl WeaponKind {
+    pub fn new(
+        packed: u16,
+        position: Position,
+        velocity: Velocity,
+        player: &Player,
+        settings: &ArenaSettings,
+    ) -> Option<Self> {
+        let parameters = WeaponPacketParameters::new(packed);
+        let frequency = player.frequency;
+
+        if player.ship_kind == ShipKind::Spectator {
+            return None;
+        }
+
+        let ship_settings = settings.get_ship_settings(player.ship_kind);
+
+        let kind = match parameters.kind() {
+            1 => {
+                let kind = WeaponKind::Bullet(BulletWeapon {
+                    level: parameters.level(),
+                    multi: parameters.alternate(),
+                    link_id: None,
+                });
+
+                kind
+            }
+            2 => {
+                let kind = WeaponKind::BouncingBullet(BulletWeapon {
+                    level: parameters.level(),
+                    multi: parameters.alternate(),
+                    link_id: None,
+                });
+
+                kind
+            }
+            3 => {
+                let emp = ship_settings.emp_bomb;
+                let remaining_bounces = ship_settings.bomb_bounce_count as u32;
+
+                let mut bomb_weapon = BombWeapon {
+                    level: parameters.level(),
+                    shrapnel_count: parameters.shrapnel_count(),
+                    shrapnel_level: parameters.shrapnel_level(),
+                    shrapnel_bouncing: parameters.shrapnel_bouncing(),
+                    mine: parameters.alternate(),
+                    emp,
+                    remaining_bounces,
+                    rng_seed: 0,
+                    active_prox: None,
+                };
+
+                bomb_weapon.initialize_rng_seed(
+                    position,
+                    velocity,
+                    player.get_heading(),
+                    ship_settings.bomb_speed as u32,
+                    frequency,
+                );
+
+                WeaponKind::Bomb(bomb_weapon)
+            }
+            4 => {
+                let emp = ship_settings.emp_bomb;
+                let remaining_bounces = ship_settings.bomb_bounce_count as u32;
+
+                let mut bomb_weapon = BombWeapon {
+                    level: parameters.level(),
+                    shrapnel_count: parameters.shrapnel_count(),
+                    shrapnel_level: parameters.shrapnel_level(),
+                    shrapnel_bouncing: parameters.shrapnel_bouncing(),
+                    mine: parameters.alternate(),
+                    emp,
+                    remaining_bounces,
+                    rng_seed: 0,
+                    active_prox: None,
+                };
+
+                bomb_weapon.initialize_rng_seed(
+                    position,
+                    velocity,
+                    player.get_heading(),
+                    ship_settings.bomb_speed as u32,
+                    frequency,
+                );
+
+                WeaponKind::ProximityBomb(bomb_weapon)
+            }
+            5 => WeaponKind::Repel,
+            6 => WeaponKind::Decoy(DecoyWeapon {
+                initial_rotation: player.direction,
+            }),
+            7 => WeaponKind::Burst(BurstWeapon { active: false }),
+            8 => WeaponKind::Thor,
+            _ => {
+                return None;
+            }
+        };
+
+        Some(kind)
+    }
 }
 
 pub struct Weapon {
@@ -96,15 +249,6 @@ impl Weapon {
         frequency: u16,
         remaining_ticks: u32,
     ) -> Self {
-        let mut kind = kind;
-
-        match &mut kind {
-            WeaponKind::Bomb(bomb_weapon) | WeaponKind::ProximityBomb(bomb_weapon) => {
-                bomb_weapon.initialize_rng_seed(position, velocity, frequency);
-            }
-            _ => {}
-        }
-
         Self {
             kind,
             position,

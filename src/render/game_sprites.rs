@@ -66,13 +66,23 @@ impl SpriteSet {
 #[derive(Copy, Clone, Debug)]
 pub enum GameSpriteKind {
     Ships,
+    Bullets,
+    Bombs,
+    Mines,
+    Shrapnel,
+    Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
-const GAME_SPRITE_KIND_SIZE: usize = GameSpriteKind::Ships as usize + 1;
+const GAME_SPRITE_KIND_SIZE: usize = GameSpriteKind::Repel as usize + 1;
 
 // cols, rows definition for each sprite kind
 const SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
-    (10, 4 * 8), // 4 rows for each ship kind (8)
+    (10, 4 * 8), // Ships 4 rows for each ship kind (8)
+    (4, 10),     // Bullets
+    (10, 13),    // Bombs
+    (10, 8),     // Mines
+    (10, 6),     // Shrapnel
+    (5, 2),      // Repel
 ];
 
 pub struct GameSprites {
@@ -81,9 +91,8 @@ pub struct GameSprites {
 
 impl GameSprites {
     pub fn new() -> Self {
-        Self {
-            sprites: [SpriteSet::empty(); GAME_SPRITE_KIND_SIZE],
-        }
+        let sprites = [(); GAME_SPRITE_KIND_SIZE].map(|_| SpriteSet::empty());
+        Self { sprites }
     }
 
     pub fn get_set(&self, kind: GameSpriteKind) -> Option<&SpriteSet> {
@@ -156,7 +165,15 @@ impl GameSpriteLoader {
     }
 
     async fn load_impl(sender: Sender<LoadSet>) {
-        let fetches = [(GameSpriteKind::Ships, "graphics/ships.png")];
+        let fetches: [(GameSpriteKind, &str); GAME_SPRITE_KIND_SIZE] = [
+            (GameSpriteKind::Ships, "graphics/ships.png"),
+            (GameSpriteKind::Bullets, "graphics/bullets.bm2"),
+            (GameSpriteKind::Bombs, "graphics/bombs.bm2"),
+            (GameSpriteKind::Mines, "graphics/mines.bm2"),
+            (GameSpriteKind::Shrapnel, "graphics/shrapnel.bm2"),
+            (GameSpriteKind::Repel, "graphics/repel.bm2"),
+        ];
+
         assert!(fetches.len() == GAME_SPRITE_KIND_SIZE);
 
         // Kick off each load here, then collect them below

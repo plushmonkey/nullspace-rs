@@ -93,7 +93,7 @@ impl SpriteRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let sampler = Texture::create_nearest_sampler(device);
+        let sampler = Texture::create_sampler(device);
 
         // TODO: These probably dont need filterable samplers
 
