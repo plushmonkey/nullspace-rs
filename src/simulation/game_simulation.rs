@@ -27,7 +27,7 @@ impl Simulation {
         }
 
         self.weapon_manager
-            .simulate(map, settings, &mut self.player_manager);
+            .simulate(map, settings, &mut self.player_manager, self.tick);
 
         self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
     }

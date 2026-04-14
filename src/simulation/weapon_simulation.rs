@@ -169,8 +169,8 @@ impl WeaponManager {
         heading: glam::Vec2,
         kind: WeaponKind,
         settings: &ArenaSettings,
-        _timestamp: GameTick, // TODO: Sim
-        _current_tick: GameTick,
+        timestamp: GameTick, // TODO: Sim
+        current_tick: GameTick,
     ) -> WeaponSimulateResult {
         let ship_settings = settings.get_ship_settings(player.ship_kind);
 
@@ -194,7 +194,7 @@ impl WeaponManager {
                 (speed, remaining_ticks)
             }
             WeaponKind::Repel => {
-                let remaining_ticks = 50; // TODO: How long does repels last?
+                let remaining_ticks = 60;
 
                 (0, remaining_ticks)
             }
@@ -209,6 +209,9 @@ impl WeaponManager {
             ),
             _ => (0, 0),
         };
+
+        let tick_delay = current_tick.diff(&timestamp);
+        let remaining_ticks = remaining_ticks.saturating_sub_signed(tick_delay);
 
         let velocity = match &kind {
             WeaponKind::Repel => Velocity::new(PositionUnit(0), PositionUnit(0)),
@@ -242,6 +245,7 @@ impl WeaponManager {
             player.id,
             player.frequency,
             remaining_ticks,
+            timestamp,
         );
 
         // TODO: Simulate
@@ -256,6 +260,7 @@ impl WeaponManager {
         map: &Map,
         settings: &ArenaSettings,
         player_manager: &mut PlayerManager,
+        current_tick: GameTick,
     ) {
         let mut weapon_index: usize = 0;
 
@@ -275,7 +280,7 @@ impl WeaponManager {
             if sim_result == WeaponSimulateResult::PlayerExplosion
                 || sim_result == WeaponSimulateResult::WallExplosion
             {
-                self.handle_weapon_explosion(map, settings, weapon_index);
+                self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
             }
 
             if sim_result != WeaponSimulateResult::Continue {
@@ -294,7 +299,7 @@ impl WeaponManager {
         player_manager: &mut PlayerManager,
         weapon: &mut Weapon,
     ) -> WeaponSimulateResult {
-        if weapon.remaining_ticks > 0 {
+        if weapon.remaining_ticks > 1 {
             weapon.remaining_ticks = weapon.remaining_ticks.saturating_sub(1);
         } else {
             return WeaponSimulateResult::TimedOut;
@@ -392,6 +397,7 @@ impl WeaponManager {
         map: &Map,
         settings: &ArenaSettings,
         weapon_index: usize,
+        current_tick: GameTick,
     ) {
         let weapon = &self.weapons[weapon_index];
 
@@ -439,6 +445,7 @@ impl WeaponManager {
                         player_id,
                         frequency,
                         settings.bullet_alive_time as u32,
+                        current_tick,
                     ));
                 }
             }

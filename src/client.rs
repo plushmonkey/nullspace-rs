@@ -133,7 +133,8 @@ impl Client {
                 match weapon.kind {
                     WeaponKind::Bullet(bullet) => {
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
-                            let renderable_index = (bullet.level * 4) as usize;
+                            let animation_index = self.get_animation_index(4, 20);
+                            let renderable_index = (bullet.level * 4) as usize + animation_index;
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
                                 &render_state.camera,
@@ -145,7 +146,9 @@ impl Client {
                         }
                     }
                     WeaponKind::BouncingBullet(bouncing) => {
-                        let renderable_index = (bouncing.level * 4) as usize + 5 * 4;
+                        let animation_index = self.get_animation_index(4, 20);
+                        let renderable_index =
+                            (bouncing.level * 4) as usize + 5 * 4 + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -158,6 +161,8 @@ impl Client {
                         }
                     }
                     WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                        let animation_index = self.get_animation_index(10, 100);
+
                         if bomb.mine {
                             let renderable_index = {
                                 if bomb.emp {
@@ -165,7 +170,7 @@ impl Client {
                                 } else {
                                     (bomb.level * 10) as usize
                                 }
-                            };
+                            } + animation_index;
 
                             if let Some(renderables) = sprites.get_set(GameSpriteKind::Mines) {
                                 let renderable = &renderables.renderables[renderable_index];
@@ -188,7 +193,7 @@ impl Client {
                                         (bomb.level * 10) as usize
                                     }
                                 }
-                            };
+                            } + animation_index;
 
                             if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
                                 let renderable = &renderables.renderables[renderable_index];
@@ -203,7 +208,8 @@ impl Client {
                         }
                     }
                     WeaponKind::Thor => {
-                        let renderable_index = 120;
+                        let animation_index = self.get_animation_index(10, 100);
+                        let renderable_index = 120 + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -216,8 +222,10 @@ impl Client {
                         }
                     }
                     WeaponKind::Shrapnel(shrapnel) => {
-                        let renderable_index =
-                            (shrapnel.level as usize * 10) + (shrapnel.bouncing as usize) * 30;
+                        let animation_index = self.get_animation_index(10, 60);
+                        let renderable_index = (shrapnel.level as usize * 10)
+                            + (shrapnel.bouncing as usize) * 30
+                            + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Shrapnel) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -230,7 +238,12 @@ impl Client {
                         }
                     }
                     WeaponKind::Repel => {
-                        let renderable_index = 7;
+                        let ticks_per_frame = 60 / 10;
+                        let ticks = (self.connection.get_game_tick() - weapon.spawn_timestamp)
+                            .value() as usize;
+                        let animation_index = (ticks / ticks_per_frame) % 10;
+
+                        let renderable_index = animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Repel) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -243,7 +256,9 @@ impl Client {
                         }
                     }
                     WeaponKind::Burst(burst) => {
-                        let renderable_index = (4 * 4) + 2 + (burst.active as usize) * (4 * 4);
+                        let animation_index = self.get_animation_index(4, 20);
+                        let renderable_index =
+                            (4 * 4) + (burst.active as usize) * (5 * 4) + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -255,10 +270,53 @@ impl Client {
                             );
                         }
                     }
+                    WeaponKind::Decoy(decoy) => {
+                        if let Some(player) =
+                            self.simulation.player_manager.get_by_id(weapon.player_id)
+                        {
+                            let orientation = ((decoy.initial_rotation + 40)
+                                - (((player.direction + 40) - decoy.initial_rotation) % 40))
+                                % 40;
+
+                            let ship_kind_index = player.ship_kind.network_value() as usize * 40;
+                            let ship_index = ship_kind_index + orientation as usize;
+
+                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Ships) {
+                                let renderable = &renderables.renderables[ship_index];
+
+                                render_state.sprite_renderer.draw_centered(
+                                    &render_state.camera,
+                                    renderable,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::Ships,
+                                );
+
+                                let name_x = x_pixels + (renderable.size[0] as i32) / 2;
+                                let name_y = y_pixels + (renderable.size[1] as i32) / 2;
+
+                                render_state.draw_world_text(
+                                    &format!("{}({})", player.name, player.bounty),
+                                    name_x,
+                                    name_y,
+                                    Layer::Ships,
+                                    TextColor::Yellow,
+                                    TextAlignment::Left,
+                                );
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
         }
+    }
+
+    fn get_animation_index(&self, frames: usize, duration: usize) -> usize {
+        let ticks_per_frame = duration / frames;
+        let ticks = self.connection.get_game_tick().value() as usize;
+
+        (ticks / ticks_per_frame) % frames
     }
 
     pub fn update(
@@ -562,13 +620,20 @@ impl Client {
                         player.ping = message.ping;
                         player.last_position_timestamp = message_timestamp;
 
-                        log::debug!(
+                        log::trace!(
                             "[SmallPosition] {} at {:?} {:?}",
                             player.name,
                             player.position,
                             player.velocity
                         );
+                    } else {
+                        self.validate_packet_timestamp(message_timestamp, "small");
                     }
+                } else {
+                    log::warn!(
+                        "got small position packet from bad player id {}",
+                        message.player_id.value
+                    );
                 }
             }
             GameServerMessage::LargePosition(message) => {
@@ -609,12 +674,15 @@ impl Client {
                         player.ping = message.ping;
                         player.last_position_timestamp = message_timestamp;
 
-                        log::debug!(
+                        log::trace!(
                             "[LargePosition] {} at {:?} {}",
                             player.name,
                             player.position,
                             message.weapon
                         );
+                    } else {
+                        self.validate_packet_timestamp(message_timestamp, "large");
+                        return Ok(());
                     }
 
                     let weapon_kind =
@@ -629,7 +697,14 @@ impl Client {
                             message_timestamp,
                             self.connection.get_game_tick(),
                         );
+                    } else if message.weapon != 0 {
+                        log::warn!("Failed to create WeaponKind from {}", message.weapon);
                     }
+                } else {
+                    log::warn!(
+                        "got large position packet from bad player id {}",
+                        message.player_id.value
+                    );
                 }
             }
             GameServerMessage::BatchedSmallPosition(message) => {
@@ -667,13 +742,20 @@ impl Client {
                             player.direction = message.direction;
                             player.last_position_timestamp = message_timestamp;
 
-                            log::debug!(
+                            log::trace!(
                                 "[BatchedSmall] {} at {:?} {:?}",
                                 player.name,
                                 player.position,
                                 player.velocity
                             );
+                        } else {
+                            self.validate_packet_timestamp(message_timestamp, "small batched");
                         }
+                    } else {
+                        log::warn!(
+                            "got small batched position packet from bad player id {}",
+                            message.player_id.value
+                        );
                     }
                 }
             }
@@ -715,13 +797,20 @@ impl Client {
                                 player.status = status;
                             }
 
-                            log::debug!(
+                            log::trace!(
                                 "[BatchedLarge] {} at {:?} {:?}",
                                 player.name,
                                 player.position,
                                 player.velocity
                             );
+                        } else {
+                            self.validate_packet_timestamp(message_timestamp, "large batched");
                         }
+                    } else {
+                        log::warn!(
+                            "got large batched position packet from bad player id {}",
+                            message.player_id.value
+                        );
                     }
                 }
             }
@@ -845,6 +934,19 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    fn validate_packet_timestamp(&self, timestamp: GameTick, ctx: &str) {
+        let now = self.connection.get_game_tick();
+
+        if now.diff(&timestamp) > 300 {
+            log::warn!(
+                "Received {} packet timestamp that was far out of range of normal Recv: {} Now: {}",
+                ctx,
+                timestamp.value(),
+                now.value()
+            );
+        }
     }
 
     fn handle_map_load(&mut self, map: Map, checksum: u32) {

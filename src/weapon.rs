@@ -238,6 +238,7 @@ pub struct Weapon {
     pub frequency: u16,
 
     pub remaining_ticks: u32,
+    pub spawn_timestamp: GameTick,
 }
 
 impl Weapon {
@@ -248,6 +249,7 @@ impl Weapon {
         player_id: PlayerId,
         frequency: u16,
         remaining_ticks: u32,
+        spawn_timestamp: GameTick,
     ) -> Self {
         Self {
             kind,
@@ -256,6 +258,7 @@ impl Weapon {
             player_id,
             frequency,
             remaining_ticks,
+            spawn_timestamp,
         }
     }
 }
