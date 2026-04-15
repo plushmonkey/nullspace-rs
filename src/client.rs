@@ -91,6 +91,7 @@ impl Client {
             if player.ship_kind != ShipKind::Spectator {
                 if let Some(player_position) = player.position {
                     render_state.camera.position = player_position.into();
+                    self.spec_freq = player.frequency;
                 }
                 break;
             }

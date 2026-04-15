@@ -308,7 +308,8 @@ impl WeaponManager {
                     map,
                     settings,
                     player_manager,
-                    &mut self.weapons[weapon_index],
+                    self,
+                    weapon_index,
                     current_tick,
                 );
 
@@ -366,9 +367,12 @@ impl WeaponManager {
         map: &Map,
         settings: &ArenaSettings,
         player_manager: &mut PlayerManager,
-        weapon: &mut Weapon,
+        weapon_manager: &mut WeaponManager,
+        weapon_index: usize,
         current_tick: GameTick,
     ) -> WeaponSimulateResult {
+        let weapon = &mut weapon_manager.weapons[weapon_index];
+
         if weapon.remaining_ticks > 1 {
             weapon.remaining_ticks = weapon.remaining_ticks.saturating_sub(1);
         } else {
@@ -441,7 +445,7 @@ impl WeaponManager {
                 return WeaponSimulateResult::Continue;
             }
             WeaponKind::Repel => {
-                Self::simulate_repel(map, settings, player_manager, weapon, current_tick);
+                Self::simulate_repel(map, settings, player_manager, weapon_manager, weapon_index);
 
                 return WeaponSimulateResult::Continue;
             }
@@ -593,13 +597,75 @@ impl WeaponManager {
     }
 
     fn simulate_repel(
-        _map: &Map,
-        _settings: &ArenaSettings,
-        _player_manager: &mut PlayerManager,
-        _weapon: &mut Weapon,
-        _current_tick: GameTick,
+        map: &Map,
+        settings: &ArenaSettings,
+        player_manager: &mut PlayerManager,
+        weapon_manager: &mut WeaponManager,
+        weapon_index: usize,
     ) {
-        // TODO: Implement.
+        let effect_radius = settings.repel_distance as i32;
+        let effect_speed = settings.repel_speed;
+        let repel_weapon = &weapon_manager.weapons[weapon_index];
+        let repel_position = repel_weapon.position;
+        let repel_freq = repel_weapon.frequency;
+
+        let collider = Rectangle::from_radius(repel_position, PixelUnit(effect_radius).into());
+
+        for weapon in &mut weapon_manager.weapons {
+            if weapon.frequency == repel_freq {
+                continue;
+            }
+
+            if let WeaponKind::Repel = weapon.kind {
+                continue;
+            }
+
+            if collider.contains(weapon.position) {
+                let dx = weapon.position.x.0 - repel_position.x.0;
+                let dy = weapon.position.y.0 - repel_position.y.0;
+
+                let direction = glam::Vec2::new(dx as f32, dy as f32).normalize();
+
+                weapon.velocity.x = PositionUnit((direction.x * effect_speed as f32) as i32);
+                weapon.velocity.y = PositionUnit((direction.y * effect_speed as f32) as i32);
+
+                // Convert mines into bombs with new bomb alive time.
+                if let WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) = &mut weapon.kind {
+                    if bomb.mine {
+                        bomb.mine = false;
+                        weapon.remaining_ticks = settings.mine_alive_time as u32;
+                    }
+                }
+            }
+        }
+
+        for player in &mut player_manager.players {
+            if player.frequency == repel_freq || player.is_dead() {
+                continue;
+            }
+
+            if player.ship_kind == ShipKind::Spectator {
+                continue;
+            }
+
+            let Some(player_position) = player.position else {
+                continue;
+            };
+
+            if collider.contains(player_position) {
+                if map.get_tile_from_position(&player_position) == TILE_ID_SAFE {
+                    continue;
+                }
+
+                let dx = player_position.x.0 - repel_position.x.0;
+                let dy = player_position.y.0 - repel_position.y.0;
+
+                let direction = glam::Vec2::new(dx as f32, dy as f32).normalize();
+
+                player.velocity.x = PositionUnit((direction.x * effect_speed as f32) as i32);
+                player.velocity.y = PositionUnit((direction.y * effect_speed as f32) as i32);
+            }
+        }
     }
 
     fn handle_weapon_explosion(

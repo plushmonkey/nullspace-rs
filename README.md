@@ -20,7 +20,7 @@ They can be modified in `game_connection`, `proxy_url`, and `proxy_hash`. Those 
 `game_connection`: Must be ipv4 address and port separated by `:`, such as `127.0.0.1:5000`.  
 
 #### Web config
-`proxy_url`: Must be a url starting with `https://` and ending with a port, such as `https://localhost:4433`.  
+`proxy_url`: Must be a url starting with `https://` and ending with a port, such as `https://127.0.0.1:4433`.  
 `proxy_hash`: Must be the list of numbers output from the proxy after launching it. This is only required if running in non-secure environment.  
 
 ### Web
