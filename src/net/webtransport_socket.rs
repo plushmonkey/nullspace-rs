@@ -24,10 +24,10 @@ impl WebTransportSocket {
     pub fn new(url: &str) -> Result<Self, ConnectionError> {
         let options = web_sys::WebTransportOptions::new();
         let cert_hash = web_sys::WebTransportHash::new();
-        let hash = [
-            189, 143, 63, 185, 26, 37, 160, 51, 108, 112, 28, 131, 119, 187, 229, 173, 72, 144,
-            147, 57, 32, 137, 54, 205, 168, 130, 246, 238, 66, 199, 189, 58,
-        ];
+        let hash: Vec<u8> = include_str!("../../proxy_hash")[..]
+            .split(',')
+            .map(|v| v.trim().parse::<u8>().unwrap())
+            .collect();
         let hash_array = js_sys::Uint8Array::new_from_slice(&hash);
 
         cert_hash.set_algorithm("sha-256");

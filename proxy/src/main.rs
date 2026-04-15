@@ -29,12 +29,11 @@ async fn main() {
         .unwrap();
 
     println!("Certificate hash (used for local certificate bypass): ");
-    println!(
-        "new Uint8Array({}),",
-        identity.certificate_chain().as_slice()[0]
-            .hash()
-            .fmt(wtransport::tls::Sha256DigestFmt::BytesArray)
-    );
+    let hash = identity.certificate_chain().as_slice()[0]
+        .hash()
+        .fmt(wtransport::tls::Sha256DigestFmt::BytesArray);
+
+    println!("proxy_hash: {}", &hash[1..hash.len() - 1]);
 
     // Listen on IPv4 only so the connection data can be sent to the server.
     let config = ServerConfig::builder()
@@ -74,7 +73,7 @@ async fn send_to_server(socket: &UdpSocket, _from: &SocketAddr, data: &[u8]) {
         full_data[4..6].copy_from_slice(&port.to_be_bytes());
         full_data[6..].copy_from_slice(data);
     */
-    println!("Sending {:?} to game server.", data);
+    //println!("Sending {:?} to game server.", data);
 
     if let Err(e) = socket.send(data).await {
         println!("socket_send_error: {e}");

@@ -258,6 +258,7 @@ pub struct Weapon {
 
     pub remaining_ticks: u32,
     pub spawn_timestamp: GameTick,
+    pub last_update_tick: GameTick,
 }
 
 impl Weapon {
@@ -278,6 +279,7 @@ impl Weapon {
             frequency,
             remaining_ticks,
             spawn_timestamp,
+            last_update_tick: spawn_timestamp,
         }
     }
 }

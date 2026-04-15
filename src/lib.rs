@@ -129,12 +129,31 @@ struct ApplicationPlayingState {
 
 impl ApplicationPlayingState {
     pub fn new(sprites: GameSprites) -> Self {
+        let socket;
+
         #[cfg(not(target_arch = "wasm32"))]
-        let socket = crate::net::udp_socket::UdpSocket::new("127.0.0.1", 5000).unwrap();
+        {
+            let game_connection = include_str!("../game_connection");
+            let remote_addr_parts: Vec<&str> = game_connection.split(':').collect();
+            if remote_addr_parts.len() != 2 {
+                panic!(
+                    "Invalid game connection {}. Must be ip:port.",
+                    game_connection
+                );
+            }
+            let ip = remote_addr_parts[0].trim();
+            let port: u16 = remote_addr_parts[1]
+                .trim()
+                .parse::<u16>()
+                .expect("invalid port in game connection");
+
+            socket = crate::net::udp_socket::UdpSocket::new(ip, port).unwrap();
+        }
         #[cfg(target_arch = "wasm32")]
-        let socket =
-            crate::net::webtransport_socket::WebTransportSocket::new("https://127.0.0.1:4433")
-                .unwrap();
+        {
+            let url = include_str!("../proxy_url");
+            socket = crate::net::webtransport_socket::WebTransportSocket::new(url).unwrap();
+        }
 
         let registration = RegistrationFormMessage::new(
             "nullspace",

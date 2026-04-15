@@ -46,6 +46,10 @@ impl WeaponManager {
             return 0;
         }
 
+        let Some(player_position) = player.position else {
+            return 0;
+        };
+
         let ship_settings = settings.get_ship_settings(player.ship_kind);
         let mut spawn_count = 0;
 
@@ -66,7 +70,7 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player.position
+                        player_position
                             - Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
                         player.get_heading(),
@@ -79,7 +83,7 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player.position
+                        player_position
                             + Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
                         player.get_heading(),
@@ -92,7 +96,7 @@ impl WeaponManager {
                 } else {
                     self.spawn_weapon(
                         player,
-                        player.position,
+                        player_position,
                         velocity,
                         player.get_heading(),
                         kind,
@@ -111,7 +115,7 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player.position,
+                        player_position,
                         velocity,
                         first_heading,
                         kind,
@@ -123,7 +127,7 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player.position,
+                        player_position,
                         velocity,
                         second_heading,
                         kind,
@@ -143,7 +147,7 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player.position,
+                        player_position,
                         velocity,
                         direction,
                         kind,
@@ -157,7 +161,7 @@ impl WeaponManager {
             _ => {
                 self.spawn_weapon(
                     player,
-                    player.position,
+                    player_position,
                     velocity,
                     player.get_heading(),
                     kind,
@@ -182,7 +186,7 @@ impl WeaponManager {
         settings: &ArenaSettings,
         timestamp: GameTick, // TODO: Sim
         current_tick: GameTick,
-    ) -> WeaponSimulateResult {
+    ) {
         let ship_settings = settings.get_ship_settings(player.ship_kind);
 
         let (speed, remaining_ticks) = match &kind {
@@ -249,6 +253,12 @@ impl WeaponManager {
             }
         };
 
+        // Player sends a weapon packet with their game time at the time of spawn, server receives that and changes the timestamp to the time the server received it.
+        // The server calculates the difference and stores that in ping.
+        // So we must reduce the timestamp by the ping to get the game tick spawn time.
+        //
+        // This is used during the simulation step to tick enough times to match our current game tick.
+        let spawn_timestamp = timestamp + -(player.ping as i32);
         let weapon = Weapon::new(
             kind,
             position,
@@ -256,14 +266,10 @@ impl WeaponManager {
             player.id,
             player.frequency,
             remaining_ticks,
-            timestamp,
+            spawn_timestamp,
         );
 
-        // TODO: Simulate
-
         self.weapons.push(weapon);
-
-        WeaponSimulateResult::Continue
     }
 
     pub fn simulate(
@@ -278,47 +284,55 @@ impl WeaponManager {
         let mut link_removal = vec![];
 
         // Custom loop for weapon ticking instead of using iterators, just to make sure it never reconstructs vector and never shuffle-removes.
-        loop {
+        'main_loop: loop {
             if weapon_index >= self.weapons.len() {
                 break;
             }
 
-            if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
-                &self.weapons[weapon_index].kind
-            {
-                if let Some(link_id) = &bullet.link_id {
-                    if link_removal.contains(link_id) {
-                        weapon_index += 1;
-                        continue;
-                    }
-                }
-            }
-
-            let sim_result = Self::tick_weapon(
-                map,
-                settings,
-                player_manager,
-                &mut self.weapons[weapon_index],
-                current_tick,
-            );
-
-            if sim_result == WeaponSimulateResult::PlayerExplosion
-                || sim_result == WeaponSimulateResult::WallExplosion
-            {
-                self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
-            }
-
-            if sim_result != WeaponSimulateResult::Continue {
+            // Weapons are spawned without being simulated, so we must simulate them forward here to match current gamestate.
+            let weapon_update_count =
+                current_tick.diff(&self.weapons[weapon_index].last_update_tick);
+            for _ in 0..weapon_update_count {
                 if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
                     &self.weapons[weapon_index].kind
                 {
-                    if let Some(link_id) = bullet.link_id {
-                        link_removal.push(link_id);
+                    if let Some(link_id) = &bullet.link_id {
+                        if link_removal.contains(link_id) {
+                            weapon_index += 1;
+                            continue 'main_loop;
+                        }
                     }
                 }
 
-                self.weapons.swap_remove(weapon_index);
-                continue;
+                let sim_result = Self::tick_weapon(
+                    map,
+                    settings,
+                    player_manager,
+                    &mut self.weapons[weapon_index],
+                    current_tick,
+                );
+
+                self.weapons[weapon_index].last_update_tick =
+                    self.weapons[weapon_index].last_update_tick + 1;
+
+                if sim_result == WeaponSimulateResult::PlayerExplosion
+                    || sim_result == WeaponSimulateResult::WallExplosion
+                {
+                    self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
+                }
+
+                if sim_result != WeaponSimulateResult::Continue {
+                    if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
+                        &self.weapons[weapon_index].kind
+                    {
+                        if let Some(link_id) = bullet.link_id {
+                            link_removal.push(link_id);
+                        }
+                    }
+
+                    self.weapons.swap_remove(weapon_index);
+                    continue 'main_loop;
+                }
             }
 
             weapon_index += 1;
@@ -367,8 +381,11 @@ impl WeaponManager {
         }
 
         let player = player.expect("weapon player should exist during tick");
+        let Some(player_position) = player.position else {
+            return WeaponSimulateResult::TimedOut;
+        };
         if player.ship_kind == ShipKind::Spectator
-            || map.get_tile_from_position(&player.position) == TILE_ID_SAFE
+            || map.get_tile_from_position(&player_position) == TILE_ID_SAFE
         {
             return WeaponSimulateResult::TimedOut;
         }
@@ -393,9 +410,13 @@ impl WeaponManager {
                         return WeaponSimulateResult::PlayerExplosion;
                     }
 
+                    let Some(hit_player_position) = hit_player.position else {
+                        return WeaponSimulateResult::PlayerExplosion;
+                    };
+
                     let highest = ProximityBombData::calculate_highest_delta(
                         weapon.position,
-                        hit_player.position,
+                        hit_player_position,
                     );
 
                     if highest > active_prox.highest_offset
@@ -454,14 +475,12 @@ impl WeaponManager {
             }
 
             if !player.is_synchronized(current_tick) {
-                log::info!(
-                    "player {} is not synchronized: {} {}",
-                    player.name,
-                    current_tick.value(),
-                    player.last_position_timestamp.value()
-                );
                 continue;
             }
+
+            let Some(player_position) = player.position else {
+                continue;
+            };
 
             let ship_settings = settings.get_ship_settings(player.ship_kind);
 
@@ -473,7 +492,7 @@ impl WeaponManager {
 
             let collider = Rectangle::from_radius(weapon.position, weapon_radius + player_radius);
 
-            if collider.contains(player.position) {
+            if collider.contains(player_position) {
                 match &mut weapon.kind {
                     WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
                         // We don't perform more collisions after activating sensor, so this bomb should not have active prox.
@@ -481,7 +500,7 @@ impl WeaponManager {
 
                         let highest_offset = ProximityBombData::calculate_highest_delta(
                             weapon.position,
-                            player.position,
+                            player_position,
                         );
 
                         // If we had a collision during the first update tick, then we should activate the sensor immediately because it's a close bomb.

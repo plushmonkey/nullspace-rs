@@ -94,7 +94,7 @@ pub struct Player {
     pub ship_kind: ShipKind,
     pub frequency: u16,
 
-    pub position: Position,
+    pub position: Option<Position>,
     pub velocity: Velocity,
 
     pub lerp_velocity: Velocity,
@@ -125,7 +125,7 @@ impl Player {
             name: name.to_owned(),
             squad: squad.to_owned(),
 
-            position: Position::empty(),
+            position: None,
             velocity: Velocity::new(PositionUnit(0), PositionUnit(0)),
             lerp_velocity: Velocity::new(PositionUnit(0), PositionUnit(0)),
             lerp_remaining_ticks: 0,
@@ -153,7 +153,11 @@ impl Player {
     }
 
     pub fn get_collider(&self, radius: u16) -> Rectangle {
-        Rectangle::from_radius(self.position, PositionUnit(radius as i32 * 1000))
+        if let Some(position) = self.position {
+            Rectangle::from_radius(position, PositionUnit(radius as i32 * 1000))
+        } else {
+            Rectangle::from_radius(Position::empty(), PositionUnit(0))
+        }
     }
 
     pub fn get_heading(&self) -> glam::Vec2 {

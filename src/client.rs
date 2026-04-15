@@ -89,7 +89,9 @@ impl Client {
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {
-                render_state.camera.position = player.position.into();
+                if let Some(player_position) = player.position {
+                    render_state.camera.position = player_position.into();
+                }
                 break;
             }
         }
@@ -111,8 +113,12 @@ impl Client {
                 continue;
             }
 
-            let x_pixels = player.position.x.0 / 1000;
-            let y_pixels = player.position.y.0 / 1000;
+            let Some(player_position) = player.position else {
+                continue;
+            };
+
+            let x_pixels = player_position.x.0 / 1000;
+            let y_pixels = player_position.y.0 / 1000;
 
             if let Some(ship_renderables) = sprites.get_set(GameSpriteKind::Ships) {
                 let ship_kind_index = player.ship_kind.network_value() as usize * 40;
@@ -656,7 +662,8 @@ impl Client {
                             PositionUnit(message.y_velocity as i32),
                         );
 
-                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp);
+                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp)
+                            + message.ping as i32;
                         update_player_lerp_target(
                             player,
                             position,
@@ -714,7 +721,8 @@ impl Client {
                     if player.last_position_timestamp < message_timestamp {
                         player.velocity = velocity;
 
-                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp);
+                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp)
+                            + message.ping as i32;
                         update_player_lerp_target(
                             player,
                             position,
@@ -907,6 +915,7 @@ impl Client {
                     .get_by_id_mut(message.killed_id)
                 {
                     killed.enter_delay = self.settings.enter_delay as u16;
+                    killed.position = None;
                 }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {
@@ -926,6 +935,7 @@ impl Client {
                 {
                     player.ship_kind = change.ship_kind;
                     player.frequency = change.frequency;
+                    player.position = None;
                 }
             }
             GameServerMessage::MapInformation(info) => {
