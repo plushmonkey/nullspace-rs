@@ -395,7 +395,7 @@ impl Client {
                         let (x_position, y_position) = match &render_state {
                             Some(render_state) => {
                                 let x_position = render_state.camera.position.x as i32 * 16;
-                                let y_position = render_state.camera.position.x as i32 * 16;
+                                let y_position = render_state.camera.position.y as i32 * 16;
 
                                 (x_position, y_position)
                             }
