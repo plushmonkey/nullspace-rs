@@ -25,8 +25,18 @@
     <canvas id="canvas"></canvas>
     <script type="module">
       import init from "./scripts/nullspace.js";
+      import { execute_app } from "./scripts/nullspace.js";
+
       init().then(() => {
         console.log("nullspace loaded");
+        
+        let hash = new Uint8Array([189, 143, 63, 185, 26, 37, 160, 51, 108, 112, 28, 131, 119, 187, 229, 173, 72, 144, 147, 57, 32, 137, 54, 205, 168, 130, 246, 238, 66, 199, 189, 58]);
+        // TODO: Could have these grabbed from some login screen before initializing.
+        // Or just don't send them in and have the application handle login info.
+        let username = "web";
+        let password = "password";
+
+        execute_app("https://127.0.0.1:4433", hash, username, password);
       });
     </script>
   </body>

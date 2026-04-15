@@ -633,7 +633,7 @@ impl WeaponManager {
                 if let WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) = &mut weapon.kind {
                     if bomb.mine {
                         bomb.mine = false;
-                        weapon.remaining_ticks = settings.mine_alive_time as u32;
+                        weapon.remaining_ticks = settings.bomb_alive_time as u32;
                     }
                 }
             }

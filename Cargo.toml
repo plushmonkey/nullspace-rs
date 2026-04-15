@@ -36,6 +36,7 @@ js-sys = "0.3.95"
 wgpu = { version = "29.0.1", default-features = false, features = ["vulkan", "wgsl"] }
 env_logger = "0.11.10"
 pollster = "0.4.0"
+clap = { version = "4.6.1", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"

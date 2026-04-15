@@ -21,18 +21,17 @@ pub struct WebTransportSocket {
 }
 
 impl WebTransportSocket {
-    pub fn new(url: &str) -> Result<Self, ConnectionError> {
+    pub fn new(url: &str, hash: Option<&Vec<u8>>) -> Result<Self, ConnectionError> {
         let options = web_sys::WebTransportOptions::new();
-        let cert_hash = web_sys::WebTransportHash::new();
-        let hash: Vec<u8> = include_str!("../../proxy_hash")[..]
-            .split(',')
-            .map(|v| v.trim().parse::<u8>().unwrap())
-            .collect();
-        let hash_array = js_sys::Uint8Array::new_from_slice(&hash);
 
-        cert_hash.set_algorithm("sha-256");
-        cert_hash.set_value_u8_array(&hash_array);
-        options.set_server_certificate_hashes(&[cert_hash]);
+        if let Some(hash) = &hash {
+            let cert_hash = web_sys::WebTransportHash::new();
+            let hash_array = js_sys::Uint8Array::new_from_slice(hash);
+
+            cert_hash.set_algorithm("sha-256");
+            cert_hash.set_value_u8_array(&hash_array);
+            options.set_server_certificate_hashes(&[cert_hash]);
+        }
 
         // The browser or web_sys doesn't seem to handle the error as Err, so just unwrap.
         let transport = web_sys::WebTransport::new_with_options(url, &options).unwrap();

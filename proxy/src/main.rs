@@ -29,11 +29,13 @@ async fn main() {
         .unwrap();
 
     println!("Certificate hash (used for local certificate bypass): ");
-    let hash = identity.certificate_chain().as_slice()[0]
-        .hash()
-        .fmt(wtransport::tls::Sha256DigestFmt::BytesArray);
 
-    println!("proxy_hash: {}", &hash[1..hash.len() - 1]);
+    println!(
+        "let hash = new Uint8Array({});",
+        identity.certificate_chain().as_slice()[0]
+            .hash()
+            .fmt(wtransport::tls::Sha256DigestFmt::BytesArray)
+    );
 
     // Listen on IPv4 only so the connection data can be sent to the server.
     let config = ServerConfig::builder()

@@ -94,6 +94,18 @@ impl Timer {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ApplicationConfig {
+    pub proxy_url: Option<String>,
+    pub proxy_hash: Option<Vec<u8>>,
+
+    pub remote_ip: Option<String>,
+    pub remote_port: Option<u16>,
+
+    pub username: String,
+    pub password: String,
+}
+
 struct ApplicationLoadingState {
     sprite_loader: GameSpriteLoader,
 }
@@ -128,31 +140,33 @@ struct ApplicationPlayingState {
 }
 
 impl ApplicationPlayingState {
-    pub fn new(sprites: GameSprites) -> Self {
+    pub fn new(config: &ApplicationConfig, sprites: GameSprites) -> Self {
         let socket;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let game_connection = include_str!("../game_connection");
-            let remote_addr_parts: Vec<&str> = game_connection.split(':').collect();
-            if remote_addr_parts.len() != 2 {
-                panic!(
-                    "Invalid game connection {}. Must be ip:port.",
-                    game_connection
-                );
-            }
-            let ip = remote_addr_parts[0].trim();
-            let port: u16 = remote_addr_parts[1]
-                .trim()
-                .parse::<u16>()
-                .expect("invalid port in game connection");
+            let ip = config.remote_ip.clone().unwrap_or("127.0.0.1".to_string());
+            let port = config.remote_port.unwrap_or(5000);
 
-            socket = crate::net::udp_socket::UdpSocket::new(ip, port).unwrap();
+            log::info!("Connecting to {}:{}", ip, port);
+
+            socket = crate::net::udp_socket::UdpSocket::new(&ip.trim(), port).unwrap();
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let url = include_str!("../proxy_url");
-            socket = crate::net::webtransport_socket::WebTransportSocket::new(url).unwrap();
+            let proxy_url = config
+                .proxy_url
+                .clone()
+                .unwrap_or("https://127.0.0.1:4433".to_string());
+
+            let mut hash = None;
+
+            if let Some(proxy_hash) = &config.proxy_hash {
+                hash = Some(proxy_hash);
+            }
+
+            socket =
+                crate::net::webtransport_socket::WebTransportSocket::new(&proxy_url, hash).unwrap();
         }
 
         let registration = RegistrationFormMessage::new(
@@ -165,8 +179,8 @@ impl ApplicationPlayingState {
         );
 
         let client = Client::new(
-            "nullspace",
-            "password",
+            &config.username,
+            &config.password,
             "zone_name",
             #[cfg(not(target_arch = "wasm32"))]
             net::connection::SocketKind::Udp(socket),
@@ -256,7 +270,42 @@ enum ApplicationState {
     Playing(ApplicationPlayingState),
 }
 
+impl ApplicationConfig {
+    pub fn new_web(
+        proxy_url: String,
+        proxy_hash: Vec<u8>,
+        username: String,
+        password: String,
+    ) -> Self {
+        Self {
+            proxy_url: Some(proxy_url),
+            proxy_hash: Some(proxy_hash),
+            remote_ip: None,
+            remote_port: None,
+            username,
+            password,
+        }
+    }
+
+    pub fn new_exe(
+        remote_ip: String,
+        remote_port: u16,
+        username: String,
+        password: String,
+    ) -> Self {
+        Self {
+            proxy_url: None,
+            proxy_hash: None,
+            remote_ip: Some(remote_ip),
+            remote_port: Some(remote_port),
+            username,
+            password,
+        }
+    }
+}
+
 pub struct Application {
+    config: ApplicationConfig,
     state: ApplicationState,
 
     render_state: RenderState,
@@ -264,12 +313,16 @@ pub struct Application {
 }
 
 impl Application {
-    pub async fn new(window: Arc<Window>) -> Result<Self, RenderStateCreateError> {
+    pub async fn new(
+        config: ApplicationConfig,
+        window: Arc<Window>,
+    ) -> Result<Self, RenderStateCreateError> {
         let render_state = RenderState::new(window.clone()).await?;
 
         let state = ApplicationState::Loading(ApplicationLoadingState::new());
 
         Ok(Self {
+            config,
             state,
             window,
             render_state,
@@ -296,7 +349,10 @@ impl Application {
                 let sprites = loading.sprite_loader.try_create(&mut self.render_state);
 
                 if let Some(sprites) = sprites {
-                    self.state = ApplicationState::Playing(ApplicationPlayingState::new(sprites));
+                    self.state = ApplicationState::Playing(ApplicationPlayingState::new(
+                        &self.config,
+                        sprites,
+                    ));
                 }
             }
         }
@@ -334,6 +390,8 @@ pub enum ApplicationEvent {
 
 pub struct EventProcessor {
     application: Option<Application>,
+    config: ApplicationConfig,
+
     #[cfg(target_arch = "wasm32")]
     proxy: Option<winit::event_loop::EventLoopProxy<ApplicationEvent>>,
 
@@ -342,7 +400,7 @@ pub struct EventProcessor {
 }
 
 impl EventProcessor {
-    pub fn new(event_loop: &EventLoop<ApplicationEvent>) -> Self {
+    pub fn new(config: ApplicationConfig, event_loop: &EventLoop<ApplicationEvent>) -> Self {
         #[cfg(target_arch = "wasm32")]
         let proxy = Some(event_loop.create_proxy());
 
@@ -362,6 +420,7 @@ impl EventProcessor {
         });
 
         Self {
+            config,
             application: None,
             #[cfg(target_arch = "wasm32")]
             proxy,
@@ -412,18 +471,20 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.application = Some(
-                pollster::block_on(Application::new(window)).expect("unable to create surface"),
+                pollster::block_on(Application::new(self.config.clone(), window))
+                    .expect("unable to create surface"),
             );
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             if let Some(proxy) = self.proxy.take() {
+                let config = self.config.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     assert!(
                         proxy
                             .send_event(ApplicationEvent::Application(
-                                Application::new(window)
+                                Application::new(config, window)
                                     .await
                                     .expect("unable to create surface")
                             ))
@@ -517,46 +578,29 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
     }
 }
 
-pub fn run() {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::Builder::new()
-            .filter(None, log::LevelFilter::Warn)
-            .filter(Some("nullspace"), log::LevelFilter::Debug)
-            .init()
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        console_log::init_with_level(log::Level::Debug).unwrap_throw();
-    }
-
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn execute_app(proxy_url: &str, proxy_hash: Vec<u8>, username: &str, password: &str) {
+    let config = ApplicationConfig::new_web(
+        proxy_url.to_string(),
+        proxy_hash,
+        username.to_string(),
+        password.to_string(),
+    );
     let event_loop: EventLoop<ApplicationEvent> = EventLoop::with_user_event()
         .build()
         .expect("event loop must be supported on this platform");
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-        let mut event_processor = EventProcessor::new(&event_loop);
 
-        event_loop
-            .run_app(&mut event_processor)
-            .expect("event loop should run");
-    }
+    let event_processor = EventProcessor::new(config, &event_loop);
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        let event_processor = EventProcessor::new(&event_loop);
-        event_loop.spawn_app(event_processor);
-    }
+    event_loop.spawn_app(event_processor);
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();
-
-    run();
+    console_log::init_with_level(log::Level::Debug).unwrap_throw();
 
     Ok(())
 }
