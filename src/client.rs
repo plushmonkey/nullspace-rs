@@ -54,6 +54,8 @@ pub struct Client {
 
     // This is the local tick for the last processed tick.
     local_tick: GameTick,
+
+    spec_freq: u16,
 }
 
 impl Client {
@@ -77,6 +79,7 @@ impl Client {
             registration,
             simulation: Simulation::new(GameTick::now(0)),
             local_tick: GameTick::now(0),
+            spec_freq: 0,
         })
     }
 
@@ -128,12 +131,18 @@ impl Client {
                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                 let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
+                let name_color = if player.frequency == self.spec_freq {
+                    TextColor::Yellow
+                } else {
+                    TextColor::Blue
+                };
+
                 render_state.draw_world_text(
                     &format!("{}({})", player.name, player.bounty),
                     name_x,
                     name_y,
                     Layer::Ships,
-                    TextColor::Yellow,
+                    name_color,
                     TextAlignment::Left,
                 );
             }
@@ -219,7 +228,7 @@ impl Client {
                             }
                         }
                     }
-                    WeaponKind::Thor => {
+                    WeaponKind::Thor(_) => {
                         let animation_index = self.get_animation_index(10, 100);
                         let renderable_index = 120 + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
@@ -307,12 +316,18 @@ impl Client {
                                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                                 let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
+                                let name_color = if player.frequency == self.spec_freq {
+                                    TextColor::Yellow
+                                } else {
+                                    TextColor::Blue
+                                };
+
                                 render_state.draw_world_text(
                                     &format!("{}({})", player.name, player.bounty),
                                     name_x,
                                     name_y,
                                     Layer::Ships,
-                                    TextColor::Yellow,
+                                    name_color,
                                     TextAlignment::Left,
                                 );
                             }
@@ -376,7 +391,7 @@ impl Client {
                         .connection
                         .get_game_tick()
                         .diff(&self.last_position_tick)
-                        > 300
+                        > 100
                     {
                         let (x_position, y_position) = match &render_state {
                             Some(render_state) => {
@@ -402,8 +417,16 @@ impl Client {
                         };
 
                         self.connection.send(&position)?;
-
                         self.last_position_tick = self.connection.get_game_tick();
+
+                        // Make sure our player data will be considered synchronized by the simulation.
+                        if let Some(player) = self
+                            .simulation
+                            .player_manager
+                            .get_by_id_mut(self.connection.player_id)
+                        {
+                            player.last_position_timestamp = self.last_position_tick;
+                        }
                     }
                 }
                 ConnectionState::Disconnected => {
@@ -499,6 +522,7 @@ impl Client {
                             1080,
                             ArenaRequest::AnyPublic,
                         );
+
                         self.connection.send_reliable(&arena_request)?;
                     }
                     LoginResponse::Unregistered => {
@@ -529,6 +553,11 @@ impl Client {
                     }
                 }
             }
+            GameServerMessage::PlayerId(_) => {
+                // We need to initialize the simulation here before we receive player enter events.
+                self.simulation = Simulation::new(self.connection.get_game_tick());
+                self.last_position_tick = self.connection.get_game_tick();
+            }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
                 // println!("{:?}", settings);
@@ -544,8 +573,21 @@ impl Client {
                     let exe_checksum = checksum::vie_checksum(sync.checksum_key);
                     let level_checksum = checksum::checksum_map(&self.map, sync.checksum_key);
 
-                    let response =
-                        SecurityMessage::new(0, settings_checksum, exe_checksum, level_checksum);
+                    let ping_average = self.connection.sync_history.get_average_ping();
+                    let ping_low = self.connection.sync_history.get_low_ping();
+                    let ping = self.connection.ping;
+                    let ping_high = self.connection.sync_history.get_high_ping();
+
+                    let response = SecurityMessage::new(
+                        self.connection.weapons_recv,
+                        settings_checksum,
+                        exe_checksum,
+                        level_checksum,
+                        ping as u16 / 10,
+                        ping_average as u16 / 10,
+                        ping_low as u16 / 10,
+                        ping_high as u16 / 10,
+                    );
                     log::debug!("Sending security packet");
                     self.connection.send_reliable(&response)?;
                 }
@@ -567,12 +609,6 @@ impl Client {
                     player.attach_parent = entry.attach_parent;
                     player.last_position_timestamp = self.connection.get_game_tick();
 
-                    // If there was someone already in this place, say that they left.
-                    // This can happen when joining at the same exact time as other players.
-                    if let Some(old_player) = self.simulation.player_manager.add_player(player) {
-                        log::debug!("{} left arena", old_player.name);
-                    }
-
                     log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
 
                     if !sent_spectate_request && entry.ship_kind != ShipKind::Spectator {
@@ -581,8 +617,16 @@ impl Client {
                         };
 
                         self.connection.send_reliable(&spectate_request)?;
+                        self.spec_freq = player.frequency;
+
                         log::debug!("Spectating target {}", entry.name);
                         sent_spectate_request = true;
+                    }
+
+                    // If there was someone already in this place, say that they left.
+                    // This can happen when joining at the same exact time as other players.
+                    if let Some(old_player) = self.simulation.player_manager.add_player(player) {
+                        log::debug!("{} left arena", old_player.name);
                     }
                 }
             }
@@ -710,7 +754,7 @@ impl Client {
                         WeaponKind::new(message.weapon, position, velocity, player, &self.settings);
 
                     if let Some(weapon_kind) = weapon_kind {
-                        self.simulation.weapon_manager.spawn_weapons(
+                        let spawn_count = self.simulation.weapon_manager.spawn_weapons(
                             player,
                             velocity,
                             weapon_kind,
@@ -718,6 +762,8 @@ impl Client {
                             message_timestamp,
                             self.connection.get_game_tick(),
                         );
+
+                        log::trace!("Spawn count for {}: {}", player.name, spawn_count);
                     } else {
                         log::warn!("Failed to create WeaponKind from {}", message.weapon);
                     }
@@ -859,6 +905,14 @@ impl Client {
                 {
                     killer.flag_count += message.flag_transfer;
                 }
+
+                if let Some(killed) = self
+                    .simulation
+                    .player_manager
+                    .get_by_id_mut(message.killed_id)
+                {
+                    killed.enter_delay = self.settings.enter_delay as u16;
+                }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {
                 if let Some(player) = self
@@ -966,7 +1020,7 @@ impl Client {
     }
 
     fn validate_packet_timestamp(current_tick: GameTick, timestamp: GameTick, ctx: &str) -> bool {
-        if current_tick.diff(&timestamp) > 300 {
+        if current_tick.diff(&timestamp) > 100 {
             log::warn!(
                 "Received {} packet timestamp that was far out of range of normal Recv: {} Now: {}",
                 ctx,

@@ -48,10 +48,21 @@ impl GameTick {
     pub fn from_batched(now: Self, value: u16) -> Self {
         let now_bottom = (now.value() & 0x3FF) as i16;
         let delta = now_bottom.wrapping_sub((value & 0x3FF) as i16) as i32;
-        let combined = (now.value() as i32).wrapping_add(delta);
 
-        Self {
-            value: combined as u32,
+        if delta < -300 {
+            let delta = delta + 0x400;
+            let combined = (now.value() as i32).wrapping_add(delta);
+
+            Self {
+                value: combined as u32,
+            }
+        } else {
+            let delta = delta.max(0);
+            let combined = (now.value() as i32).wrapping_add(delta);
+
+            Self {
+                value: combined as u32,
+            }
         }
     }
 

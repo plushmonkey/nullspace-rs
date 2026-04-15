@@ -336,7 +336,7 @@ impl Serialize for PasswordMessage {
 
         let mut client_features: u16 = 0;
 
-        client_features |= ClientFeatures::BatchPositions;
+        //client_features |= ClientFeatures::BatchPositions; // Temporarily disable until we are stable enough to process them.
         client_features |= ClientFeatures::WarpTo;
         client_features |= ClientFeatures::Lvz;
 
@@ -596,6 +596,10 @@ impl SecurityMessage {
         settings_checksum: u32,
         exe_checksum: u32,
         level_checksum: u32,
+        ping: u16,
+        ping_average: u16,
+        ping_low: u16,
+        ping_high: u16,
     ) -> SecurityMessage {
         SecurityMessage {
             weapon_count,
@@ -607,10 +611,10 @@ impl SecurityMessage {
             s2c_slow_current: 0,
             s2c_fast_current: 0,
             s2c_reliable_out: 0,
-            ping: 0,
-            ping_average: 0,
-            ping_low: 0,
-            ping_high: 0,
+            ping,
+            ping_average,
+            ping_low,
+            ping_high,
             slow_frame: false,
         }
     }

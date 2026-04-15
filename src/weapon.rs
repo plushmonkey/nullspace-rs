@@ -15,9 +15,18 @@ pub struct BulletWeapon {
 
 #[derive(Copy, Clone)]
 pub struct ProximityBombData {
-    pub hit_player_id: Option<PlayerId>,
-    pub highest_offset: u32,
+    pub hit_player_id: PlayerId,
+    pub highest_offset: u16,
     pub sensor_end_tick: GameTick,
+}
+
+impl ProximityBombData {
+    pub fn calculate_highest_delta(weapon_position: Position, player_position: Position) -> u16 {
+        let dx = i32::abs((weapon_position.x.0 / 1000) - (player_position.x.0 / 1000)) as u16;
+        let dy = i32::abs((weapon_position.y.0 / 1000) - (player_position.y.0 / 1000)) as u16;
+
+        u16::max(dx, dy)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -120,7 +129,7 @@ pub enum WeaponKind {
     Repel,
     Decoy(DecoyWeapon),
     Burst(BurstWeapon),
-    Thor,
+    Thor(BombWeapon),
     Wormhole,
     Shrapnel(ShrapnelWeapon),
 }
@@ -218,7 +227,17 @@ impl WeaponKind {
                 initial_rotation: player.direction,
             }),
             7 => WeaponKind::Burst(BurstWeapon { active: false }),
-            8 => WeaponKind::Thor,
+            8 => WeaponKind::Thor(BombWeapon {
+                level: 4,
+                shrapnel_count: 0,
+                shrapnel_level: 0,
+                shrapnel_bouncing: false,
+                mine: false,
+                emp: false,
+                remaining_bounces: 0,
+                rng_seed: 0,
+                active_prox: None,
+            }),
             _ => {
                 return None;
             }

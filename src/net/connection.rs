@@ -49,7 +49,7 @@ struct ClockSyncResult {
     pub time_diff: i32,
 }
 
-struct ClockSyncHistory {
+pub struct ClockSyncHistory {
     results: [ClockSyncResult; 16],
     index: usize,
 }
@@ -90,6 +90,19 @@ impl ClockSyncHistory {
         (total_diff / max_index as i64) as i32
     }
 
+    pub fn get_low_ping(&self) -> i32 {
+        let max_index = self.index.min(self.results.len());
+        let mut lowest_ping = 0;
+
+        for i in 0..max_index {
+            if self.results[i].ping < lowest_ping {
+                lowest_ping = self.results[i].ping as i32;
+            }
+        }
+
+        lowest_ping
+    }
+
     pub fn get_average_ping(&self) -> i32 {
         let max_index = self.index.min(self.results.len());
 
@@ -104,6 +117,19 @@ impl ClockSyncHistory {
         }
 
         (total_ping / max_index as i64) as i32
+    }
+
+    pub fn get_high_ping(&self) -> i32 {
+        let max_index = self.index.min(self.results.len());
+        let mut highest_ping = 0;
+
+        for i in 0..max_index {
+            if self.results[i].ping > highest_ping {
+                highest_ping = self.results[i].ping as i32;
+            }
+        }
+
+        highest_ping
     }
 }
 
@@ -120,10 +146,11 @@ pub struct Connection {
     pub player_id: PlayerId,
     pub crypt: VieEncrypt,
 
-    sync_history: ClockSyncHistory,
+    pub sync_history: ClockSyncHistory,
     pub tick_diff: i32,
     pub current_tick: GameTick,
     pub ping: i32,
+    pub weapons_recv: u32,
 }
 
 impl Connection {
@@ -140,6 +167,7 @@ impl Connection {
             tick_diff: 0,
             current_tick: GameTick::empty(),
             ping: 0,
+            weapons_recv: 0,
         };
 
         let encrypt_request = EncryptionRequestMessage::new(client_key);
@@ -387,6 +415,11 @@ impl Connection {
             ServerMessage::Game(kind) => match kind {
                 GameServerMessage::PlayerId(message) => {
                     self.player_id = message.id;
+                }
+                GameServerMessage::LargePosition(message) => {
+                    if message.weapon != 0 {
+                        self.weapons_recv = self.weapons_recv.saturating_add(1);
+                    }
                 }
                 _ => {}
             },

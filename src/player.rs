@@ -1,6 +1,6 @@
 use crate::{
     clock::GameTick,
-    math::{radians, PixelUnit, Position, PositionUnit, Rectangle, Velocity},
+    math::{Position, PositionUnit, Rectangle, Velocity, radians},
     ship::ShipKind,
 };
 
@@ -110,6 +110,7 @@ pub struct Player {
     pub flag_count: u16,
 
     pub last_position_timestamp: GameTick,
+    pub enter_delay: u16,
 
     pub energy: Option<u32>,
     pub s2c_latency: Option<u16>,
@@ -142,6 +143,7 @@ impl Player {
             flag_count: 0,
 
             last_position_timestamp: GameTick::empty(),
+            enter_delay: 0,
 
             energy: None,
             s2c_latency: None,
@@ -151,9 +153,7 @@ impl Player {
     }
 
     pub fn get_collider(&self, radius: u16) -> Rectangle {
-        let radius = radius as i32;
-
-        Rectangle::from_radius(self.position, PixelUnit(radius))
+        Rectangle::from_radius(self.position, PositionUnit(radius as i32 * 1000))
     }
 
     pub fn get_heading(&self) -> glam::Vec2 {
@@ -163,6 +163,16 @@ impl Player {
         let y = -f32::sin(rads);
 
         glam::Vec2::new(x, y)
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.enter_delay > 0
+    }
+
+    pub fn is_synchronized(&self, current_tick: GameTick) -> bool {
+        const PLAYER_SYNC_TIMEOUT: i32 = 200;
+
+        current_tick.diff(&self.last_position_timestamp).abs() < PLAYER_SYNC_TIMEOUT
     }
 }
 

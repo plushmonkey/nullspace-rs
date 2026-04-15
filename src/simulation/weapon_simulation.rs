@@ -2,11 +2,11 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     map::{Map, TILE_ID_SAFE, TILE_ID_WORMHOLE},
-    math::{PixelUnit, Position, PositionUnit, Velocity, radians, rotate_vec2},
+    math::{PixelUnit, Position, PositionUnit, Rectangle, Velocity, radians, rotate_vec2},
     player::{Player, PlayerManager},
     rng::VieRng,
     ship::ShipKind,
-    weapon::{ShrapnelWeapon, Weapon, WeaponKind},
+    weapon::{ProximityBombData, ShrapnelWeapon, Weapon, WeaponKind},
 };
 
 #[derive(PartialEq)]
@@ -41,6 +41,7 @@ impl WeaponManager {
         timestamp: GameTick,
         current_tick: GameTick,
     ) -> usize {
+        let mut kind = kind;
         if player.ship_kind == ShipKind::Spectator {
             return 0;
         }
@@ -48,13 +49,13 @@ impl WeaponManager {
         let ship_settings = settings.get_ship_settings(player.ship_kind);
         let mut spawn_count = 0;
 
-        match &kind {
+        match &mut kind {
             WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
-                let mut bullet = *bullet;
-                let multi = bullet.multi || ship_settings.double_barrel;
+                let multi = bullet.multi;
 
-                if multi {
-                    bullet.link_id = Some(self.next_link_id.wrapping_add(1));
+                if multi || ship_settings.double_barrel {
+                    bullet.link_id = Some(self.next_link_id);
+                    self.next_link_id = self.next_link_id.wrapping_add(1);
                 }
 
                 if ship_settings.double_barrel {
@@ -102,7 +103,7 @@ impl WeaponManager {
                     spawn_count += 1;
                 }
 
-                if bullet.multi {
+                if multi {
                     let rads = radians(ship_settings.multi_fire_angle as f32 / 111.0f32);
                     let player_heading = player.get_heading();
                     let first_heading = rotate_vec2(player_heading, rads);
@@ -213,7 +214,7 @@ impl WeaponManager {
                 ship_settings.burst_speed as u32,
                 settings.bullet_alive_time as u32,
             ),
-            WeaponKind::Thor => (
+            WeaponKind::Thor(_) => (
                 ship_settings.bomb_speed as u32,
                 settings.bomb_alive_time as u32,
             ),
@@ -274,10 +275,23 @@ impl WeaponManager {
     ) {
         let mut weapon_index: usize = 0;
 
+        let mut link_removal = vec![];
+
         // Custom loop for weapon ticking instead of using iterators, just to make sure it never reconstructs vector and never shuffle-removes.
         loop {
             if weapon_index >= self.weapons.len() {
                 break;
+            }
+
+            if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
+                &self.weapons[weapon_index].kind
+            {
+                if let Some(link_id) = &bullet.link_id {
+                    if link_removal.contains(link_id) {
+                        weapon_index += 1;
+                        continue;
+                    }
+                }
             }
 
             let sim_result = Self::tick_weapon(
@@ -285,6 +299,7 @@ impl WeaponManager {
                 settings,
                 player_manager,
                 &mut self.weapons[weapon_index],
+                current_tick,
             );
 
             if sim_result == WeaponSimulateResult::PlayerExplosion
@@ -294,20 +309,51 @@ impl WeaponManager {
             }
 
             if sim_result != WeaponSimulateResult::Continue {
+                if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
+                    &self.weapons[weapon_index].kind
+                {
+                    if let Some(link_id) = bullet.link_id {
+                        link_removal.push(link_id);
+                    }
+                }
+
                 self.weapons.swap_remove(weapon_index);
-                // TODO: Remove link
                 continue;
             }
 
             weapon_index += 1;
         }
+
+        if !link_removal.is_empty() {
+            weapon_index = 0;
+            loop {
+                if weapon_index >= self.weapons.len() {
+                    break;
+                }
+
+                if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
+                    &self.weapons[weapon_index].kind
+                {
+                    if let Some(link_id) = &bullet.link_id {
+                        if link_removal.contains(link_id) {
+                            self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
+                            self.weapons.swap_remove(weapon_index);
+                            continue;
+                        }
+                    }
+                }
+
+                weapon_index += 1;
+            }
+        }
     }
 
     fn tick_weapon(
         map: &Map,
-        _settings: &ArenaSettings,
+        settings: &ArenaSettings,
         player_manager: &mut PlayerManager,
         weapon: &mut Weapon,
+        current_tick: GameTick,
     ) -> WeaponSimulateResult {
         if weapon.remaining_ticks > 1 {
             weapon.remaining_ticks = weapon.remaining_ticks.saturating_sub(1);
@@ -333,7 +379,132 @@ impl WeaponManager {
             return sim_result;
         }
 
-        sim_result
+        match &mut weapon.kind {
+            // Handle proximity sensor
+            WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                if let Some(active_prox) = &mut bomb.active_prox {
+                    let Some(hit_player) = player_manager.get_by_id(active_prox.hit_player_id)
+                    else {
+                        // The player that activated the prox sensor left the arena.
+                        return WeaponSimulateResult::PlayerExplosion;
+                    };
+
+                    if hit_player.ship_kind == ShipKind::Spectator {
+                        return WeaponSimulateResult::PlayerExplosion;
+                    }
+
+                    let highest = ProximityBombData::calculate_highest_delta(
+                        weapon.position,
+                        hit_player.position,
+                    );
+
+                    if highest > active_prox.highest_offset
+                        || current_tick >= active_prox.sensor_end_tick
+                    {
+                        return WeaponSimulateResult::PlayerExplosion;
+                    } else {
+                        active_prox.highest_offset = highest;
+                    }
+
+                    return WeaponSimulateResult::Continue;
+                }
+            }
+            // Don't attempt player collision if the burst isn't active yet.
+            WeaponKind::Burst(burst) => {
+                if !burst.active {
+                    return WeaponSimulateResult::Continue;
+                }
+            }
+            // There's nothing to process with a decoy.
+            WeaponKind::Decoy(_) => {
+                return WeaponSimulateResult::Continue;
+            }
+            WeaponKind::Repel => {
+                Self::simulate_repel(map, settings, player_manager, weapon, current_tick);
+
+                return WeaponSimulateResult::Continue;
+            }
+            _ => {}
+        }
+
+        const BASE_WEAPON_RADIUS: i32 = 3500;
+        let weapon_radius = match &weapon.kind {
+            WeaponKind::Bomb(_) => PositionUnit(BASE_WEAPON_RADIUS),
+            WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                // It's +2 to add the base 1 tile prox that always exists, then another +1 because level 0 is actually level 1 bomb.
+                let radius = (bomb.level + 2) as i32 * 16000 + BASE_WEAPON_RADIUS;
+
+                PositionUnit(radius)
+            }
+            _ => PositionUnit(BASE_WEAPON_RADIUS),
+        };
+
+        // Perform player collision tests
+        for player in &player_manager.players {
+            if player.ship_kind == ShipKind::Spectator {
+                continue;
+            }
+
+            if player.frequency == weapon.frequency {
+                continue;
+            }
+
+            if player.is_dead() {
+                continue;
+            }
+
+            if !player.is_synchronized(current_tick) {
+                log::info!(
+                    "player {} is not synchronized: {} {}",
+                    player.name,
+                    current_tick.value(),
+                    player.last_position_timestamp.value()
+                );
+                continue;
+            }
+
+            let ship_settings = settings.get_ship_settings(player.ship_kind);
+
+            let player_radius = if ship_settings.radius > 0 {
+                PositionUnit(ship_settings.radius as i32 * 1000)
+            } else {
+                PositionUnit(14000)
+            };
+
+            let collider = Rectangle::from_radius(weapon.position, weapon_radius + player_radius);
+
+            if collider.contains(player.position) {
+                match &mut weapon.kind {
+                    WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                        // We don't perform more collisions after activating sensor, so this bomb should not have active prox.
+                        assert!(bomb.active_prox.is_none());
+
+                        let highest_offset = ProximityBombData::calculate_highest_delta(
+                            weapon.position,
+                            player.position,
+                        );
+
+                        // If we had a collision during the first update tick, then we should activate the sensor immediately because it's a close bomb.
+                        let sensor_end_tick = if current_tick == weapon.spawn_timestamp {
+                            current_tick
+                        } else {
+                            current_tick + settings.bomb_explode_delay as i32
+                        };
+
+                        bomb.active_prox = Some(ProximityBombData {
+                            hit_player_id: player.id,
+                            highest_offset,
+                            sensor_end_tick,
+                        });
+                    }
+                    _ => {
+                        return WeaponSimulateResult::PlayerExplosion;
+                    }
+                }
+            }
+        }
+
+        WeaponSimulateResult::Continue
     }
 
     fn integrate_weapon_position(map: &Map, weapon: &mut Weapon) -> WeaponSimulateResult {
@@ -343,7 +514,7 @@ impl WeaponManager {
         weapon.position.x = weapon.position.x + weapon.velocity.x;
 
         let x_collide = match &weapon.kind {
-            WeaponKind::Thor => false,
+            WeaponKind::Thor(_) => false,
             _ => {
                 // TODO: Handle special tiles here
                 if map.is_solid_position(weapon.position) {
@@ -360,7 +531,7 @@ impl WeaponManager {
         weapon.position.y = weapon.position.y + weapon.velocity.y;
 
         let y_collide = match &weapon.kind {
-            WeaponKind::Thor => false,
+            WeaponKind::Thor(_) => false,
             _ => {
                 // TODO: Handle special tiles here
                 if map.is_solid_position(weapon.position) {
@@ -400,6 +571,16 @@ impl WeaponManager {
         }
 
         return WeaponSimulateResult::Continue;
+    }
+
+    fn simulate_repel(
+        _map: &Map,
+        _settings: &ArenaSettings,
+        _player_manager: &mut PlayerManager,
+        _weapon: &mut Weapon,
+        _current_tick: GameTick,
+    ) {
+        // TODO: Implement.
     }
 
     fn handle_weapon_explosion(

@@ -201,16 +201,40 @@ impl Rectangle {
         }
     }
 
-    pub fn from_radius(center: Position, radius: PixelUnit) -> Self {
-        let min_x = center.x - radius.into();
-        let min_y = center.y - radius.into();
-        let max_x = center.x + radius.into();
-        let max_y = center.y + radius.into();
+    pub fn from_radius(center: Position, radius: PositionUnit) -> Self {
+        let min_x = center.x - radius;
+        let min_y = center.y - radius;
+        let max_x = center.x + radius;
+        let max_y = center.y + radius;
 
         Self {
             min: Position::new(min_x, min_y),
             max: Position::new(max_x, max_y),
         }
+    }
+
+    pub fn intersects(&self, other: &Rectangle) -> bool {
+        let first_min_x = self.min.x.0;
+        let first_min_y = self.min.y.0;
+        let first_max_x = self.max.x.0;
+        let first_max_y = self.max.y.0;
+
+        let second_min_x = other.min.x.0;
+        let second_min_y = other.min.y.0;
+        let second_max_x = other.max.x.0;
+        let second_max_y = other.max.y.0;
+
+        first_max_x > second_min_x
+            && first_min_x < second_max_x
+            && first_max_y > second_min_y
+            && first_min_y < second_max_y
+    }
+
+    pub fn contains(&self, other: Position) -> bool {
+        let ox = other.x.0;
+        let oy = other.y.0;
+
+        ox > self.min.x.0 && ox < self.max.x.0 && oy > self.min.y.0 && oy < self.max.y.0
     }
 }
 
