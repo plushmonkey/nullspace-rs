@@ -2,9 +2,10 @@ use crate::clock::*;
 use crate::net::crypt::VieEncrypt;
 use crate::net::packet::PacketError;
 use crate::net::packet::PacketSendError;
+use crate::net::packet::bi::ClockSyncRequestMessage;
+use crate::net::packet::bi::ClockSyncResponseMessage;
 use crate::net::packet::bi::HugeChunkCancelAckMessage;
 use crate::net::packet::bi::ReliableDataMessage;
-use crate::net::packet::bi::SyncResponseMessage;
 use crate::net::packet::c2s::EncryptionRequestMessage;
 use crate::net::packet::s2c::*;
 use crate::net::packet::sequencer::*;
@@ -149,8 +150,13 @@ pub struct Connection {
     pub sync_history: ClockSyncHistory,
     pub tick_diff: i32,
     pub current_tick: GameTick,
+
+    pub last_sync_req: GameTick,
+
     pub ping: i32,
     pub weapons_recv: u32,
+    pub packets_sent: u32,
+    pub packets_recv: u32,
 }
 
 impl Connection {
@@ -166,8 +172,11 @@ impl Connection {
             sync_history: ClockSyncHistory::new(),
             tick_diff: 0,
             current_tick: GameTick::empty(),
+            last_sync_req: GameTick::empty(),
             ping: 0,
             weapons_recv: 0,
+            packets_sent: 0,
+            packets_recv: 0,
         };
 
         let encrypt_request = EncryptionRequestMessage::new(client_key);
@@ -175,6 +184,24 @@ impl Connection {
         result.send(&encrypt_request)?;
 
         Ok(result)
+    }
+
+    pub fn tick(&mut self) {
+        self.current_tick = self.current_tick + 1;
+
+        if self.current_tick > self.last_sync_req + 500 {
+            let sync_request = ClockSyncRequestMessage::new(
+                GameTick::now(0),
+                self.packets_sent,
+                self.packets_recv,
+            );
+
+            if let Err(e) = self.send(&sync_request) {
+                log::error!("{e}");
+            }
+
+            self.last_sync_req = self.current_tick;
+        }
     }
 
     pub fn get_game_tick(&self) -> GameTick {
@@ -215,8 +242,7 @@ impl Connection {
 
         self.crypt.encrypt(buf, &mut encrypted.data[..buf.len()]);
 
-        //println!("Sending {:02x?}", buf);
-        //println!("Sending {:02x?}", &encrypted.data[..buf.len()]);
+        self.packets_sent = self.packets_sent.wrapping_add(1);
 
         match &self.socket {
             SocketKind::Udp(socket) => {
@@ -261,7 +287,7 @@ impl Connection {
                 subpacket.data[1] = if data.is_empty() { 0x09 } else { 0x08 };
 
                 if let Err(e) = self.send_reliable_packet(&subpacket) {
-                    println!("Err: {}", e);
+                    log::error!("Err: {}", e);
                 }
             }
 
@@ -332,45 +358,46 @@ impl Connection {
         match message {
             ServerMessage::Core(kind) => match kind {
                 CoreServerMessage::EncryptionResponse(response) => {
-                    println!("Initializing encryption with key {}", response.key);
+                    log::trace!("Initializing encryption with key {}", response.key);
                     if !self.crypt.initialize(response.key) {
-                        println!("Failed to initialize vie encryption.");
+                        log::error!("Failed to initialize vie encryption.");
                     }
                 }
                 CoreServerMessage::ReliableAck(ack) => {
                     self.sequencer.handle_ack(ack.id);
-                    // println!("Got reliable ack {}", ack.id);
                 }
                 CoreServerMessage::ReliableData(rel) => {
                     self.sequencer.handle_reliable_message(rel.id, &rel.data);
-                    // println!("Got reliable data {:?}", &rel.data.data[..rel.data.size]);
+
                     let ack = Packet::empty()
                         .concat_u8(0x00)
                         .concat_u8(0x04)
                         .concat_u32(rel.id);
                     if let Err(e) = self.send_packet(&ack) {
-                        println!("Error: {}", e);
+                        log::error!("Error: {}", e);
                     }
                 }
-                CoreServerMessage::SyncRequest(sync) => {
-                    let response = SyncResponseMessage {
+                CoreServerMessage::ClockSyncRequest(sync) => {
+                    let response = ClockSyncResponseMessage {
                         request_timestamp: sync.local_tick,
                         response_timestamp: GameTick::now(0).value(),
                     };
 
                     if let Err(e) = self.send(&response) {
-                        println!("Error: {}", e);
+                        log::error!("Error: {}", e);
                     }
                 }
-                CoreServerMessage::SyncResponse(sync) => {
+                CoreServerMessage::ClockSyncResponse(sync) => {
                     let server_timestamp = sync.response_timestamp as i32;
                     let current_timestamp = GameTick::now(0).value() as i32;
                     let rtt = current_timestamp - sync.request_timestamp as i32;
                     let current_ping = (rtt / 2) * 10;
 
-                    println!(
+                    log::trace!(
                         "ServerTimestamp: {}, CurrentTimestamp: {}, rtt: {}",
-                        server_timestamp, current_timestamp, rtt
+                        server_timestamp,
+                        current_timestamp,
+                        rtt
                     );
 
                     let current_time_diff = ((rtt * 3) / 5) + server_timestamp - current_timestamp;
@@ -385,7 +412,7 @@ impl Connection {
                     self.ping = self.sync_history.get_average_ping();
                 }
                 CoreServerMessage::Disconnect => {
-                    println!("Got disconnect order.");
+                    log::warn!("Got disconnect order.");
                     self.state = ConnectionState::Disconnected;
                 }
                 CoreServerMessage::SmallChunkBody(chunk) => {
@@ -402,7 +429,7 @@ impl Connection {
 
                     let cancel = HugeChunkCancelAckMessage {};
                     if let Err(e) = self.send(&cancel) {
-                        println!("Error: {}", e);
+                        log::error!("Error: {}", e);
                     }
                 }
                 CoreServerMessage::HugeChunkCancelAck => {
@@ -418,7 +445,7 @@ impl Connection {
                 }
                 GameServerMessage::LargePosition(message) => {
                     if message.weapon != 0 {
-                        self.weapons_recv = self.weapons_recv.saturating_add(1);
+                        self.weapons_recv = self.weapons_recv.wrapping_add(1);
                     }
                 }
                 _ => {}
@@ -448,11 +475,8 @@ impl Connection {
             return Ok(None);
         };
 
-        //println!("RecvRaw: {:02x?}", &packet.data[..size]);
-
         self.crypt.decrypt(&mut packet.data[..packet.size]);
-
-        //println!("Recv: {:02x?}", &packet.data[..size]);
+        self.packets_recv = self.packets_recv.wrapping_add(1);
 
         Ok(Some(packet))
     }

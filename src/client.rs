@@ -381,8 +381,7 @@ impl Client {
         let tick_count = local_now.diff(&self.local_tick);
 
         for _ in 0..tick_count {
-            self.connection.current_tick = self.connection.current_tick + 1;
-
+            self.connection.tick();
             self.simulation.tick(&self.map, &self.settings);
 
             match self.connection.state {
@@ -460,11 +459,8 @@ impl Client {
 
                 self.connection.send_reliable(&password)?;
 
-                let sync_request = SyncRequestMessage::new(GameTick::now(0), 2, 2);
+                let sync_request = ClockSyncRequestMessage::new(GameTick::now(0), 2, 2);
                 self.connection.send(&sync_request)?;
-            }
-            CoreServerMessage::SyncResponse(_) => {
-                log::debug!("Got sync response");
             }
             _ => {}
         }
@@ -560,13 +556,12 @@ impl Client {
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
-                // println!("{:?}", settings);
                 self.settings = settings_message.clone();
             }
             GameServerMessage::SynchronizationRequest(sync) => {
                 if sync.checksum_key != 0 && self.map.checksum != 0 {
                     // Send security packet
-                    log::debug!("Sync requested");
+                    log::debug!("Game sync requested");
 
                     let settings_checksum =
                         checksum::settings_checksum(sync.checksum_key, &self.settings);
@@ -588,7 +583,7 @@ impl Client {
                         ping_low as u16 / 10,
                         ping_high as u16 / 10,
                     );
-                    log::debug!("Sending security packet");
+                    log::debug!("Sending game sync packet");
                     self.connection.send_reliable(&response)?;
                 }
             }

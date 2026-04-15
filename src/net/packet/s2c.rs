@@ -17,8 +17,8 @@ pub enum CoreServerMessage {
     EncryptionResponse(EncryptionResponseMessage),
     ReliableData(ReliableDataMessage),
     ReliableAck(ReliableAckMessage),
-    SyncRequest(SyncRequestMessage),
-    SyncResponse(SyncResponseMessage),
+    ClockSyncRequest(ClockSyncRequestMessage),
+    ClockSyncResponse(ClockSyncResponseMessage),
     Disconnect,
     SmallChunkBody(SmallChunkBodyMessage),
     SmallChunkTail(SmallChunkTailMessage),
@@ -616,17 +616,17 @@ impl ServerMessage {
                 }
 
                 let tick_value = u32::from_le_bytes(packet[2..6].try_into().unwrap());
-                let packets_recv = 0;
-                let packets_sent = 0;
+                let packets_sent = u32::from_le_bytes(packet[6..10].try_into().unwrap());
+                let packets_recv = u32::from_le_bytes(packet[10..14].try_into().unwrap());
 
-                let message = SyncRequestMessage {
+                let message = ClockSyncRequestMessage {
                     local_tick: tick_value,
-                    packets_recv,
                     packets_sent,
+                    packets_recv,
                 };
-                return Ok(Some(ServerMessage::Core(CoreServerMessage::SyncRequest(
-                    message,
-                ))));
+                return Ok(Some(ServerMessage::Core(
+                    CoreServerMessage::ClockSyncRequest(message),
+                )));
             }
             0x06 => {
                 if packet.len() < 10 {
@@ -636,12 +636,12 @@ impl ServerMessage {
                 let request_timestamp = u32::from_le_bytes(packet[2..6].try_into().unwrap());
                 let response_timestamp = u32::from_le_bytes(packet[6..10].try_into().unwrap());
 
-                return Ok(Some(ServerMessage::Core(CoreServerMessage::SyncResponse(
-                    SyncResponseMessage {
+                return Ok(Some(ServerMessage::Core(
+                    CoreServerMessage::ClockSyncResponse(ClockSyncResponseMessage {
                         request_timestamp,
                         response_timestamp,
-                    },
-                ))));
+                    }),
+                )));
             }
             0x07 => {
                 return Ok(Some(ServerMessage::Core(CoreServerMessage::Disconnect)));

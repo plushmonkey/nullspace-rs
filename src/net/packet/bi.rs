@@ -32,13 +32,13 @@ impl Serialize for ReliableAckMessage {
 }
 
 // 0x05
-pub struct SyncRequestMessage {
+pub struct ClockSyncRequestMessage {
     pub local_tick: u32,
     pub packets_sent: u32,
     pub packets_recv: u32,
 }
 
-impl SyncRequestMessage {
+impl ClockSyncRequestMessage {
     pub fn new(local_tick: GameTick, packets_sent: u32, packets_recv: u32) -> Self {
         Self {
             local_tick: local_tick.value(),
@@ -48,7 +48,7 @@ impl SyncRequestMessage {
     }
 }
 
-impl Serialize for SyncRequestMessage {
+impl Serialize for ClockSyncRequestMessage {
     fn serialize(&self) -> Packet {
         Packet::empty()
             .concat_u8(0x00)
@@ -60,12 +60,12 @@ impl Serialize for SyncRequestMessage {
 }
 
 // 0x06
-pub struct SyncResponseMessage {
+pub struct ClockSyncResponseMessage {
     pub request_timestamp: u32,
     pub response_timestamp: u32,
 }
 
-impl Serialize for SyncResponseMessage {
+impl Serialize for ClockSyncResponseMessage {
     fn serialize(&self) -> Packet {
         Packet::empty()
             .concat_u8(0x00)
