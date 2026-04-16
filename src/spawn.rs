@@ -1,16 +1,32 @@
-use crate::{arena_settings::ArenaSettings, map::Map, math::{Position, PositionUnit}, rng::VieRng, ship::ShipKind};
+use crate::{
+    arena_settings::ArenaSettings,
+    map::Map,
+    math::{Position, PositionUnit},
+    rng::VieRng,
+    ship::ShipKind,
+};
 
-pub fn generate_spawn_position(settings: &ArenaSettings, map: &Map, ship: ShipKind, frequency: u16, rng: VieRng, player_count: usize) -> Position {
+pub fn generate_spawn_position(
+    settings: &ArenaSettings,
+    map: &Map,
+    ship: ShipKind,
+    frequency: u16,
+    rng: VieRng,
+    player_count: usize,
+) -> Position {
     let mut spawn_count: usize = 0;
     let mut rng = rng;
 
     for i in 0..settings.spawn_settings.len() {
-        if settings.spawn_settings[i].x != 0 || settings.spawn_settings[i].y != 0 || settings.spawn_settings[i].radius != 0 {
+        if settings.spawn_settings[i].x != 0
+            || settings.spawn_settings[i].y != 0
+            || settings.spawn_settings[i].radius != 0
+        {
             spawn_count += 1;
         }
     }
 
-    let ship_radius = settings.get_ship_settings(ship).radius;
+    let ship_radius = settings.get_ship_settings(ship).get_radius();
     let mut result;
 
     if spawn_count == 0 {
@@ -36,7 +52,8 @@ pub fn generate_spawn_position(settings: &ArenaSettings, map: &Map, ship: ShipKi
                     y = (((frequency as u32) / 2) & 1) * 0x300 + rng_y;
                 }
                 _ => {
-                    let mut spawn_radius = (((player_count as u32) / 8) * 0x200 + 0x400) / 0x60 + 0x100;
+                    let mut spawn_radius =
+                        (((player_count as u32) / 8) * 0x200 + 0x400) / 0x60 + 0x100;
 
                     if spawn_radius > settings.warp_radius_limit as u32 {
                         spawn_radius = settings.warp_radius_limit as u32;
@@ -49,8 +66,12 @@ pub fn generate_spawn_position(settings: &ArenaSettings, map: &Map, ship: ShipKi
                     let offset_x = rng.next() % 0x14;
                     let offset_y = rng.next() % 0x14;
 
-                    x = (rng.next() % (spawn_radius - 2)).wrapping_sub(9).wrapping_add(((0x400 - spawn_radius) / 2) + offset_x);
-                    y = (rng.next() % (spawn_radius - 2)).wrapping_sub(9).wrapping_add(((0x400 - spawn_radius) / 2) + offset_y);
+                    x = (rng.next() % (spawn_radius - 2))
+                        .wrapping_sub(9)
+                        .wrapping_add(((0x400 - spawn_radius) / 2) + offset_x);
+                    y = (rng.next() % (spawn_radius - 2))
+                        .wrapping_sub(9)
+                        .wrapping_add(((0x400 - spawn_radius) / 2) + offset_y);
                 }
             }
 

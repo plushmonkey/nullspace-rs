@@ -359,31 +359,6 @@ impl Client {
     ) -> Result<(), ConnectionError> {
         let mut render_state = render_state;
 
-        loop {
-            let message = self.connection.receive_message();
-            if let Err(e) = message {
-                log::error!("Error: {}", e);
-
-                match e {
-                    ConnectionError::IoError(_) => {
-                        break;
-                    }
-                    _ => {}
-                }
-
-                continue;
-            }
-
-            let message = message.unwrap();
-
-            if let Some(message) = message {
-                self.process_message(&mut render_state, message)?;
-            } else {
-                // We are done processing everything now.
-                break;
-            }
-        }
-
         let local_now = GameTick::now(0);
         let tick_count = local_now.diff(&self.local_tick);
 
@@ -443,6 +418,31 @@ impl Client {
         }
 
         self.local_tick = self.local_tick + tick_count;
+
+        loop {
+            let message = self.connection.receive_message();
+            if let Err(e) = message {
+                log::error!("Error: {}", e);
+
+                match e {
+                    ConnectionError::IoError(_) => {
+                        break;
+                    }
+                    _ => {}
+                }
+
+                continue;
+            }
+
+            let message = message.unwrap();
+
+            if let Some(message) = message {
+                self.process_message(&mut render_state, message)?;
+            } else {
+                // We are done processing everything now.
+                break;
+            }
+        }
 
         Ok(())
     }
@@ -663,8 +663,8 @@ impl Client {
                             PositionUnit(message.y_velocity as i32),
                         );
 
-                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp)
-                            + message.ping as i32;
+                        let sim_ticks = self.connection.get_game_tick().diff(&message_timestamp);
+
                         update_player_lerp_target(
                             player,
                             position,
@@ -722,8 +722,8 @@ impl Client {
                     if player.last_position_timestamp < message_timestamp {
                         player.velocity = velocity;
 
-                        let sim_ticks = self.connection.current_tick.diff(&message_timestamp)
-                            + message.ping as i32;
+                        let sim_ticks = self.connection.get_game_tick().diff(&message_timestamp);
+
                         update_player_lerp_target(
                             player,
                             position,
@@ -760,11 +760,11 @@ impl Client {
                     if let Some(weapon_kind) = weapon_kind {
                         let spawn_count = self.simulation.weapon_manager.spawn_weapons(
                             player,
+                            position,
                             velocity,
                             weapon_kind,
                             &self.settings,
                             message_timestamp,
-                            self.connection.get_game_tick(),
                         );
 
                         log::trace!("Spawn count for {}: {}", player.name, spawn_count);

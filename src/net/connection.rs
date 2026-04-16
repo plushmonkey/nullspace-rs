@@ -400,15 +400,21 @@ impl Connection {
                         rtt
                     );
 
-                    let current_time_diff = ((rtt * 3) / 5) + server_timestamp - current_timestamp;
+                    let current_time_diff =
+                        (((rtt * 3) / 5) + server_timestamp).wrapping_sub(current_timestamp);
 
-                    if self.sync_history.is_empty() {
-                        self.current_tick = GameTick::now(current_time_diff);
-                    }
+                    let first_sync = self.sync_history.is_empty();
 
                     self.sync_history.insert(current_ping, current_time_diff);
+                    let new_tick_diff = self.sync_history.get_average_time_diff();
 
-                    self.tick_diff = self.sync_history.get_average_time_diff();
+                    if first_sync {
+                        self.current_tick = GameTick::now(current_time_diff);
+                    } else {
+                        self.current_tick = self.current_tick + (new_tick_diff - self.tick_diff);
+                    }
+
+                    self.tick_diff = new_tick_diff;
                     self.ping = self.sync_history.get_average_ping();
                 }
                 CoreServerMessage::Disconnect => {

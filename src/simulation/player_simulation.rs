@@ -25,7 +25,7 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
         bounce_factor = 16;
     }
 
-    let radius = settings.get_ship_settings(player.ship_kind).radius;
+    let radius = settings.get_ship_settings(player.ship_kind).get_radius();
 
     let mut delta_x = player.velocity.x.0;
     let prev_x = player_position.x;
@@ -46,6 +46,9 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
         player_position.x = prev_x;
         player.velocity.x = PositionUnit((-player.velocity.x.0 * 16) / bounce_factor);
         player.velocity.y = PositionUnit((player.velocity.y.0 * 16) / bounce_factor);
+
+        player.lerp_velocity.x = PositionUnit((-player.lerp_velocity.x.0 * 16) / bounce_factor);
+        player.lerp_velocity.y = PositionUnit((player.lerp_velocity.y.0 * 16) / bounce_factor);
     }
 
     let mut delta_y = player.velocity.y.0;
@@ -67,6 +70,9 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
         player_position.y = prev_y;
         player.velocity.x = PositionUnit((player.velocity.x.0 * 16) / bounce_factor);
         player.velocity.y = PositionUnit((-player.velocity.y.0 * 16) / bounce_factor);
+
+        player.lerp_velocity.x = PositionUnit((player.lerp_velocity.x.0 * 16) / bounce_factor);
+        player.lerp_velocity.y = PositionUnit((-player.lerp_velocity.y.0 * 16) / bounce_factor);
     }
 
     if player.lerp_remaining_ticks > 0 {

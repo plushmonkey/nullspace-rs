@@ -8,7 +8,33 @@ use wtransport::{
     Endpoint, Identity, ServerConfig, VarInt, config::IpBindConfig, endpoint::IncomingSession,
 };
 
-const WTRANSPORT_TIMEOUT_SECONDS: u64 = 10;
+use clap::Parser;
+
+#[derive(Parser, Clone, Debug)]
+struct Args {
+    #[arg(
+        short,
+        long,
+        default_value = "10",
+        help = "Disconnect clients after no data for this many seconds"
+    )]
+    timeout: u64,
+
+    #[arg(short, long, default_value = "4433", help = "Port for the proxy")]
+    listen_port: u16,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    game_ip: String,
+
+    #[arg(long, default_value = "5000")]
+    game_port: u16,
+
+    #[arg(long, default_value = "cert.pem")]
+    cert_path: String,
+
+    #[arg(long, default_value = "key.pem")]
+    key_path: String,
+}
 
 /*
 
@@ -20,11 +46,17 @@ banning and aliasing to continue working by not all being on the same connection
 
 */
 
-const ZONE_SERVER_ADDR: &str = "127.0.0.1:5000";
-
 #[tokio::main]
 async fn main() {
-    let identity = Identity::load_pemfiles("cert.pem", "key.pem")
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    let args = Args::parse();
+
+    let game_server_addr = format!("{}:{}", args.game_ip, args.game_port);
+
+    let identity = Identity::load_pemfiles(args.cert_path, args.key_path)
         .await
         .unwrap();
 
@@ -39,21 +71,25 @@ async fn main() {
 
     // Listen on IPv4 only so the connection data can be sent to the server.
     let config = ServerConfig::builder()
-        .with_bind_config(IpBindConfig::InAddrAnyV4, 4433)
+        .with_bind_config(IpBindConfig::InAddrAnyV4, args.listen_port)
         .with_identity(identity)
         .keep_alive_interval(None)
-        .max_idle_timeout(Some(Duration::from_secs(WTRANSPORT_TIMEOUT_SECONDS)))
+        .max_idle_timeout(Some(Duration::from_secs(args.timeout)))
         .unwrap()
         .build();
 
     let server = Endpoint::server(config).unwrap();
 
-    println!("Listening for connections...");
+    log::info!("Listening for connections...");
 
     loop {
         let incoming_session = server.accept().await;
 
-        tokio::spawn(handle_connection(incoming_session));
+        tokio::spawn(handle_connection(
+            incoming_session,
+            game_server_addr.clone(),
+            args.timeout,
+        ));
     }
 }
 
@@ -78,15 +114,19 @@ async fn send_to_server(socket: &UdpSocket, _from: &SocketAddr, data: &[u8]) {
     //println!("Sending {:?} to game server.", data);
 
     if let Err(e) = socket.send(data).await {
-        println!("socket_send_error: {e}");
+        log::error!("socket_send_error: {e}");
     }
 }
 
-async fn handle_connection(incoming_session: IncomingSession) {
+async fn handle_connection(
+    incoming_session: IncomingSession,
+    game_server_addr: String,
+    timeout: u64,
+) {
     let session_request = match incoming_session.await {
         Ok(request) => request,
         Err(e) => {
-            println!("{e}");
+            log::error!("{e}");
             return;
         }
     };
@@ -94,12 +134,12 @@ async fn handle_connection(incoming_session: IncomingSession) {
     let connection = match session_request.accept().await {
         Ok(connection) => connection,
         Err(e) => {
-            println!("{e}");
+            log::error!("{e}");
             return;
         }
     };
 
-    println!("New connection from {:?}.", connection.remote_address());
+    log::debug!("New connection from {:?}.", connection.remote_address());
 
     // Create a new socket and remote endpoint to the game server for this new connection session.
 
@@ -107,13 +147,13 @@ async fn handle_connection(incoming_session: IncomingSession) {
     let socket = match UdpSocket::bind("0.0.0.0:0").await {
         Ok(socket) => socket,
         Err(e) => {
-            println!("{e}");
+            log::error!("{e}");
             return;
         }
     };
 
-    if let Err(e) = socket.connect(ZONE_SERVER_ADDR).await {
-        println!("{e}");
+    if let Err(e) = socket.connect(&game_server_addr).await {
+        log::error!("{e}");
         return;
     }
 
@@ -122,13 +162,13 @@ async fn handle_connection(incoming_session: IncomingSession) {
 
     loop {
         // Perform timeout manually because Firefox doesn't always close the connection and wtransport doesn't seem to consider it inactive either.
-        if last_activity.elapsed() > Duration::from_secs(WTRANSPORT_TIMEOUT_SECONDS) {
+        if last_activity.elapsed() > Duration::from_secs(timeout) {
             connection.close(VarInt::from_u32(0), &[]);
         }
 
         tokio::select! {
             e = connection.closed() => {
-                println!("connection closed: {e}");
+                log::error!("connection closed: {e}");
                 send_to_server(&socket, &remote_addr, &[0, 7]).await;
                 return;
             }
@@ -136,7 +176,7 @@ async fn handle_connection(incoming_session: IncomingSession) {
                 let dgram = match dgram {
                     Ok(dgram) => dgram,
                     Err(e) => {
-                        println!("receive_dgram_error: {e}");
+                        log::error!("receive_dgram_error: {e}");
                         send_to_server(&socket, &remote_addr, &[0, 7]).await;
                         return;
                     }
@@ -150,14 +190,14 @@ async fn handle_connection(incoming_session: IncomingSession) {
                 let bytes_recv = match bytes_recv {
                     Ok(bytes_recv) => bytes_recv,
                     Err(e) => {
-                        println!("socket_recv_error: {e}");
+                        log::error!("socket_recv_error: {e}");
                         send_to_server(&socket, &remote_addr, &[0, 7]).await;
                         return;
                     }
                 };
 
                 if let Err(e) = connection.send_datagram(&buffer[..bytes_recv]) {
-                    println!("send_dgram_error{e}");
+                    log::error!("send_dgram_error{e}");
                     send_to_server(&socket, &remote_addr, &[0, 7]).await;
                     return;
                 }

@@ -2,6 +2,8 @@
 Reverse proxy for handling WebTransport client connections to the game server.  
 Currently only directly forwards requests between the two, but in the future it should send along the client address details so the server can handle banning/aliasing. The server will need to be modified to handle this data.  
 
+`cargo run --release -- --help`
+
 ## Running locally
 Generate certificate and private key for localhost:  
 

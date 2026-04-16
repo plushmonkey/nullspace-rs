@@ -35,20 +35,16 @@ impl WeaponManager {
     pub fn spawn_weapons(
         &mut self,
         player: &Player,
+        position: Position,
         velocity: Velocity,
         kind: WeaponKind,
         settings: &ArenaSettings,
         timestamp: GameTick,
-        current_tick: GameTick,
     ) -> usize {
         let mut kind = kind;
         if player.ship_kind == ShipKind::Spectator {
             return 0;
         }
-
-        let Some(player_position) = player.position else {
-            return 0;
-        };
 
         let ship_settings = settings.get_ship_settings(player.ship_kind);
         let mut spawn_count = 0;
@@ -64,45 +60,40 @@ impl WeaponManager {
 
                 if ship_settings.double_barrel {
                     let perp = player.get_heading().perp();
-                    let offset = perp * ship_settings.radius as f32 * 0.75f32;
+                    let offset = perp * ship_settings.get_radius() as f32 * 0.75f32;
                     let offset_x = offset.x as i32;
                     let offset_y = offset.y as i32;
 
                     self.spawn_weapon(
                         player,
-                        player_position
-                            - Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
+                        position - Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
                         player.get_heading(),
                         kind,
                         settings,
                         timestamp,
-                        current_tick,
                     );
                     spawn_count += 1;
 
                     self.spawn_weapon(
                         player,
-                        player_position
-                            + Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
+                        position + Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
                         player.get_heading(),
                         kind,
                         settings,
                         timestamp,
-                        current_tick,
                     );
                     spawn_count += 1;
                 } else {
                     self.spawn_weapon(
                         player,
-                        player_position,
+                        position,
                         velocity,
                         player.get_heading(),
                         kind,
                         settings,
                         timestamp,
-                        current_tick,
                     );
                     spawn_count += 1;
                 }
@@ -115,25 +106,23 @@ impl WeaponManager {
 
                     self.spawn_weapon(
                         player,
-                        player_position,
+                        position,
                         velocity,
                         first_heading,
                         kind,
                         settings,
                         timestamp,
-                        current_tick,
                     );
                     spawn_count += 1;
 
                     self.spawn_weapon(
                         player,
-                        player_position,
+                        position,
                         velocity,
                         second_heading,
                         kind,
                         settings,
                         timestamp,
-                        current_tick,
                     );
                     spawn_count += 1;
                 }
@@ -146,14 +135,7 @@ impl WeaponManager {
                     let direction = glam::Vec2::new(f32::sin(rads), -f32::cos(rads));
 
                     self.spawn_weapon(
-                        player,
-                        player_position,
-                        velocity,
-                        direction,
-                        kind,
-                        settings,
-                        timestamp,
-                        current_tick,
+                        player, position, velocity, direction, kind, settings, timestamp,
                     );
                     spawn_count += 1;
                 }
@@ -161,13 +143,12 @@ impl WeaponManager {
             _ => {
                 self.spawn_weapon(
                     player,
-                    player_position,
+                    position,
                     velocity,
                     player.get_heading(),
                     kind,
                     settings,
                     timestamp,
-                    current_tick,
                 );
                 spawn_count += 1;
             }
@@ -184,8 +165,7 @@ impl WeaponManager {
         heading: glam::Vec2,
         kind: WeaponKind,
         settings: &ArenaSettings,
-        timestamp: GameTick, // TODO: Sim
-        current_tick: GameTick,
+        timestamp: GameTick,
     ) {
         let ship_settings = settings.get_ship_settings(player.ship_kind);
 
@@ -225,9 +205,6 @@ impl WeaponManager {
             _ => (0, 0),
         };
 
-        let tick_delay = current_tick.diff(&timestamp);
-        let remaining_ticks = remaining_ticks.saturating_sub_signed(tick_delay);
-
         let velocity = match &kind {
             WeaponKind::Repel => Velocity::new(PositionUnit(0), PositionUnit(0)),
             _ => {
@@ -255,10 +232,10 @@ impl WeaponManager {
 
         // Player sends a weapon packet with their game time at the time of spawn, server receives that and changes the timestamp to the time the server received it.
         // The server calculates the difference and stores that in ping.
-        // So we must reduce the timestamp by the ping to get the game tick spawn time.
+        // The timestamp is already reduced by the ping amount in the calling functions.
         //
         // This is used during the simulation step to tick enough times to match our current game tick.
-        let spawn_timestamp = timestamp + -(player.ping as i32);
+        let spawn_timestamp = timestamp;
         let weapon = Weapon::new(
             kind,
             position,
@@ -487,12 +464,7 @@ impl WeaponManager {
             };
 
             let ship_settings = settings.get_ship_settings(player.ship_kind);
-
-            let player_radius = if ship_settings.radius > 0 {
-                PositionUnit(ship_settings.radius as i32 * 1000)
-            } else {
-                PositionUnit(14000)
-            };
+            let player_radius = PositionUnit(ship_settings.get_radius() as i32 * 1000);
 
             let collider = Rectangle::from_radius(weapon.position, weapon_radius + player_radius);
 

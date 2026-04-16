@@ -38,7 +38,7 @@ pub struct ShipSettings {
     // (1 = enabled)
     pub disable_fast_shooting: bool,
     // The ship's radius from center to outside, in pixels.
-    pub radius: u16,
+    radius: u16,
     // Angle spread between multi-fire bullets and standard forward
     // firing bullets(111 = 1 degree, 1000 = 1 ship - rotation - point)
     pub multi_fire_angle: u16,
@@ -788,6 +788,10 @@ impl ShipSettings {
             emp_bomb,
             see_mines,
         })
+    }
+
+    pub fn get_radius(&self) -> u16 {
+        if self.radius == 0 { 14 } else { self.radius }
     }
 }
 
