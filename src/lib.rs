@@ -33,6 +33,7 @@ pub mod map;
 pub mod math;
 pub mod net;
 pub mod player;
+pub mod powerball;
 pub mod prize;
 pub mod render;
 pub mod rng;

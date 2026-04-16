@@ -1,6 +1,6 @@
 use crate::{
     clock::GameTick,
-    math::{Position, PositionUnit, Rectangle, Velocity, radians},
+    math::{Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction},
     ship::ShipKind,
 };
 
@@ -161,12 +161,7 @@ impl Player {
     }
 
     pub fn get_heading(&self) -> glam::Vec2 {
-        let degrees = (40 - self.direction) as f32 * 9.0f32 + 90.0f32;
-        let rads = radians(degrees);
-        let x = f32::cos(rads);
-        let y = -f32::sin(rads);
-
-        glam::Vec2::new(x, y)
+        get_heading_from_direction(self.direction)
     }
 
     pub fn is_dead(&self) -> bool {

@@ -191,12 +191,12 @@ impl SpriteRenderer {
         transform: glam::Mat4,
         scale: f32,
         renderable: &SpriteRenderable,
-        x_pixels: i32,
-        y_pixels: i32,
+        x_pixels: f32,
+        y_pixels: f32,
         layer: Layer,
     ) {
-        let x = x_pixels as f32 * scale;
-        let y = y_pixels as f32 * scale;
+        let x = x_pixels * scale;
+        let y = y_pixels * scale;
 
         let width = (renderable.size[0] as f32) * scale;
         let height = (renderable.size[1] as f32) * scale;
@@ -270,8 +270,10 @@ impl SpriteRenderer {
     ) {
         let mvp = camera.projection() * camera.view();
 
-        let x_pixels = x_pixels - (renderable.size[0] as i32) / 2;
-        let y_pixels = y_pixels - (renderable.size[1] as i32) / 2;
+        let (width, height) = (renderable.size[0] as f32, renderable.size[1] as f32);
+
+        let x_pixels = x_pixels as f32 - width / 2.0f32;
+        let y_pixels = y_pixels as f32 - height / 2.0f32;
 
         self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer);
     }
@@ -286,7 +288,14 @@ impl SpriteRenderer {
     ) {
         let mvp = camera.projection() * camera.view();
 
-        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer);
+        self.draw_with_transform(
+            mvp,
+            camera.scale,
+            renderable,
+            x_pixels as f32,
+            y_pixels as f32,
+            layer,
+        );
     }
 
     pub fn render(&mut self, renderpass: &mut wgpu::RenderPass, queue: &wgpu::Queue) {

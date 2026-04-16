@@ -120,8 +120,8 @@ impl TextRenderer {
                     mvp,
                     camera.scale,
                     renderable,
-                    current_x,
-                    current_y,
+                    current_x as f32,
+                    current_y as f32,
                     layer,
                 );
 

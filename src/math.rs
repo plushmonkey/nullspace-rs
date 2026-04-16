@@ -244,3 +244,12 @@ pub fn rotate_vec2(vec: glam::Vec2, rads: f32) -> glam::Vec2 {
 
     glam::Vec2::new(cos_a * vec.x - sin_a * vec.y, sin_a * vec.x + cos_a * vec.y)
 }
+
+pub fn get_heading_from_direction(direction: u8) -> glam::Vec2 {
+    let degrees = (40 - direction) as f32 * 9.0f32 + 90.0f32;
+    let rads = radians(degrees);
+    let x = f32::cos(rads);
+    let y = -f32::sin(rads);
+
+    glam::Vec2::new(x, y)
+}

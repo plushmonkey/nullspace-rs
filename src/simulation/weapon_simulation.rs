@@ -2,7 +2,10 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     map::{Map, TILE_ID_SAFE, TILE_ID_WORMHOLE},
-    math::{PixelUnit, Position, PositionUnit, Rectangle, Velocity, radians, rotate_vec2},
+    math::{
+        PixelUnit, Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction,
+        radians, rotate_vec2,
+    },
     player::{Player, PlayerManager},
     rng::VieRng,
     ship::ShipKind,
@@ -37,6 +40,7 @@ impl WeaponManager {
         player: &Player,
         position: Position,
         velocity: Velocity,
+        direction: u8,
         kind: WeaponKind,
         settings: &ArenaSettings,
         timestamp: GameTick,
@@ -49,6 +53,8 @@ impl WeaponManager {
         let ship_settings = settings.get_ship_settings(player.ship_kind);
         let mut spawn_count = 0;
 
+        let heading = get_heading_from_direction(direction);
+
         match &mut kind {
             WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
                 let multi = bullet.multi;
@@ -59,7 +65,7 @@ impl WeaponManager {
                 }
 
                 if ship_settings.double_barrel {
-                    let perp = player.get_heading().perp();
+                    let perp = heading.perp();
                     let offset = perp * ship_settings.get_radius() as f32 * 0.75f32;
                     let offset_x = offset.x as i32;
                     let offset_y = offset.y as i32;
@@ -68,7 +74,7 @@ impl WeaponManager {
                         player,
                         position - Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
-                        player.get_heading(),
+                        heading,
                         kind,
                         settings,
                         timestamp,
@@ -79,7 +85,7 @@ impl WeaponManager {
                         player,
                         position + Position::from_pixels(PixelUnit(offset_x), PixelUnit(offset_y)),
                         velocity,
-                        player.get_heading(),
+                        heading,
                         kind,
                         settings,
                         timestamp,
@@ -87,20 +93,14 @@ impl WeaponManager {
                     spawn_count += 1;
                 } else {
                     self.spawn_weapon(
-                        player,
-                        position,
-                        velocity,
-                        player.get_heading(),
-                        kind,
-                        settings,
-                        timestamp,
+                        player, position, velocity, heading, kind, settings, timestamp,
                     );
                     spawn_count += 1;
                 }
 
                 if multi {
                     let rads = radians(ship_settings.multi_fire_angle as f32 / 111.0f32);
-                    let player_heading = player.get_heading();
+                    let player_heading = heading;
                     let first_heading = rotate_vec2(player_heading, rads);
                     let second_heading = rotate_vec2(player_heading, -rads);
 
@@ -142,13 +142,7 @@ impl WeaponManager {
             }
             _ => {
                 self.spawn_weapon(
-                    player,
-                    position,
-                    velocity,
-                    player.get_heading(),
-                    kind,
-                    settings,
-                    timestamp,
+                    player, position, velocity, heading, kind, settings, timestamp,
                 );
                 spawn_count += 1;
             }
@@ -296,7 +290,7 @@ impl WeaponManager {
                 if sim_result == WeaponSimulateResult::PlayerExplosion
                     || sim_result == WeaponSimulateResult::WallExplosion
                 {
-                    self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
+                    self.handle_weapon_explosion(settings, weapon_index);
                 }
 
                 if sim_result != WeaponSimulateResult::Continue {
@@ -328,7 +322,7 @@ impl WeaponManager {
                 {
                     if let Some(link_id) = &bullet.link_id {
                         if link_removal.contains(link_id) {
-                            self.handle_weapon_explosion(map, settings, weapon_index, current_tick);
+                            self.handle_weapon_explosion(settings, weapon_index);
                             self.weapons.swap_remove(weapon_index);
                             continue;
                         }
@@ -362,13 +356,15 @@ impl WeaponManager {
         }
 
         let player = player.expect("weapon player should exist during tick");
-        let Some(player_position) = player.position else {
+
+        if player.ship_kind == ShipKind::Spectator {
             return WeaponSimulateResult::TimedOut;
-        };
-        if player.ship_kind == ShipKind::Spectator
-            || map.get_tile_from_position(&player_position) == TILE_ID_SAFE
-        {
-            return WeaponSimulateResult::TimedOut;
+        }
+
+        if let Some(player_position) = player.position {
+            if map.get_tile_from_position(&player_position) == TILE_ID_SAFE {
+                return WeaponSimulateResult::TimedOut;
+            }
         }
 
         let sim_result = Self::integrate_weapon_position(map, weapon);
@@ -541,10 +537,16 @@ impl WeaponManager {
 
         if x_collide || y_collide {
             match &mut weapon.kind {
-                WeaponKind::Shrapnel(_) => {
-                    // Shrapnel that collides near death times out
-                    if weapon.remaining_ticks < 25 {
+                WeaponKind::Shrapnel(shrapnel) => {
+                    // Shrapnel that collides near spawn times out.
+                    let alive_ticks = weapon.last_update_tick.diff(&weapon.spawn_timestamp);
+
+                    if alive_ticks <= 25 {
                         return WeaponSimulateResult::TimedOut;
+                    }
+
+                    if !shrapnel.bouncing {
+                        return WeaponSimulateResult::WallExplosion;
                     }
                 }
                 WeaponKind::Bomb(bomb_weapon) | WeaponKind::ProximityBomb(bomb_weapon) => {
@@ -556,6 +558,9 @@ impl WeaponManager {
                 }
                 WeaponKind::Burst(burst_weapon) => {
                     burst_weapon.active = true;
+                }
+                WeaponKind::Bullet(_) => {
+                    return WeaponSimulateResult::WallExplosion;
                 }
                 _ => {}
             }
@@ -640,13 +645,7 @@ impl WeaponManager {
         }
     }
 
-    fn handle_weapon_explosion(
-        &mut self,
-        map: &Map,
-        settings: &ArenaSettings,
-        weapon_index: usize,
-        current_tick: GameTick,
-    ) {
+    fn handle_weapon_explosion(&mut self, settings: &ArenaSettings, weapon_index: usize) {
         let weapon = &self.weapons[weapon_index];
 
         match &weapon.kind {
@@ -658,6 +657,7 @@ impl WeaponManager {
                 let position = weapon.position;
                 let player_id = weapon.player_id;
                 let frequency = weapon.frequency;
+                let spawn_timestamp = weapon.last_update_tick;
 
                 for i in 0..shrapnel_count as u32 {
                     let orientation = if !settings.shrapnel_random {
@@ -674,13 +674,6 @@ impl WeaponManager {
                         PositionUnit((direction_y * settings.shrapnel_speed as f32) as i32),
                     );
 
-                    let step_x = (position.x.0 + velocity.x.0) / 16000;
-                    let step_y = (position.y.0 + velocity.y.0) / 16000;
-
-                    if map.is_solid(step_x as u16, step_y as u16) {
-                        continue;
-                    }
-
                     let weapon_kind = WeaponKind::Shrapnel(ShrapnelWeapon {
                         level: shrapnel_level,
                         bouncing: shrapnel_bouncing,
@@ -693,7 +686,7 @@ impl WeaponManager {
                         player_id,
                         frequency,
                         settings.bullet_alive_time as u32,
-                        current_tick,
+                        spawn_timestamp,
                     ));
                 }
             }

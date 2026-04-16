@@ -70,18 +70,32 @@ pub enum GameSpriteKind {
     Bombs,
     Mines,
     Shrapnel,
+    Flag,
+    Goal,
+    AsteroidSmall,
+    AsteroidLarge,
+    AsteroidSmall2,
+    SpaceStation,
+    Wormhole,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
 const GAME_SPRITE_KIND_SIZE: usize = GameSpriteKind::Repel as usize + 1;
 
 // cols, rows definition for each sprite kind
-const SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
+pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (10, 4 * 8), // Ships 4 rows for each ship kind (8)
     (4, 10),     // Bullets
     (10, 13),    // Bombs
     (10, 8),     // Mines
     (10, 6),     // Shrapnel
+    (10, 2),     // Flag
+    (9, 2),      // Goal
+    (15, 2),     // AsteroidSmall
+    (10, 3),     // AsteroidLarge
+    (15, 2),     // AsteroidSmal2
+    (5, 2),      // SpaceStation
+    (4, 6),      // Wormhole
     (5, 2),      // Repel
 ];
 
@@ -142,7 +156,7 @@ impl GameSpriteLoader {
 
         for (kind, img) in loadset {
             let index = kind as usize;
-            let (cols, rows) = SHEET_DEFINITIONS[index];
+            let (cols, rows) = GAME_SPRITE_SHEET_DEFINITIONS[index];
 
             sprites.sprites[index] = SpriteSet::new(render_state, &img, cols, rows);
         }
@@ -171,6 +185,13 @@ impl GameSpriteLoader {
             (GameSpriteKind::Bombs, "graphics/bombs.bm2"),
             (GameSpriteKind::Mines, "graphics/mines.bm2"),
             (GameSpriteKind::Shrapnel, "graphics/shrapnel.bm2"),
+            (GameSpriteKind::Flag, "graphics/flag.bm2"),
+            (GameSpriteKind::Goal, "graphics/goal.bm2"),
+            (GameSpriteKind::AsteroidSmall, "graphics/over1.bm2"),
+            (GameSpriteKind::AsteroidLarge, "graphics/over2.bm2"),
+            (GameSpriteKind::AsteroidSmall2, "graphics/over3.bm2"),
+            (GameSpriteKind::SpaceStation, "graphics/over4.bm2"),
+            (GameSpriteKind::Wormhole, "graphics/over5.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

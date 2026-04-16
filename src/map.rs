@@ -12,6 +12,73 @@ pub const TILE_ID_SAFE: TileId = 171;
 pub const TILE_ID_GOAL: TileId = 172;
 pub const TILE_ID_WORMHOLE: TileId = 220;
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Tile {
+    value: u32,
+}
+
+impl Tile {
+    pub fn new(value: u32) -> Self {
+        Self { value }
+    }
+
+    pub fn id(&self) -> TileId {
+        ((self.value >> 24) & 0xFF) as TileId
+    }
+
+    pub fn x(&self) -> u16 {
+        ((self.value >> 0) & 0xFFF) as u16
+    }
+
+    pub fn y(&self) -> u16 {
+        ((self.value >> 12) & 0xFFF) as u16
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum AnimatedTileKind {
+    Goal,
+    AsteroidSmall,
+    AsteroidSmall2,
+    AsteroidLarge,
+    SpaceStation,
+    Wormhole,
+    Flag,
+}
+pub const ANIMATED_TILE_KIND_COUNT: usize = 7;
+
+impl AnimatedTileKind {
+    pub fn get_tile_size(&self) -> u16 {
+        match self {
+            AnimatedTileKind::Goal => 1,
+            AnimatedTileKind::AsteroidSmall => 1,
+            AnimatedTileKind::AsteroidSmall2 => 1,
+            AnimatedTileKind::AsteroidLarge => 2,
+            AnimatedTileKind::SpaceStation => 6,
+            AnimatedTileKind::Wormhole => 5,
+            AnimatedTileKind::Flag => 1,
+        }
+    }
+
+    pub fn try_from_id(id: TileId) -> Option<Self> {
+        match id {
+            172 => Some(AnimatedTileKind::Goal),
+            216 => Some(AnimatedTileKind::AsteroidSmall),
+            218 => Some(AnimatedTileKind::AsteroidSmall2),
+            217 => Some(AnimatedTileKind::AsteroidLarge),
+            219 => Some(AnimatedTileKind::SpaceStation),
+            220 => Some(AnimatedTileKind::Wormhole),
+            170 => Some(AnimatedTileKind::Flag),
+            _ => None,
+        }
+    }
+}
+
+pub struct AnimatedTileSet {
+    pub tiles: Vec<Tile>,
+}
+
 #[derive(Error, Debug)]
 pub enum MapError {
     #[error("{0}")]
@@ -25,6 +92,7 @@ pub struct Map {
     pub filename: String,
     pub tiles: Box<[TileId; 1024 * 1024]>,
     pub checksum: u32,
+    pub animated_tiles: [Vec<Tile>; ANIMATED_TILE_KIND_COUNT],
 }
 
 impl Map {
@@ -35,12 +103,7 @@ impl Map {
     }
 
     pub fn new(filename: &str, data: &[u8]) -> Result<Self, MapError> {
-        let mut map = Map {
-            filename: filename.to_owned(),
-            tiles: vec![0; 1024 * 1024].into_boxed_slice().try_into().unwrap(),
-            checksum: 0,
-        };
-
+        let mut map = Self::empty(filename);
         let mut position: usize = 0;
 
         if data.len() >= 4 {
@@ -57,14 +120,33 @@ impl Map {
         let tile_count = (data.len() - position) / size_of::<u32>();
 
         for _ in 0..tile_count {
-            let tile = u32::from_le_bytes(data[position..position + 4].try_into().unwrap());
+            let tile = Tile::new(u32::from_le_bytes(
+                data[position..position + 4].try_into().unwrap(),
+            ));
 
-            let x = (tile >> 0) & 0xFFF;
-            let y = (tile >> 12) & 0xFFF;
-            let tile_id = ((tile >> 24) & 0xFF) as u8;
+            let x = tile.x();
+            let y = tile.y();
+            let tile_id = tile.id();
 
             let index: usize = y as usize * 1024 + x as usize;
             map.tiles[index] = tile_id;
+
+            if let Some(animated_tile) = AnimatedTileKind::try_from_id(tile_id) {
+                let size = animated_tile.get_tile_size();
+
+                map.animated_tiles[animated_tile as usize].push(tile);
+
+                for oy in 0..size {
+                    let cy = y + oy;
+
+                    for ox in 0..size {
+                        let cx = x + ox;
+
+                        let index: usize = cy as usize * 1024 + cx as usize;
+                        map.tiles[index] = tile_id;
+                    }
+                }
+            }
 
             position += 4;
         }
@@ -77,6 +159,7 @@ impl Map {
             filename: filename.to_owned(),
             tiles: vec![0; 1024 * 1024].into_boxed_slice().try_into().unwrap(),
             checksum: 0,
+            animated_tiles: [(); ANIMATED_TILE_KIND_COUNT].map(|_| Vec::new()),
         }
     }
 

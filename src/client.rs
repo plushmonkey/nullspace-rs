@@ -1,9 +1,11 @@
 use crate::arena_settings::ArenaSettings;
 use crate::checksum;
 use crate::clock::*;
+use crate::map::ANIMATED_TILE_KIND_COUNT;
 use crate::map::Map;
 use crate::math::PixelUnit;
 use crate::math::PositionUnit;
+use crate::math::Rectangle;
 use crate::math::{Position, Velocity};
 use crate::net::connection::ConnectionError;
 use crate::net::connection::SocketKind;
@@ -12,6 +14,8 @@ use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::player::*;
+use crate::powerball::is_team_goal;
+use crate::render::game_sprites::GAME_SPRITE_SHEET_DEFINITIONS;
 use crate::render::game_sprites::GameSpriteKind;
 use crate::render::game_sprites::GameSprites;
 use crate::render::layer::Layer;
@@ -267,8 +271,8 @@ impl Client {
                     }
                     WeaponKind::Repel => {
                         let ticks_per_frame = 60 / 10;
-                        let ticks = (self.connection.get_game_tick() - weapon.spawn_timestamp)
-                            .value() as usize;
+                        let ticks =
+                            (weapon.last_update_tick - weapon.spawn_timestamp).value() as usize;
                         let animation_index = (ticks / ticks_per_frame) % 10;
 
                         let renderable_index = animation_index;
@@ -342,6 +346,96 @@ impl Client {
                     }
                     _ => {}
                 }
+            }
+        }
+
+        self.render_map_animations(render_state, sprites);
+    }
+
+    pub fn render_map_animations(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+        const OFFSCREEN_PIXELS: i32 = 8 * 16;
+        let (screen_width, screen_height) = (
+            render_state.size().width as i32,
+            render_state.size().height as i32,
+        );
+        let half_width = (screen_width / 2) + OFFSCREEN_PIXELS;
+        let half_height = (screen_height / 2) + OFFSCREEN_PIXELS;
+
+        let center_x = (render_state.camera.position.x * 16.0f32) as i32;
+        let center_y = (render_state.camera.position.y * 16.0f32) as i32;
+
+        let view_min = Position::new(
+            PositionUnit(center_x - half_width),
+            PositionUnit(center_y - half_height),
+        );
+        let view_max = Position::new(
+            PositionUnit(center_x + half_width),
+            PositionUnit(center_y + half_height),
+        );
+
+        let view_rect = Rectangle::new(view_min, view_max);
+        const ANIMATED_TILE_MAPPING: [(GameSpriteKind, usize); ANIMATED_TILE_KIND_COUNT] = [
+            (GameSpriteKind::Goal, 50),
+            (GameSpriteKind::AsteroidSmall, 150),
+            (GameSpriteKind::AsteroidSmall2, 150),
+            (GameSpriteKind::AsteroidLarge, 150),
+            (GameSpriteKind::SpaceStation, 100),
+            (GameSpriteKind::Wormhole, 250),
+            (GameSpriteKind::Flag, 100),
+        ];
+
+        // Loop over the animated tiles except for flags. Flags require extra game state to determine how they should be rendered.
+        for i in 0..ANIMATED_TILE_KIND_COUNT - 1 {
+            let tiles = &self.map.animated_tiles[i];
+
+            if tiles.is_empty() {
+                continue;
+            }
+
+            let (game_sprite_kind, duration) = ANIMATED_TILE_MAPPING[i];
+
+            let Some(sprite_set) = sprites.get_set(game_sprite_kind) else {
+                continue;
+            };
+
+            let frames = GAME_SPRITE_SHEET_DEFINITIONS[game_sprite_kind as usize];
+            let frames = frames.0 * frames.1;
+
+            for tile in tiles {
+                let x_pixels = tile.x() as i32 * 16;
+                let y_pixels = tile.y() as i32 * 16;
+                let position = Position::new(PositionUnit(x_pixels), PositionUnit(y_pixels));
+
+                if !view_rect.contains(position) {
+                    continue;
+                }
+
+                let renderable = match &game_sprite_kind {
+                    GameSpriteKind::Goal => {
+                        const GOAL_FRAMES: usize = 9;
+
+                        let enemy_goal = !is_team_goal(&self.settings, position, self.spec_freq);
+
+                        // First half of goal frames are team goals, second half are enemy.
+                        // This increments the animation index to point into the appropriate set.
+                        let animation_index = self.get_animation_index(GOAL_FRAMES, duration)
+                            + enemy_goal as usize * GOAL_FRAMES;
+
+                        &sprite_set.renderables[animation_index]
+                    }
+                    _ => {
+                        let animation_index = self.get_animation_index(frames as usize, duration);
+                        &sprite_set.renderables[animation_index]
+                    }
+                };
+
+                render_state.sprite_renderer.draw(
+                    &render_state.camera,
+                    renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Tiles,
+                );
             }
         }
     }
@@ -560,6 +654,10 @@ impl Client {
                 // We need to initialize the simulation here before we receive player enter events.
                 self.simulation = Simulation::new(self.connection.get_game_tick());
                 self.last_position_tick = self.connection.get_game_tick();
+
+                if let Some(render_state) = render_state {
+                    render_state.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
+                }
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
@@ -719,6 +817,8 @@ impl Client {
                         PositionUnit(message.y_velocity as i32),
                     );
 
+                    let direction = message.direction;
+
                     if player.last_position_timestamp < message_timestamp {
                         player.velocity = velocity;
 
@@ -762,6 +862,7 @@ impl Client {
                             player,
                             position,
                             velocity,
+                            direction,
                             weapon_kind,
                             &self.settings,
                             message_timestamp,
