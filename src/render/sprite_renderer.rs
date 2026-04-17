@@ -80,7 +80,7 @@ impl SpriteRenderer {
         depth_texture: &Texture,
         push_size: usize,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("sprite.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/sprite.wgsl"));
 
         let vertex_size = size_of::<Vertex>();
         // There's 6 vertices that make up the two triangles of the sprite.

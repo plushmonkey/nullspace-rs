@@ -200,7 +200,7 @@ impl ApplicationPlayingState {
     }
 
     pub fn update(&mut self, render_state: &mut RenderState) {
-        const CAMERA_SPEED: f32 = 100.0f32;
+        const CAMERA_SPEED: f32 = 30.0f32;
 
         let dt = self.timer.elapsed();
 
@@ -220,7 +220,7 @@ impl ApplicationPlayingState {
         }
 
         let speed = if self.input.shift {
-            CAMERA_SPEED * 3.0f32
+            CAMERA_SPEED * 2.0f32
         } else {
             CAMERA_SPEED
         };

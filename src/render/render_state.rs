@@ -7,6 +7,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 use crate::{
     map::Map,
     render::{
+        background_renderer::BackgroundRenderer,
         camera::Camera,
         game_sprites::SpriteSet,
         layer::Layer,
@@ -52,6 +53,7 @@ pub struct RenderState {
     pub map_renderer: MapRenderer,
     pub sprite_renderer: SpriteRenderer,
     pub text_renderer: TextRenderer,
+    pub background_renderer: BackgroundRenderer,
 }
 
 impl RenderState {
@@ -172,11 +174,12 @@ impl RenderState {
         Self::buffer_texture(&queue, &text_texture, &text_img.to_rgba8().as_bytes());
 
         let text_renderer = TextRenderer::new(&device, &text_texture, &mut sprite_renderer);
+        let background_renderer = BackgroundRenderer::new(&device, &config.format, &depth_texture);
 
         let camera = Camera::new(
             size.width as f32,
             size.height as f32,
-            glam::Vec2::new(512.5f32, 512.5f32),
+            glam::Vec2::new(0.0f32, 0.0f32),
             1.0f32 / 16.0f32,
         );
 
@@ -200,6 +203,7 @@ impl RenderState {
             map_renderer,
             sprite_renderer,
             text_renderer,
+            background_renderer,
         })
     }
 
@@ -281,6 +285,9 @@ impl RenderState {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+
+            self.background_renderer
+                .render(&mut render_pass, &self.camera, &self.queue);
 
             self.map_renderer
                 .render(&mut render_pass, &self.camera, &self.queue);

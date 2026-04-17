@@ -1,3 +1,4 @@
+pub mod background_renderer;
 pub mod camera;
 pub mod game_sprites;
 pub mod layer;

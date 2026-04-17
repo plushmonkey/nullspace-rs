@@ -90,7 +90,7 @@ impl MapRenderer {
         format: &wgpu::TextureFormat,
         depth_texture: &Texture,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("map.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/map.wgsl"));
 
         let vertex_size = size_of::<Vertex>();
 
