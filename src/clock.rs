@@ -2,7 +2,7 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 use std::convert::From;
 use std::ops::{Add, Sub};
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub struct GameTick {
     value: u32,
 }

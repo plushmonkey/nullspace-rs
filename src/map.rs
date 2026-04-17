@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::math::Position;
+use crate::{arena_settings::ArenaSettings, clock::GameTick, math::Position, rng::VieRng};
 
 pub type TileId = u8;
 
@@ -88,23 +88,47 @@ pub enum MapError {
     InvalidBitmapHeader,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct DoorRng {
+    pub rng: VieRng,
+    pub last_tick: GameTick,
+    pub current_mode: u8,
+    pub last_mode: u8,
+}
+
+impl DoorRng {
+    pub fn new(seed: u32, last_tick: GameTick, current_mode: u8, last_mode: u8) -> Self {
+        Self {
+            rng: VieRng::new(seed as i32),
+            last_tick,
+            current_mode,
+            last_mode,
+        }
+    }
+}
+
 pub struct Map {
     pub filename: String,
     pub tiles: Box<[TileId; 1024 * 1024]>,
     pub checksum: u32,
     pub animated_tiles: [Vec<Tile>; ANIMATED_TILE_KIND_COUNT],
+
+    pub doors: Vec<Tile>,
+    pub door_rng: Option<DoorRng>,
 }
 
 impl Map {
-    pub fn load(filename: &str) -> Result<Self, MapError> {
+    pub fn load(filename: &str, door_rng: Option<DoorRng>) -> Result<Self, MapError> {
         let data = std::fs::read(filename)?;
 
-        Map::new(filename, &data)
+        Map::new(filename, &data, door_rng)
     }
 
-    pub fn new(filename: &str, data: &[u8]) -> Result<Self, MapError> {
+    pub fn new(filename: &str, data: &[u8], door_rng: Option<DoorRng>) -> Result<Self, MapError> {
         let mut map = Self::empty(filename);
         let mut position: usize = 0;
+
+        map.door_rng = door_rng;
 
         if data.len() >= 4 {
             // If we have a bitmap header, jump to tile data by reading header.
@@ -146,6 +170,8 @@ impl Map {
                         map.tiles[index] = tile_id;
                     }
                 }
+            } else if tile_id >= TILE_ID_FIRST_DOOR && tile_id <= TILE_ID_LAST_DOOR {
+                map.doors.push(tile);
             }
 
             position += 4;
@@ -160,6 +186,8 @@ impl Map {
             tiles: vec![0; 1024 * 1024].into_boxed_slice().try_into().unwrap(),
             checksum: 0,
             animated_tiles: [(); ANIMATED_TILE_KIND_COUNT].map(|_| Vec::new()),
+            doors: vec![],
+            door_rng: None,
         }
     }
 
@@ -274,6 +302,170 @@ impl Map {
         let (x, y) = position.to_tile();
 
         self.can_fit(x, y, radius, frequency)
+    }
+
+    pub fn tick(&mut self, settings: &ArenaSettings, current_tick: GameTick) {
+        if self.doors.is_empty() {
+            return;
+        }
+
+        let Some(door_rng) = &mut self.door_rng else {
+            return;
+        };
+
+        let tick_diff = current_tick.diff(&door_rng.last_tick);
+
+        let delay = if settings.door_delay > 0 {
+            settings.door_delay as i32
+        } else {
+            1
+        };
+
+        let update_count = tick_diff / delay;
+
+        for _ in 0..update_count {
+            let new_door_mode = Self::update_door_seed(settings.door_mode, door_rng);
+
+            door_rng.last_mode = door_rng.current_mode;
+            door_rng.current_mode = new_door_mode as u8;
+
+            Self::apply_door_mode(&mut self.doors, &mut self.tiles[..], new_door_mode as u32);
+        }
+
+        door_rng.last_tick = door_rng.last_tick + update_count * delay;
+    }
+
+    // This mutates the door seed and returns the new door mode.
+    fn update_door_seed(door_mode: i16, door_rng: &mut DoorRng) -> i32 {
+        let mut seed = door_rng.rng.seed;
+
+        if door_mode == -2 {
+            seed = door_rng.rng.next() as i32;
+        } else if door_mode == -1 {
+            let mut table: [u32; 7] = [0, 0, 0, 0, 0, 0, 0];
+
+            for i in 0..7 {
+                table[i] = door_rng.rng.next();
+            }
+
+            table[6] &= 0x8000000F;
+            if (table[6] as i32) < 0 {
+                table[6] = ((table[6].wrapping_sub(1)) | 0xFFFFFFF0).wrapping_add(1);
+            }
+            table[6] = (-(((table[6] as i32) != 0) as i32) & 0x80) as u32;
+
+            table[5] &= 0x80000007;
+            if (table[5] as i32) < 0 {
+                table[5] = ((table[5].wrapping_sub(1)) | 0xFFFFFFF8).wrapping_add(1);
+            }
+            table[5] = (-(((table[5] as i32) != 0) as i32) & 0x40) as u32;
+
+            table[4] &= 0x80000003;
+            if (table[4] as i32) < 0 {
+                table[4] = ((table[4].wrapping_sub(1)) | 0xFFFFFFFC).wrapping_add(1);
+            }
+            table[4] = (-(((table[4] as i32) != 0) as i32) & 0x20) as u32;
+
+            table[3] &= 0x8000000F;
+            if (table[3] as i32) < 0 {
+                table[3] = ((table[3].wrapping_sub(1)) | 0xFFFFFFF0).wrapping_add(1);
+            }
+            table[3] = (-(((table[3] as i32) != 0) as i32) & 0x08) as u32;
+
+            table[2] &= 0x80000007;
+            if (table[2] as i32) < 0 {
+                table[2] = ((table[2].wrapping_sub(1)) | 0xFFFFFFF8).wrapping_add(1);
+            }
+            table[2] = (-(((table[2] as i32) != 0) as i32) & 0x04) as u32;
+
+            table[1] &= 0x80000003;
+            if (table[1] as i32) < 0 {
+                table[1] = ((table[1].wrapping_sub(1)) | 0xFFFFFFFC).wrapping_add(1);
+            }
+            table[1] = (-(((table[1] as i32) != 0) as i32) & 0x02) as u32;
+
+            table[0] &= 0x80000001;
+            if (table[0] as i32) < 0 {
+                table[0] = ((table[0].wrapping_sub(1)) | 0xFFFFFFFE).wrapping_add(1);
+            }
+            table[0] = (-(((table[0] as i32) != 0) as i32) & 0x11) as u32;
+
+            seed = table[6]
+                .wrapping_add(table[5])
+                .wrapping_add(table[4])
+                .wrapping_add(table[3])
+                .wrapping_add(table[2])
+                .wrapping_add(table[1])
+                .wrapping_add(table[0]) as i32;
+        } else if door_mode >= 0 {
+            seed = door_mode as i32;
+        }
+
+        seed
+    }
+
+    pub fn set_door_seed(&mut self, seed: u32, timestamp: GameTick) {
+        if let Some(door_rng) = &mut self.door_rng {
+            if timestamp <= door_rng.last_tick {
+                //  We updated our timestamp in the time it took for the security packet to arrive.
+                // Revert to the previous one and set the new timer.
+
+                Self::apply_door_mode(
+                    &mut self.doors,
+                    &mut self.tiles[..],
+                    door_rng.last_mode as u32,
+                );
+
+                door_rng.current_mode = door_rng.last_mode;
+                door_rng.last_tick = timestamp;
+                door_rng.rng.seed = seed as i32;
+
+                return;
+            }
+        }
+
+        let (current_mode, last_mode) = if let Some(door_rng) = &self.door_rng {
+            (door_rng.current_mode, door_rng.last_mode)
+        } else {
+            (0, 0)
+        };
+
+        self.door_rng = Some(DoorRng::new(seed, timestamp, current_mode, last_mode));
+    }
+
+    pub fn set_door_mode(&mut self, door_mode: u8) {
+        Self::apply_door_mode(&mut self.doors, &mut self.tiles[..], door_mode as u32);
+
+        if let Some(door_rng) = &mut self.door_rng {
+            door_rng.last_mode = door_rng.current_mode;
+            door_rng.current_mode = door_mode;
+        }
+    }
+
+    fn apply_door_mode(doors: &mut Vec<Tile>, tiles: &mut [u8], door_mode: u32) {
+        let bottom = door_mode & 0xFF;
+
+        let make_bits = |value: u32, bit: u32| -(((value & bit) != 0) as i32) as u32;
+
+        let table: [u32; 8] = [
+            ((!bottom & 1) << 3) | 0xA2,
+            (make_bits(bottom, 2) & 0xF9) + 0xAA,
+            (make_bits(bottom, 4) & 0xFA) + 0xAA,
+            (make_bits(bottom, 8) & 0xFB) + 0xAA,
+            (make_bits(bottom, 0x10) & 0xFC) + 0xAA,
+            (make_bits(bottom, 0x20) & 0xFD) + 0xAA,
+            (!(bottom >> 5) & 2) | 0xA8,
+            0xAA - ((bottom & 0x80) != 0) as u32,
+        ];
+
+        for door_tile in doors {
+            let index = (door_tile.id() - TILE_ID_FIRST_DOOR) as usize;
+            let id = table[index] as u8;
+
+            let tile_index = Self::get_index(door_tile.x(), door_tile.y());
+
+            tiles[tile_index] = id;
+        }
     }
 
     fn get_index(x: u16, y: u16) -> usize {

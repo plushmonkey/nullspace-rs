@@ -168,7 +168,7 @@ async fn handle_connection(
 
         tokio::select! {
             e = connection.closed() => {
-                log::error!("connection closed: {e}");
+                log::trace!("connection closed: {e}");
                 send_to_server(&socket, &remote_addr, &[0, 7]).await;
                 return;
             }

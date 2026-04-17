@@ -8,6 +8,7 @@ use crate::{
     map::Map,
     render::{
         camera::Camera,
+        game_sprites::SpriteSet,
         layer::Layer,
         map_renderer::{MapRenderer, MapTileset},
         sprite_renderer::SpriteRenderer,
@@ -326,6 +327,14 @@ impl RenderState {
         let tileset = MapTileset::new(bytes);
 
         self.map_renderer.set_map(map, &tileset, &self.queue);
+
+        let x_start = 9 * 16;
+        let x_end = x_start + 8 * 16;
+        let y_start = 8 * 16;
+        let y_end = y_start + 16;
+
+        self.map_renderer.door_spriteset =
+            SpriteSet::new_from_slice(self, &tileset.image, x_start, y_start, x_end, y_end, 8, 1);
     }
 
     pub fn draw_world_text(

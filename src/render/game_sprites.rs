@@ -24,32 +24,50 @@ impl SpriteSet {
         cols: u32,
         rows: u32,
     ) -> Self {
-        use image::EncodableLayout;
-
         let width = img.width();
         let height = img.height();
+
+        Self::new_from_slice(render_state, img, 0, 0, width, height, cols, rows)
+    }
+
+    pub fn new_from_slice(
+        render_state: &mut RenderState,
+        img: &image::RgbaImage,
+        x_start: u32,
+        y_start: u32,
+        x_end: u32,
+        y_end: u32,
+        cols: u32,
+        rows: u32,
+    ) -> Self {
+        use image::EncodableLayout;
+
+        let width = x_end - x_start;
+        let height = y_end - y_start;
+
         let renderable_width = width / cols;
         let renderable_height = height / rows;
 
         let texture = Texture::new_2d(
             &render_state.device,
-            width,
-            height,
+            img.width(),
+            img.height(),
             render_state.get_texture_format(),
         );
 
         RenderState::buffer_texture(&render_state.queue, &texture, &img.as_bytes());
+
         let sheet_index = render_state
             .sprite_renderer
-            .create_sprite_sheet(&render_state.device, &&texture);
+            .create_sprite_sheet(&render_state.device, &texture);
         let sheet = render_state.sprite_renderer.get_sheet(sheet_index).unwrap();
 
         let mut renderables = vec![];
 
         for row in 0..rows {
-            let y = row * renderable_height;
+            let y = y_start + row * renderable_height;
             for col in 0..cols {
-                let x = col * renderable_width;
+                let x = x_start + col * renderable_width;
 
                 let renderable = sheet.create_renderable(x, y, renderable_width, renderable_height);
                 renderables.push(renderable);

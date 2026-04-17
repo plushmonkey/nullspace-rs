@@ -2,7 +2,10 @@ use crate::arena_settings::ArenaSettings;
 use crate::checksum;
 use crate::clock::*;
 use crate::map::ANIMATED_TILE_KIND_COUNT;
+use crate::map::DoorRng;
 use crate::map::Map;
+use crate::map::TILE_ID_FIRST_DOOR;
+use crate::map::TILE_ID_FLAG;
 use crate::math::PixelUnit;
 use crate::math::PositionUnit;
 use crate::math::Rectangle;
@@ -438,6 +441,48 @@ impl Client {
                 );
             }
         }
+
+        if render_state
+            .map_renderer
+            .door_spriteset
+            .renderables
+            .is_empty()
+        {
+            return;
+        }
+
+        for door_tile in &self.map.doors {
+            let current_id = self.map.get_tile(door_tile.x(), door_tile.y());
+
+            // The map mutates its door tiles into a flag tile if it's considered open, so skip rendering it.
+            if current_id == TILE_ID_FLAG {
+                continue;
+            }
+
+            let x_pixels = door_tile.x() as i32 * 16;
+            let y_pixels = door_tile.y() as i32 * 16;
+            let position = Position::new(PositionUnit(x_pixels), PositionUnit(y_pixels));
+
+            if !view_rect.contains(position) {
+                continue;
+            }
+
+            // There are two door sets and each one is 4 frames. Dividing by 4 will give us the first or second half depending on tile id.
+            let set = (door_tile.id() - TILE_ID_FIRST_DOOR) as usize / 4;
+            let frame = self.get_animation_index(4, 40);
+
+            let index = (set * 4) + frame;
+
+            let renderable = &render_state.map_renderer.door_spriteset.renderables[index];
+
+            render_state.sprite_renderer.draw(
+                &render_state.camera,
+                renderable,
+                x_pixels,
+                y_pixels,
+                Layer::Tiles,
+            );
+        }
     }
 
     fn get_animation_index(&self, frames: usize, duration: usize) -> usize {
@@ -456,8 +501,14 @@ impl Client {
         let local_now = GameTick::now(0);
         let tick_count = local_now.diff(&self.local_tick);
 
+        self.receive_messages(&mut render_state)?;
+
         for _ in 0..tick_count {
             self.connection.tick();
+
+            self.map
+                .tick(&self.settings, self.connection.get_game_tick());
+
             self.simulation.tick(&self.map, &self.settings);
 
             match self.connection.state {
@@ -513,6 +564,13 @@ impl Client {
 
         self.local_tick = self.local_tick + tick_count;
 
+        Ok(())
+    }
+
+    fn receive_messages(
+        &mut self,
+        render_state: &mut Option<&mut RenderState>,
+    ) -> Result<(), ConnectionError> {
         loop {
             let message = self.connection.receive_message();
             if let Err(e) = message {
@@ -531,7 +589,7 @@ impl Client {
             let message = message.unwrap();
 
             if let Some(message) = message {
-                self.process_message(&mut render_state, message)?;
+                self.process_message(render_state, message)?;
             } else {
                 // We are done processing everything now.
                 break;
@@ -662,8 +720,22 @@ impl Client {
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
                 self.settings = settings_message.clone();
+
+                if self.settings.door_mode >= 0 {
+                    self.map.door_rng = Some(DoorRng::new(
+                        self.settings.door_mode as u32,
+                        self.connection.get_game_tick(),
+                        self.settings.door_mode as u8,
+                        self.settings.door_mode as u8,
+                    ));
+
+                    self.map.set_door_mode(self.settings.door_mode as u8);
+                }
             }
             GameServerMessage::SynchronizationRequest(sync) => {
+                self.map.set_door_seed(sync.door_seed, sync.timestamp);
+                self.map.tick(&self.settings, sync.timestamp);
+
                 if sync.checksum_key != 0 && self.map.checksum != 0 {
                     // Send security packet
                     log::debug!("Game sync requested");
@@ -1057,7 +1129,9 @@ impl Client {
                         let checksum = checksum::crc32(&map_data);
 
                         if checksum == info.checksum {
-                            if let Ok(new_map) = Map::new(&info.filename, &map_data) {
+                            if let Ok(new_map) =
+                                Map::new(&info.filename, &map_data, self.map.door_rng)
+                            {
                                 if let Some(render_state) = render_state {
                                     render_state.on_map_change(&new_map, &map_data);
                                 }
@@ -1101,7 +1175,9 @@ impl Client {
                                 }
                             }
 
-                            if let Ok(new_map) = Map::new(&self.map.filename, &inflated) {
+                            if let Ok(new_map) =
+                                Map::new(&self.map.filename, &inflated, self.map.door_rng)
+                            {
                                 if let Some(render_state) = render_state {
                                     render_state.on_map_change(&new_map, &inflated);
                                 }

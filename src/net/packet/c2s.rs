@@ -49,7 +49,7 @@ impl Serialize for EncryptionRequestMessage {
 pub enum ArenaRequest {
     AnyPublic,
     SpecificPublic(u16),
-    Name([u8; 16]),
+    Name(String),
 }
 
 // 0x01
@@ -81,14 +81,14 @@ impl Serialize for ArenaJoinMessage {
         let mut arena_number = 0xFFFF;
         let mut arena_name = [0; 16];
 
-        match self.arena_request {
+        match &self.arena_request {
             ArenaRequest::AnyPublic => {}
             ArenaRequest::SpecificPublic(number) => {
-                arena_number = number;
+                arena_number = *number;
             }
             ArenaRequest::Name(name) => {
                 if name.len() <= 16 {
-                    arena_name[..name.len()].copy_from_slice(&name);
+                    arena_name[..name.len()].copy_from_slice(name.as_bytes());
                     arena_number = 0xFFFD;
                 }
             }

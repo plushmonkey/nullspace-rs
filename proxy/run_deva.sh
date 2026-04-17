@@ -1,0 +1,1 @@
+cargo run --release -- --game-ip 69.164.220.203 --game-port 7022

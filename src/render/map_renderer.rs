@@ -1,6 +1,6 @@
 use crate::{
     map::Map,
-    render::{camera::Camera, texture::Texture},
+    render::{camera::Camera, game_sprites::SpriteSet, texture::Texture},
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -78,6 +78,8 @@ pub struct MapRenderer {
 
     pub tileset_texture: Texture,
     tiledata_texture: Texture,
+
+    pub door_spriteset: SpriteSet,
 
     map_loaded: bool,
 }
@@ -240,6 +242,8 @@ impl MapRenderer {
 
             tileset_texture,
             tiledata_texture,
+
+            door_spriteset: SpriteSet::empty(),
 
             map_loaded: false,
         }
