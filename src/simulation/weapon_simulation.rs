@@ -9,10 +9,11 @@ use crate::{
     player::{Player, PlayerManager},
     rng::VieRng,
     ship::ShipKind,
+    simulation::game_simulation::{SimulationEvent, SimulationEventKind, WeaponExplosionEvent},
     weapon::{ProximityBombData, ShrapnelWeapon, Weapon, WeaponKind},
 };
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 enum WeaponSimulateResult {
     Continue,
     WallExplosion,
@@ -20,11 +21,10 @@ enum WeaponSimulateResult {
     TimedOut,
 }
 
-// TODO: There needs to be a way to output events, maybe just store inside a vector so the client can render the changes next tick.
-
 pub struct WeaponManager {
     pub weapons: Vec<Weapon>,
     pub next_link_id: u32,
+    link_removal: Vec<(u32, WeaponSimulateResult)>,
 }
 
 impl WeaponManager {
@@ -32,6 +32,7 @@ impl WeaponManager {
         Self {
             weapons: vec![],
             next_link_id: 0,
+            link_removal: vec![],
         }
     }
 
@@ -249,10 +250,11 @@ impl WeaponManager {
         settings: &ArenaSettings,
         player_manager: &mut PlayerManager,
         current_tick: GameTick,
+        events: &mut Vec<SimulationEvent>,
     ) {
         let mut weapon_index: usize = 0;
 
-        let mut link_removal = vec![];
+        self.link_removal.clear();
 
         // Custom loop for weapon ticking instead of using iterators, just to make sure it never reconstructs vector and never shuffle-removes.
         'main_loop: loop {
@@ -263,12 +265,19 @@ impl WeaponManager {
             // Weapons are spawned without being simulated, so we must simulate them forward here to match current gamestate.
             let weapon_update_count =
                 current_tick.diff(&self.weapons[weapon_index].last_update_tick);
+
             for _ in 0..weapon_update_count {
+                // We must skip weapons that were part of a set of linked bullets.
                 if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
                     &self.weapons[weapon_index].kind
                 {
                     if let Some(link_id) = &bullet.link_id {
-                        if link_removal.contains(link_id) {
+                        if self
+                            .link_removal
+                            .iter()
+                            .find(|link| link.0 == *link_id)
+                            .is_some()
+                        {
                             weapon_index += 1;
                             continue 'main_loop;
                         }
@@ -287,21 +296,37 @@ impl WeaponManager {
                 self.weapons[weapon_index].last_update_tick =
                     self.weapons[weapon_index].last_update_tick + 1;
 
+                // Handle explosions by spawning shrapnel and generating explosion events so they can be handled outside of the sim.
                 if sim_result == WeaponSimulateResult::PlayerExplosion
                     || sim_result == WeaponSimulateResult::WallExplosion
                 {
                     self.handle_weapon_explosion(settings, weapon_index);
+
+                    let weapon = &self.weapons[weapon_index];
+
+                    let event = SimulationEvent {
+                        kind: SimulationEventKind::WeaponExplosion(WeaponExplosionEvent {
+                            position: weapon.position,
+                            kind: weapon.kind.clone(),
+                        }),
+                        tick: weapon.last_update_tick,
+                    };
+
+                    events.push(event);
                 }
 
-                if sim_result != WeaponSimulateResult::Continue {
+                // Only player explosions cause the linked bullets to all explode.
+                if sim_result == WeaponSimulateResult::PlayerExplosion {
                     if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
                         &self.weapons[weapon_index].kind
                     {
                         if let Some(link_id) = bullet.link_id {
-                            link_removal.push(link_id);
+                            self.link_removal.push((link_id, sim_result));
                         }
                     }
+                }
 
+                if sim_result != WeaponSimulateResult::Continue {
                     self.weapons.swap_remove(weapon_index);
                     continue 'main_loop;
                 }
@@ -310,7 +335,9 @@ impl WeaponManager {
             weapon_index += 1;
         }
 
-        if !link_removal.is_empty() {
+        // Go through each link removed and destroy the weapons associated.
+        // Also spawn explosion events on linked bullets.
+        if !self.link_removal.is_empty() {
             weapon_index = 0;
             loop {
                 if weapon_index >= self.weapons.len() {
@@ -321,10 +348,34 @@ impl WeaponManager {
                     &self.weapons[weapon_index].kind
                 {
                     if let Some(link_id) = &bullet.link_id {
-                        if link_removal.contains(link_id) {
-                            self.handle_weapon_explosion(settings, weapon_index);
-                            self.weapons.swap_remove(weapon_index);
-                            continue;
+                        match &self.link_removal.iter().find(|link| link.0 == *link_id) {
+                            Some((_, sim_result)) => {
+                                match sim_result {
+                                    WeaponSimulateResult::PlayerExplosion
+                                    | WeaponSimulateResult::WallExplosion => {
+                                        self.handle_weapon_explosion(settings, weapon_index);
+
+                                        let weapon = &self.weapons[weapon_index];
+
+                                        let event = SimulationEvent {
+                                            kind: SimulationEventKind::WeaponExplosion(
+                                                WeaponExplosionEvent {
+                                                    position: weapon.position,
+                                                    kind: weapon.kind.clone(),
+                                                },
+                                            ),
+                                            tick: weapon.last_update_tick,
+                                        };
+
+                                        events.push(event);
+                                    }
+                                    _ => {}
+                                }
+
+                                self.weapons.swap_remove(weapon_index);
+                                continue;
+                            }
+                            None => {}
                         }
                     }
                 }

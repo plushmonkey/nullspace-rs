@@ -230,6 +230,10 @@ impl ApplicationPlayingState {
         render_state.camera.position.x = render_state.camera.position.x.clamp(0.0f32, 1024.0f32);
         render_state.camera.position.y = render_state.camera.position.y.clamp(0.0f32, 1024.0f32);
 
+        render_state
+            .animation_renderer
+            .update(self.client.connection.get_game_tick());
+
         if let Err(e) = self.client.update(Some(render_state)) {
             log::error!("{e}");
         }
@@ -363,9 +367,14 @@ impl Application {
         match &mut self.state {
             ApplicationState::Playing(playing) => playing.render(&mut self.render_state),
             ApplicationState::Loading(loading) => loading.render(&mut self.render_state),
-        }
+        };
 
-        self.render_state.render(window.clone())
+        let game_sprites = match &self.state {
+            ApplicationState::Playing(playing) => Some(&playing.sprites),
+            ApplicationState::Loading(_) => None,
+        };
+
+        self.render_state.render(window.clone(), game_sprites)
     }
 
     pub fn exiting(&mut self) {

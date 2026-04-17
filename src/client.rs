@@ -27,6 +27,7 @@ use crate::render::text_renderer::TextAlignment;
 use crate::render::text_renderer::TextColor;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
+use crate::simulation::game_simulation::SimulationEventKind;
 use crate::simulation::player_simulation::update_player_lerp_target;
 use crate::weapon::WeaponKind;
 
@@ -510,6 +511,46 @@ impl Client {
                 .tick(&self.settings, self.connection.get_game_tick());
 
             self.simulation.tick(&self.map, &self.settings);
+            if let Some(render_state) = &mut render_state {
+                for event in &self.simulation.events {
+                    match &event.kind {
+                        SimulationEventKind::WeaponExplosion(explosion) => {
+                            let x_pixels = explosion.position.x.0 / 1000;
+                            let y_pixels = explosion.position.y.0 / 1000;
+
+                            match &explosion.kind {
+                                WeaponKind::Bullet(_) | WeaponKind::Shrapnel(_) => {
+                                    render_state.animation_renderer.add(
+                                        GameSpriteKind::BulletExplosion,
+                                        event.tick,
+                                        0,
+                                        6,
+                                        7 * 6,
+                                        x_pixels,
+                                        y_pixels,
+                                        Layer::Explosions,
+                                    );
+                                }
+                                WeaponKind::Bomb(_)
+                                | WeaponKind::ProximityBomb(_)
+                                | WeaponKind::Thor(_) => {
+                                    render_state.animation_renderer.add(
+                                        GameSpriteKind::BombExplosion,
+                                        event.tick,
+                                        0,
+                                        43,
+                                        44 * 3,
+                                        x_pixels,
+                                        y_pixels,
+                                        Layer::Explosions,
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
 
             match self.connection.state {
                 ConnectionState::Playing => {

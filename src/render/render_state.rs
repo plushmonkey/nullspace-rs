@@ -7,9 +7,10 @@ use winit::{dpi::PhysicalSize, window::Window};
 use crate::{
     map::Map,
     render::{
+        animation_renderer::AnimationRenderer,
         background_renderer::BackgroundRenderer,
         camera::Camera,
-        game_sprites::SpriteSet,
+        game_sprites::{GameSprites, SpriteSet},
         layer::Layer,
         map_renderer::{MapRenderer, MapTileset},
         sprite_renderer::SpriteRenderer,
@@ -54,6 +55,7 @@ pub struct RenderState {
     pub sprite_renderer: SpriteRenderer,
     pub text_renderer: TextRenderer,
     pub background_renderer: BackgroundRenderer,
+    pub animation_renderer: AnimationRenderer,
 }
 
 impl RenderState {
@@ -175,6 +177,7 @@ impl RenderState {
 
         let text_renderer = TextRenderer::new(&device, &text_texture, &mut sprite_renderer);
         let background_renderer = BackgroundRenderer::new(&device, &config.format, &depth_texture);
+        let animation_renderer = AnimationRenderer::new();
 
         let camera = Camera::new(
             size.width as f32,
@@ -204,10 +207,15 @@ impl RenderState {
             sprite_renderer,
             text_renderer,
             background_renderer,
+            animation_renderer,
         })
     }
 
-    pub fn render(&mut self, window: Arc<Window>) -> Result<bool, RenderError> {
+    pub fn render(
+        &mut self,
+        window: Arc<Window>,
+        game_sprites: Option<&GameSprites>,
+    ) -> Result<bool, RenderError> {
         if !self.is_surface_configured {
             return Ok(true);
         }
@@ -285,6 +293,14 @@ impl RenderState {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+
+            if let Some(game_sprites) = &game_sprites {
+                self.animation_renderer.render(
+                    &self.camera,
+                    &mut self.sprite_renderer,
+                    game_sprites,
+                );
+            }
 
             self.background_renderer
                 .render(&mut render_pass, &self.camera, &self.queue);
