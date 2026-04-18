@@ -1,10 +1,10 @@
-use crate::{arena_settings::ArenaSettings, math::Position};
+use crate::math::Position;
 
-pub fn is_team_goal(settings: &ArenaSettings, position: Position, frequency: u16) -> bool {
+pub fn is_team_goal(powerball_mode: u8, position: Position, frequency: u16) -> bool {
     let x = position.x.0 / 16000;
     let y = position.y.0 / 16000;
 
-    match settings.powerball_mode {
+    match powerball_mode {
         0 => false,
         1 => {
             if frequency & 1 != 0 {

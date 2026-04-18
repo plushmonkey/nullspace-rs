@@ -18,6 +18,7 @@ use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::player::*;
 use crate::powerball::is_team_goal;
+use crate::radar::Radar;
 use crate::render::game_sprites::GAME_SPRITE_SHEET_DEFINITIONS;
 use crate::render::game_sprites::GameSpriteKind;
 use crate::render::game_sprites::GameSprites;
@@ -64,6 +65,10 @@ pub struct Client {
     local_tick: GameTick,
 
     spec_freq: u16,
+
+    radar: Radar,
+    // TODO: Remove. This is just for testing until input is handled.
+    pub fullscreen_radar: bool,
 }
 
 impl Client {
@@ -88,12 +93,23 @@ impl Client {
             simulation: Simulation::new(GameTick::now(0)),
             local_tick: GameTick::now(0),
             spec_freq: 0,
+            radar: Radar::new(),
+            fullscreen_radar: false,
         })
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         // TODO: This is all test code.
         // TODO: It should be spawning animations that are updated every tick, not tied to render calls.
+
+        self.radar.render(
+            render_state,
+            &self.map,
+            self.settings.map_zoom_factor as u16,
+            self.spec_freq,
+            self.settings.powerball_mode,
+            self.fullscreen_radar,
+        );
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {
@@ -418,7 +434,8 @@ impl Client {
                     GameSpriteKind::Goal => {
                         const GOAL_FRAMES: usize = 9;
 
-                        let enemy_goal = !is_team_goal(&self.settings, position, self.spec_freq);
+                        let enemy_goal =
+                            !is_team_goal(self.settings.powerball_mode, position, self.spec_freq);
 
                         // First half of goal frames are team goals, second half are enemy.
                         // This increments the animation index to point into the appropriate set.
@@ -511,7 +528,19 @@ impl Client {
                 .tick(&self.settings, self.connection.get_game_tick());
 
             self.simulation.tick(&self.map, &self.settings);
+
             if let Some(render_state) = &mut render_state {
+                let self_position = Position::new(
+                    PositionUnit(render_state.camera.position.x as i32 * 16000),
+                    PositionUnit(render_state.camera.position.y as i32 * 16000),
+                );
+
+                self.radar.update(
+                    render_state.config.width,
+                    self.settings.map_zoom_factor as u16,
+                    self_position,
+                );
+
                 for event in &self.simulation.events {
                     match &event.kind {
                         SimulationEventKind::WeaponExplosion(explosion) => {
@@ -1262,6 +1291,8 @@ impl Client {
         self.map = map;
         self.map.checksum = checksum;
         self.connection.state = ConnectionState::Playing;
+
+        self.radar.invalidate();
     }
 
     fn process_message(

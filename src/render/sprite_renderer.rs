@@ -50,10 +50,10 @@ impl SpriteSheet {
 
 #[derive(Copy, Clone, Debug)]
 pub struct SpriteRenderable {
-    uv_start: [f32; 2],
-    uv_size: [f32; 2],
+    pub uv_start: [f32; 2],
+    pub uv_size: [f32; 2],
     pub size: [u32; 2],
-    sheet_index: SheetIndex,
+    pub sheet_index: SheetIndex,
 }
 
 pub struct SpriteRenderer {
@@ -94,8 +94,6 @@ impl SpriteRenderer {
         });
 
         let sampler = Texture::create_sampler(device);
-
-        // TODO: These probably dont need filterable samplers
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -367,5 +365,36 @@ impl SpriteRenderer {
 
     pub fn get_sheet(&mut self, index: SheetIndex) -> Option<&SpriteSheet> {
         self.sprite_sheets.get(index.0 as usize)
+    }
+
+    pub fn change_sheet_texture(
+        &mut self,
+        index: SheetIndex,
+        device: &wgpu::Device,
+        texture: &Texture,
+    ) {
+        if index.0 as usize >= self.sprite_sheets.len() {
+            return;
+        }
+
+        let sheet = &mut self.sprite_sheets[index.0 as usize];
+
+        sheet.width = texture.texture.width();
+        sheet.height = texture.texture.height();
+
+        sheet.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
     }
 }

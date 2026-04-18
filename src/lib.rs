@@ -35,6 +35,7 @@ pub mod net;
 pub mod player;
 pub mod powerball;
 pub mod prize;
+pub mod radar;
 pub mod render;
 pub mod rng;
 pub mod ship;
@@ -264,6 +265,9 @@ impl ApplicationPlayingState {
             }
             KeyCode::ShiftLeft | KeyCode::ShiftRight => {
                 self.input.shift = is_pressed;
+            }
+            KeyCode::AltLeft | KeyCode::AltRight => {
+                self.client.fullscreen_radar = is_pressed;
             }
             _ => {}
         }
