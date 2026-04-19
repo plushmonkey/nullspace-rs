@@ -42,6 +42,7 @@ pub mod rng;
 pub mod ship;
 pub mod simulation;
 pub mod spawn;
+pub mod statbox;
 pub mod weapon;
 
 #[cfg(target_arch = "wasm32")]

@@ -31,6 +31,7 @@ use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::game_simulation::SimulationEventKind;
 use crate::simulation::player_simulation::update_player_lerp_target;
+use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
@@ -72,6 +73,7 @@ pub struct Client {
     pub fullscreen_radar: bool,
 
     pub chat_controller: ChatController,
+    pub statbox: Statbox,
 }
 
 impl Client {
@@ -99,13 +101,11 @@ impl Client {
             radar: Radar::new(),
             fullscreen_radar: false,
             chat_controller: ChatController::new(),
+            statbox: Statbox::new(),
         })
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
-        // TODO: This is all test code.
-        // TODO: It should be spawning animations that are updated every tick, not tied to render calls.
-
         self.radar.render(
             render_state,
             &self.map,
@@ -116,6 +116,7 @@ impl Client {
         );
 
         self.chat_controller.render(render_state);
+        self.statbox.render(render_state);
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {
@@ -126,18 +127,6 @@ impl Client {
                 break;
             }
         }
-
-        let weapon_count = self.simulation.weapon_manager.weapons.len();
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format!("weapons: {}", weapon_count),
-            0,
-            0,
-            Layer::TopMost,
-            TextColor::Yellow,
-            TextAlignment::Left,
-        );
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
@@ -807,10 +796,11 @@ impl Client {
                     }
                 }
             }
-            GameServerMessage::PlayerId(_) => {
+            GameServerMessage::PlayerId(message) => {
                 // We need to initialize the simulation here before we receive player enter events.
                 self.simulation = Simulation::new(self.connection.get_game_tick());
                 self.last_position_tick = self.connection.get_game_tick();
+                self.simulation.player_manager.self_id = message.id;
 
                 if let Some(render_state) = render_state {
                     render_state.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
@@ -818,6 +808,12 @@ impl Client {
                     render_state.animation_renderer.clear();
                     self.chat_controller.clear();
                 }
+
+                // TODO: Test code for switching through views until input is handled.
+                self.statbox.next_view(&self.simulation.player_manager);
+                self.statbox.next_view(&self.simulation.player_manager);
+                self.statbox.next_view(&self.simulation.player_manager);
+                self.statbox.next_view(&self.simulation.player_manager);
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
@@ -877,6 +873,8 @@ impl Client {
                         &entry.squad,
                         entry.ship_kind,
                         entry.frequency,
+                        entry.flag_points,
+                        entry.kill_points,
                     );
 
                     player.flag_count = entry.flag_count;
@@ -903,6 +901,8 @@ impl Client {
                         log::debug!("{} left arena", old_player.name);
                     }
                 }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
             }
             GameServerMessage::PlayerLeaving(leaving) => {
                 if let Some(player) = self
@@ -912,6 +912,8 @@ impl Client {
                 {
                     log::debug!("{} left arena", player.name);
                 }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
             }
 
             GameServerMessage::SmallPosition(message) => {
@@ -1202,6 +1204,8 @@ impl Client {
                 {
                     player.frequency = change.frequency;
                 }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
             }
             GameServerMessage::PlayerTeamAndShipChange(change) => {
                 if let Some(player) = self
@@ -1213,6 +1217,8 @@ impl Client {
                     player.frequency = change.frequency;
                     player.position = None;
                 }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
             }
             GameServerMessage::MapInformation(info) => {
                 log::debug!("Map name: {}", info.filename);

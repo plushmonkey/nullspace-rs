@@ -116,10 +116,21 @@ pub struct Player {
     pub s2c_latency: Option<u16>,
     pub flag_timer: Option<u16>,
     pub items: Option<PlayerItemSet>,
+
+    pub flag_points: u32,
+    pub kill_points: u32,
 }
 
 impl Player {
-    pub fn new(id: PlayerId, name: &str, squad: &str, ship_kind: ShipKind, frequency: u16) -> Self {
+    pub fn new(
+        id: PlayerId,
+        name: &str,
+        squad: &str,
+        ship_kind: ShipKind,
+        frequency: u16,
+        flag_points: u32,
+        kill_points: u32,
+    ) -> Self {
         Self {
             id,
             name: name.to_owned(),
@@ -149,6 +160,9 @@ impl Player {
             s2c_latency: None,
             flag_timer: None,
             items: None,
+
+            flag_points,
+            kill_points,
         }
     }
 
@@ -173,15 +187,23 @@ impl Player {
 
         current_tick.diff(&self.last_position_timestamp).abs() < PLAYER_SYNC_TIMEOUT
     }
+
+    pub fn get_points(&self) -> u32 {
+        self.flag_points.wrapping_add(self.kill_points)
+    }
 }
 
 pub struct PlayerManager {
     pub players: Vec<Player>,
+    pub self_id: PlayerId,
 }
 
 impl PlayerManager {
     pub fn new() -> Self {
-        Self { players: vec![] }
+        Self {
+            players: vec![],
+            self_id: PlayerId::invalid(),
+        }
     }
 
     // Inserts a player into active player list.
