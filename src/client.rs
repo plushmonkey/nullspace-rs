@@ -1011,6 +1011,34 @@ impl Client {
                         GameTick::from_mini(self.connection.get_game_tick(), message.timestamp)
                             - message.ping as i32;
 
+                    if message.status & StatusFlags::Flash != 0 {
+                        // Always override new flashes if we get one, even if the message timestamp is older.
+                        if player.flash_remaining_ticks == 0 {
+                            player.status |= StatusFlags::Flash;
+                        }
+
+                        if let Some(current_position) = player.position {
+                            let (x_pixels, y_pixels) = current_position.to_pixels();
+
+                            if let Some(render_state) = render_state {
+                                let (cols, rows) =
+                                    GAME_SPRITE_SHEET_DEFINITIONS[GameSpriteKind::Flash as usize];
+                                let frame_count = cols * rows;
+
+                                render_state.animation_renderer.add(
+                                    GameSpriteKind::Flash,
+                                    message_timestamp,
+                                    0,
+                                    frame_count as usize - 1,
+                                    PLAYER_FLASH_DURATION,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::Explosions,
+                                );
+                            }
+                        }
+                    }
+
                     if player.last_position_timestamp < message_timestamp {
                         let position = Position::new(
                             PixelUnit(message.x as i32).into(),
@@ -1055,12 +1083,6 @@ impl Client {
                             "small",
                         );
                     }
-
-                    // Always override new flashes if we get one, even if the message timestamp is older.
-                    if player.flash_remaining_ticks == 0 && message.status & StatusFlags::Flash != 0
-                    {
-                        player.status |= StatusFlags::Flash;
-                    }
                 } else {
                     log::warn!(
                         "got small position packet from bad player id {}",
@@ -1089,6 +1111,34 @@ impl Client {
                     );
 
                     let direction = message.direction;
+
+                    if message.status & StatusFlags::Flash != 0 {
+                        // Always override new flashes if we get one, even if the message timestamp is older.
+                        if player.flash_remaining_ticks == 0 {
+                            player.status |= StatusFlags::Flash;
+                        }
+
+                        if let Some(current_position) = player.position {
+                            let (x_pixels, y_pixels) = current_position.to_pixels();
+
+                            if let Some(render_state) = render_state {
+                                let (cols, rows) =
+                                    GAME_SPRITE_SHEET_DEFINITIONS[GameSpriteKind::Flash as usize];
+                                let frame_count = cols * rows;
+
+                                render_state.animation_renderer.add(
+                                    GameSpriteKind::Flash,
+                                    message_timestamp,
+                                    0,
+                                    frame_count as usize - 1,
+                                    PLAYER_FLASH_DURATION,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::Explosions,
+                                );
+                            }
+                        }
+                    }
 
                     if player.last_position_timestamp < message_timestamp {
                         player.velocity = velocity;
@@ -1127,12 +1177,6 @@ impl Client {
                         ) {
                             return Ok(());
                         }
-                    }
-
-                    // Always override new flashes if we get one, even if the message timestamp is older.
-                    if player.flash_remaining_ticks == 0 && message.status & StatusFlags::Flash != 0
-                    {
-                        player.status |= StatusFlags::Flash;
                     }
 
                     let weapon_kind =
@@ -1299,12 +1343,6 @@ impl Client {
                 {
                     killed.enter_delay = self.settings.enter_delay as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
-
-                    log::info!(
-                        "Killed {} explosion ticks: {}",
-                        killed.name,
-                        killed.explosion_remaining_ticks
-                    );
                 }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {

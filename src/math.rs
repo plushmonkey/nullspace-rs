@@ -77,6 +77,10 @@ impl Position {
 
         (x_tile, y_tile)
     }
+
+    pub fn to_pixels(&self) -> (i32, i32) {
+        (self.x.0 / 1000, self.y.0 / 1000)
+    }
 }
 
 impl Add<Position> for Position {
