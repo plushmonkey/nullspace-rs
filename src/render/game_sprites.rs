@@ -97,6 +97,9 @@ pub enum GameSpriteKind {
     Wormhole,
     BulletExplosion,
     BombExplosion,
+    PlayerExplosion,
+    EmpExplosion,
+    Flash,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -118,6 +121,9 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (4, 6),      // Wormhole
     (7, 1),      // BulletExplosion
     (4, 11),     // BombExplosion
+    (6, 6),      // PlayerExplosion
+    (5, 2),      // EmpExplosion
+    (6, 3),      // Flash
     (5, 2),      // Repel
 ];
 
@@ -216,6 +222,9 @@ impl GameSpriteLoader {
             (GameSpriteKind::Wormhole, "graphics/over5.bm2"),
             (GameSpriteKind::BulletExplosion, "graphics/explode0.bm2"),
             (GameSpriteKind::BombExplosion, "graphics/explode2.bm2"),
+            (GameSpriteKind::PlayerExplosion, "graphics/explode1.bm2"),
+            (GameSpriteKind::EmpExplosion, "graphics/empburst.bm2"),
+            (GameSpriteKind::Flash, "graphics/warp.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

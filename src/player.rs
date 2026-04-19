@@ -119,6 +119,9 @@ pub struct Player {
 
     pub flag_points: u32,
     pub kill_points: u32,
+
+    pub explosion_remaining_ticks: u32,
+    pub flash_remaining_ticks: u32,
 }
 
 impl Player {
@@ -163,6 +166,9 @@ impl Player {
 
             flag_points,
             kill_points,
+
+            explosion_remaining_ticks: 0,
+            flash_remaining_ticks: 0,
         }
     }
 

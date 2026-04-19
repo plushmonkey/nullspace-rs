@@ -30,11 +30,14 @@ use crate::render::text_renderer::TextColor;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::game_simulation::SimulationEventKind;
+use crate::simulation::player_simulation::PLAYER_EXPLOSION_DURATION;
+use crate::simulation::player_simulation::PLAYER_FLASH_DURATION;
 use crate::simulation::player_simulation::update_player_lerp_target;
 use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
+use smol_str::format_smolstr;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn build_zone_directory(zone: &str) -> Result<(), std::io::Error> {
@@ -128,6 +131,13 @@ impl Client {
             }
         }
 
+        self.render_players(render_state, sprites);
+        self.render_weapons(render_state, sprites);
+
+        self.render_map_animations(render_state, sprites);
+    }
+
+    fn render_players(&self, render_state: &mut RenderState, sprites: &GameSprites) {
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
                 continue;
@@ -139,6 +149,50 @@ impl Client {
 
             let x_pixels = player_position.x.0 / 1000;
             let y_pixels = player_position.y.0 / 1000;
+
+            if player.explosion_remaining_ticks > 0 {
+                if let Some(explosion_renderables) =
+                    sprites.get_set(GameSpriteKind::PlayerExplosion)
+                {
+                    let tick_count = PLAYER_EXPLOSION_DURATION - player.explosion_remaining_ticks;
+
+                    let frame_count = explosion_renderables.renderables.len();
+                    let ticks_per_frame = PLAYER_EXPLOSION_DURATION as usize / frame_count;
+                    let index = (tick_count as usize / ticks_per_frame).min(frame_count - 1);
+
+                    let renderable = &explosion_renderables.renderables[index];
+
+                    render_state.sprite_renderer.draw_centered(
+                        &render_state.camera,
+                        renderable,
+                        x_pixels,
+                        y_pixels,
+                        Layer::AfterShips,
+                    );
+                }
+            } else if player.flash_remaining_ticks > 0 {
+                if let Some(flash_renderables) = sprites.get_set(GameSpriteKind::Flash) {
+                    let tick_count = PLAYER_FLASH_DURATION - player.flash_remaining_ticks;
+
+                    let frame_count = flash_renderables.renderables.len();
+                    let ticks_per_frame = PLAYER_FLASH_DURATION as usize / frame_count;
+                    let index = (tick_count as usize / ticks_per_frame).min(frame_count - 1);
+
+                    let renderable = &flash_renderables.renderables[index];
+
+                    render_state.sprite_renderer.draw_centered(
+                        &render_state.camera,
+                        renderable,
+                        x_pixels,
+                        y_pixels,
+                        Layer::AfterShips,
+                    );
+                }
+            }
+
+            if player.enter_delay > 0 {
+                continue;
+            }
 
             if let Some(ship_renderables) = sprites.get_set(GameSpriteKind::Ships) {
                 let ship_kind_index = player.ship_kind.network_value() as usize * 40;
@@ -171,32 +225,84 @@ impl Client {
                     name_color,
                     TextAlignment::Left,
                 );
+
+                if let Some(energy) = player.energy {
+                    let energy_x = x_pixels - (renderable.size[0] as i32) / 2;
+                    let energy_y = y_pixels + (renderable.size[1] as i32) / 2;
+
+                    let initial_energy = (self
+                        .settings
+                        .get_ship_settings(player.ship_kind)
+                        .initial_energy) as u32;
+
+                    let energy_color = if energy <= initial_energy / 4 {
+                        TextColor::DarkRed
+                    } else if energy <= initial_energy / 2 {
+                        TextColor::Yellow
+                    } else {
+                        TextColor::White
+                    };
+
+                    render_state.draw_world_text(
+                        &format_smolstr!("{}", energy),
+                        energy_x,
+                        energy_y,
+                        Layer::Ships,
+                        energy_color,
+                        TextAlignment::Right,
+                    );
+                }
             }
+        }
+    }
 
-            for weapon in &self.simulation.weapon_manager.weapons {
-                let x_pixels = weapon.position.x.0 / 1000;
-                let y_pixels = weapon.position.y.0 / 1000;
+    fn render_weapons(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+        for weapon in &self.simulation.weapon_manager.weapons {
+            let x_pixels = weapon.position.x.0 / 1000;
+            let y_pixels = weapon.position.y.0 / 1000;
 
-                match weapon.kind {
-                    WeaponKind::Bullet(bullet) => {
-                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
-                            let animation_index = self.get_animation_index(4, 20);
-                            let renderable_index = (bullet.level * 4) as usize + animation_index;
-                            let renderable = &renderables.renderables[renderable_index];
-                            render_state.sprite_renderer.draw_centered(
-                                &render_state.camera,
-                                renderable,
-                                x_pixels,
-                                y_pixels,
-                                Layer::Weapons,
-                            );
-                        }
-                    }
-                    WeaponKind::BouncingBullet(bouncing) => {
+            match weapon.kind {
+                WeaponKind::Bullet(bullet) => {
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
                         let animation_index = self.get_animation_index(4, 20);
-                        let renderable_index =
-                            (bouncing.level * 4) as usize + 5 * 4 + animation_index;
-                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                        let renderable_index = (bullet.level * 4) as usize + animation_index;
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Weapons,
+                        );
+                    }
+                }
+                WeaponKind::BouncingBullet(bouncing) => {
+                    let animation_index = self.get_animation_index(4, 20);
+                    let renderable_index = (bouncing.level * 4) as usize + 5 * 4 + animation_index;
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Weapons,
+                        );
+                    }
+                }
+                WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                    let animation_index = self.get_animation_index(10, 100);
+
+                    if bomb.mine {
+                        let renderable_index = {
+                            if bomb.emp {
+                                (bomb.level * 10) as usize + 40
+                            } else {
+                                (bomb.level * 10) as usize
+                            }
+                        } + animation_index;
+
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Mines) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
                                 &render_state.camera,
@@ -206,57 +312,19 @@ impl Client {
                                 Layer::Weapons,
                             );
                         }
-                    }
-                    WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
-                        let animation_index = self.get_animation_index(10, 100);
-
-                        if bomb.mine {
-                            let renderable_index = {
-                                if bomb.emp {
-                                    (bomb.level * 10) as usize + 40
+                    } else {
+                        let renderable_index = {
+                            if bomb.emp {
+                                (bomb.level * 10) as usize + 40
+                            } else {
+                                if bomb.remaining_bounces > 0 {
+                                    (bomb.level * 10) as usize + 80
                                 } else {
                                     (bomb.level * 10) as usize
                                 }
-                            } + animation_index;
-
-                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Mines) {
-                                let renderable = &renderables.renderables[renderable_index];
-                                render_state.sprite_renderer.draw_centered(
-                                    &render_state.camera,
-                                    renderable,
-                                    x_pixels,
-                                    y_pixels,
-                                    Layer::Weapons,
-                                );
                             }
-                        } else {
-                            let renderable_index = {
-                                if bomb.emp {
-                                    (bomb.level * 10) as usize + 40
-                                } else {
-                                    if bomb.remaining_bounces > 0 {
-                                        (bomb.level * 10) as usize + 80
-                                    } else {
-                                        (bomb.level * 10) as usize
-                                    }
-                                }
-                            } + animation_index;
+                        } + animation_index;
 
-                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
-                                let renderable = &renderables.renderables[renderable_index];
-                                render_state.sprite_renderer.draw_centered(
-                                    &render_state.camera,
-                                    renderable,
-                                    x_pixels,
-                                    y_pixels,
-                                    Layer::Weapons,
-                                );
-                            }
-                        }
-                    }
-                    WeaponKind::Thor(_) => {
-                        let animation_index = self.get_animation_index(10, 100);
-                        let renderable_index = 120 + animation_index;
                         if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
                             let renderable = &renderables.renderables[renderable_index];
                             render_state.sprite_renderer.draw_centered(
@@ -268,103 +336,113 @@ impl Client {
                             );
                         }
                     }
-                    WeaponKind::Shrapnel(shrapnel) => {
-                        let animation_index = self.get_animation_index(10, 60);
-                        let renderable_index = (shrapnel.level as usize * 10)
-                            + (shrapnel.bouncing as usize) * 30
-                            + animation_index;
-                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Shrapnel) {
-                            let renderable = &renderables.renderables[renderable_index];
-                            render_state.sprite_renderer.draw_centered(
-                                &render_state.camera,
-                                renderable,
-                                x_pixels,
-                                y_pixels,
-                                Layer::Weapons,
-                            );
-                        }
-                    }
-                    WeaponKind::Repel => {
-                        let ticks_per_frame = 60 / 10;
-                        let ticks =
-                            (weapon.last_update_tick - weapon.spawn_timestamp).value() as usize;
-                        let animation_index = (ticks / ticks_per_frame) % 10;
-
-                        let renderable_index = animation_index;
-                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Repel) {
-                            let renderable = &renderables.renderables[renderable_index];
-                            render_state.sprite_renderer.draw_centered(
-                                &render_state.camera,
-                                renderable,
-                                x_pixels,
-                                y_pixels,
-                                Layer::Explosions,
-                            );
-                        }
-                    }
-                    WeaponKind::Burst(burst) => {
-                        let animation_index = self.get_animation_index(4, 20);
-                        let renderable_index =
-                            (4 * 4) + (burst.active as usize) * (5 * 4) + animation_index;
-                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
-                            let renderable = &renderables.renderables[renderable_index];
-                            render_state.sprite_renderer.draw_centered(
-                                &render_state.camera,
-                                renderable,
-                                x_pixels,
-                                y_pixels,
-                                Layer::Weapons,
-                            );
-                        }
-                    }
-                    WeaponKind::Decoy(decoy) => {
-                        if let Some(player) =
-                            self.simulation.player_manager.get_by_id(weapon.player_id)
-                        {
-                            let orientation = ((decoy.initial_rotation + 40)
-                                - (((player.direction + 40) - decoy.initial_rotation) % 40))
-                                % 40;
-
-                            let ship_kind_index = player.ship_kind.network_value() as usize * 40;
-                            let ship_index = ship_kind_index + orientation as usize;
-
-                            if let Some(renderables) = sprites.get_set(GameSpriteKind::Ships) {
-                                let renderable = &renderables.renderables[ship_index];
-
-                                render_state.sprite_renderer.draw_centered(
-                                    &render_state.camera,
-                                    renderable,
-                                    x_pixels,
-                                    y_pixels,
-                                    Layer::Ships,
-                                );
-
-                                let name_x = x_pixels + (renderable.size[0] as i32) / 2;
-                                let name_y = y_pixels + (renderable.size[1] as i32) / 2;
-
-                                let name_color = if player.frequency == self.spec_freq {
-                                    TextColor::Yellow
-                                } else {
-                                    TextColor::Blue
-                                };
-
-                                render_state.draw_world_text(
-                                    &format!("{}({})", player.name, player.bounty),
-                                    name_x,
-                                    name_y,
-                                    Layer::Ships,
-                                    name_color,
-                                    TextAlignment::Left,
-                                );
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                WeaponKind::Thor(_) => {
+                    let animation_index = self.get_animation_index(10, 100);
+                    let renderable_index = 120 + animation_index;
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Weapons,
+                        );
+                    }
+                }
+                WeaponKind::Shrapnel(shrapnel) => {
+                    let animation_index = self.get_animation_index(10, 60);
+                    let renderable_index = (shrapnel.level as usize * 10)
+                        + (shrapnel.bouncing as usize) * 30
+                        + animation_index;
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Shrapnel) {
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Weapons,
+                        );
+                    }
+                }
+                WeaponKind::Repel => {
+                    let ticks_per_frame = 60 / 10;
+                    let ticks = (weapon.last_update_tick - weapon.spawn_timestamp).value() as usize;
+                    let animation_index = (ticks / ticks_per_frame) % 10;
+
+                    let renderable_index = animation_index;
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Repel) {
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Explosions,
+                        );
+                    }
+                }
+                WeaponKind::Burst(burst) => {
+                    let animation_index = self.get_animation_index(4, 20);
+                    let renderable_index =
+                        (4 * 4) + (burst.active as usize) * (5 * 4) + animation_index;
+                    if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
+                        let renderable = &renderables.renderables[renderable_index];
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::Weapons,
+                        );
+                    }
+                }
+                WeaponKind::Decoy(decoy) => {
+                    if let Some(player) = self.simulation.player_manager.get_by_id(weapon.player_id)
+                    {
+                        let orientation = ((decoy.initial_rotation + 40)
+                            - (((player.direction + 40) - decoy.initial_rotation) % 40))
+                            % 40;
+
+                        let ship_kind_index = player.ship_kind.network_value() as usize * 40;
+                        let ship_index = ship_kind_index + orientation as usize;
+
+                        if let Some(renderables) = sprites.get_set(GameSpriteKind::Ships) {
+                            let renderable = &renderables.renderables[ship_index];
+
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::Ships,
+                            );
+
+                            let name_x = x_pixels + (renderable.size[0] as i32) / 2;
+                            let name_y = y_pixels + (renderable.size[1] as i32) / 2;
+
+                            let name_color = if player.frequency == self.spec_freq {
+                                TextColor::Yellow
+                            } else {
+                                TextColor::Blue
+                            };
+
+                            render_state.draw_world_text(
+                                &format!("{}({})", player.name, player.bounty),
+                                name_x,
+                                name_y,
+                                Layer::Ships,
+                                name_color,
+                                TextAlignment::Left,
+                            );
+                        }
+                    }
+                }
+                _ => {}
             }
         }
-
-        self.render_map_animations(render_state, sprites);
     }
 
     pub fn render_map_animations(&self, render_state: &mut RenderState, sprites: &GameSprites) {
@@ -543,7 +621,9 @@ impl Client {
                             let y_pixels = explosion.position.y.0 / 1000;
 
                             match &explosion.kind {
-                                WeaponKind::Bullet(_) | WeaponKind::Shrapnel(_) => {
+                                WeaponKind::Bullet(_)
+                                | WeaponKind::BouncingBullet(_)
+                                | WeaponKind::Shrapnel(_) => {
                                     render_state.animation_renderer.add(
                                         GameSpriteKind::BulletExplosion,
                                         event.tick,
@@ -555,15 +635,20 @@ impl Client {
                                         Layer::Explosions,
                                     );
                                 }
-                                WeaponKind::Bomb(_)
-                                | WeaponKind::ProximityBomb(_)
-                                | WeaponKind::Thor(_) => {
+                                WeaponKind::Bomb(bomb)
+                                | WeaponKind::ProximityBomb(bomb)
+                                | WeaponKind::Thor(bomb) => {
+                                    let (kind, frames, duration) = if bomb.emp {
+                                        (GameSpriteKind::EmpExplosion, 10, 40)
+                                    } else {
+                                        (GameSpriteKind::BombExplosion, 44, 44 * 3)
+                                    };
                                     render_state.animation_renderer.add(
-                                        GameSpriteKind::BombExplosion,
+                                        kind,
                                         event.tick,
                                         0,
-                                        43,
-                                        44 * 3,
+                                        frames - 1,
+                                        duration,
                                         x_pixels,
                                         y_pixels,
                                         Layer::Explosions,
@@ -959,12 +1044,22 @@ impl Client {
                             player.position,
                             player.velocity
                         );
+
+                        if let Some(extra) = &message.extra {
+                            player.energy = Some(extra.energy as u32);
+                        }
                     } else {
                         Self::validate_packet_timestamp(
                             self.connection.get_game_tick(),
                             message_timestamp,
                             "small",
                         );
+                    }
+
+                    // Always override new flashes if we get one, even if the message timestamp is older.
+                    if player.flash_remaining_ticks == 0 && message.status & StatusFlags::Flash != 0
+                    {
+                        player.status |= StatusFlags::Flash;
                     }
                 } else {
                     log::warn!(
@@ -1020,6 +1115,10 @@ impl Client {
                             player.position,
                             message.weapon
                         );
+
+                        if let Some(extra) = &message.extra {
+                            player.energy = Some(extra.energy as u32);
+                        }
                     } else {
                         if Self::validate_packet_timestamp(
                             self.connection.get_game_tick(),
@@ -1028,6 +1127,12 @@ impl Client {
                         ) {
                             return Ok(());
                         }
+                    }
+
+                    // Always override new flashes if we get one, even if the message timestamp is older.
+                    if player.flash_remaining_ticks == 0 && message.status & StatusFlags::Flash != 0
+                    {
+                        player.status |= StatusFlags::Flash;
                     }
 
                     let weapon_kind =
@@ -1193,7 +1298,13 @@ impl Client {
                     .get_by_id_mut(message.killed_id)
                 {
                     killed.enter_delay = self.settings.enter_delay as u16;
-                    killed.position = None;
+                    killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
+
+                    log::info!(
+                        "Killed {} explosion ticks: {}",
+                        killed.name,
+                        killed.explosion_remaining_ticks
+                    );
                 }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {

@@ -6,7 +6,27 @@ use crate::{
     ship::ShipKind,
 };
 
+pub const PLAYER_FLASH_DURATION: u32 = 54;
+pub const PLAYER_EXPLOSION_DURATION: u32 = 72;
+
 pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player) {
+    if player.status & StatusFlags::Flash != 0 {
+        player.status &= !StatusFlags::Flash;
+        player.flash_remaining_ticks = PLAYER_FLASH_DURATION;
+    }
+
+    if player.flash_remaining_ticks > 0 {
+        player.flash_remaining_ticks -= 1;
+    }
+
+    if player.explosion_remaining_ticks > 0 {
+        player.explosion_remaining_ticks -= 1;
+
+        if player.explosion_remaining_ticks == 0 {
+            player.position = None;
+        }
+    }
+
     if player.enter_delay > 0 {
         player.enter_delay = player.enter_delay.saturating_sub(1);
     }
