@@ -1,4 +1,5 @@
 use crate::arena_settings::ArenaSettings;
+use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
 use crate::map::ANIMATED_TILE_KIND_COUNT;
@@ -69,6 +70,8 @@ pub struct Client {
     radar: Radar,
     // TODO: Remove. This is just for testing until input is handled.
     pub fullscreen_radar: bool,
+
+    pub chat_controller: ChatController,
 }
 
 impl Client {
@@ -95,6 +98,7 @@ impl Client {
             spec_freq: 0,
             radar: Radar::new(),
             fullscreen_radar: false,
+            chat_controller: ChatController::new(),
         })
     }
 
@@ -110,6 +114,8 @@ impl Client {
             self.settings.powerball_mode,
             self.fullscreen_radar,
         );
+
+        self.chat_controller.render(render_state);
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {

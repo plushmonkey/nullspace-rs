@@ -85,13 +85,35 @@ impl TextRenderer {
         color: TextColor,
         align: TextAlignment,
     ) {
+        self.draw_slice(
+            sprite_renderer,
+            camera,
+            text.as_bytes(),
+            x,
+            y,
+            layer,
+            color,
+            align,
+        );
+    }
+
+    pub fn draw_slice(
+        &self,
+        sprite_renderer: &mut SpriteRenderer,
+        camera: &Camera,
+        text: &[u8],
+        x: i32,
+        y: i32,
+        layer: Layer,
+        color: TextColor,
+        align: TextAlignment,
+    ) {
         let mut current_x;
         let mut current_y = y;
 
         // Precompute the transform so we don't have to matrix multiply every character.
         let mvp = camera.projection() * camera.view();
-
-        for line in text.split('\n') {
+        for line in text.split(|c| *c == '\n' as u8) {
             current_x = x;
 
             match align {
@@ -105,7 +127,7 @@ impl TextRenderer {
             }
 
             // This game only supports ascii text, so we can just take the raw bytes and grab the character from it.
-            for c in line.as_bytes() {
+            for c in line {
                 if *c < 0x20 || *c > 0x7F {
                     continue;
                 }

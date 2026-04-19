@@ -6,7 +6,7 @@ use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
+    keyboard::{KeyCode, PhysicalKey, SmolStr},
     window::Window,
 };
 
@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub mod arena_settings;
+pub mod chat;
 pub mod checksum;
 pub mod client;
 pub mod clock;
@@ -53,6 +54,7 @@ struct Input {
     pub down: bool,
     pub up: bool,
     pub shift: bool,
+    pub control: bool,
 }
 
 struct Timer {
@@ -269,7 +271,30 @@ impl ApplicationPlayingState {
             KeyCode::AltLeft | KeyCode::AltRight => {
                 self.client.fullscreen_radar = is_pressed;
             }
+            KeyCode::ControlLeft | KeyCode::ControlRight => {
+                // This is technically wrong because you could hold one down and toggle another off.
+                // But it's so unusual that it doesn't matter.
+                self.input.control = is_pressed;
+            }
             _ => {}
+        }
+    }
+
+    pub fn handle_text(&mut self, c: &SmolStr) {
+        if c.is_empty() {
+            return;
+        }
+
+        let code = c.as_bytes()[0];
+
+        if self
+            .client
+            .chat_controller
+            .handle_key(code, self.input.control)
+        {
+            self.client
+                .chat_controller
+                .send_input(&mut self.client.connection);
         }
     }
 }
@@ -347,6 +372,13 @@ impl Application {
 
         match &mut self.state {
             ApplicationState::Playing(playing) => playing.handle_key(code, is_pressed),
+            ApplicationState::Loading(_) => {}
+        }
+    }
+
+    pub fn handle_text(&mut self, c: &SmolStr) {
+        match &mut self.state {
+            ApplicationState::Playing(playing) => playing.handle_text(c),
             ApplicationState::Loading(_) => {}
         }
     }
@@ -469,8 +501,8 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
 
             window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
 
-            // Allow keyboard events and right clicking on canvas.
-            window_attributes = window_attributes.with_prevent_default(false);
+            // Block events from cascading to browser window.
+            window_attributes = window_attributes.with_prevent_default(true);
         }
 
         let window = event_loop.create_window(window_attributes);
@@ -560,11 +592,31 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
                 event:
                     KeyEvent {
                         physical_key: PhysicalKey::Code(code),
+                        logical_key,
                         state: key_state,
+                        text,
                         ..
                     },
                 ..
-            } => app.handle_key(event_loop, code, key_state.is_pressed()),
+            } => {
+                app.handle_key(event_loop, code, key_state.is_pressed());
+
+                if key_state.is_pressed() {
+                    if let Some(text) = &text {
+                        app.handle_text(text);
+                    } else {
+                        // Web doesn't seem to handle Backspace into text correctly, so catch it here.
+                        match logical_key {
+                            winit::keyboard::Key::Named(named) => {
+                                if let winit::keyboard::NamedKey::Backspace = named {
+                                    app.handle_text(&SmolStr::new_inline("\u{08}"));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

@@ -214,11 +214,11 @@ impl<'a> SendChatMessage<'a> {
         }
     }
 
-    pub fn frequency(frequency: u16, text: &'a str) -> SendChatMessage<'a> {
+    pub fn frequency(target_player_id: PlayerId, text: &'a str) -> SendChatMessage<'a> {
         SendChatMessage {
             kind: ChatKind::Team,
             sound: 0,
-            target_id: PlayerId::new(frequency),
+            target_id: target_player_id,
             text,
         }
     }
