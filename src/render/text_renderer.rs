@@ -32,8 +32,8 @@ pub enum TextAlignment {
 pub struct TextRenderer {
     _sprite_sheet_index: SheetIndex,
     renderables: Vec<SpriteRenderable>,
-    character_width: i32,
-    character_height: i32,
+    pub character_width: i32,
+    pub character_height: i32,
 }
 
 // TODO: Support foreign font

@@ -37,6 +37,10 @@ impl AnimationRenderer {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.animations.clear();
+    }
+
     pub fn render(
         &mut self,
         camera: &Camera,

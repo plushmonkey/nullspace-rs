@@ -709,39 +709,62 @@ impl Client {
         message: &GameServerMessage,
     ) -> Result<(), ConnectionError> {
         match message {
-            GameServerMessage::Chat(chat) => match chat.kind {
-                ChatKind::Public | ChatKind::PublicMacro => {
-                    if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        log::debug!("{}> {}", sender.name, chat.message);
+            GameServerMessage::Chat(chat) => {
+                let mut sender_name = String::new();
+
+                match chat.kind {
+                    ChatKind::Public | ChatKind::PublicMacro => {
+                        if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender)
+                        {
+                            log::debug!("{}> {}", sender.name, chat.message);
+                            sender_name = sender.name.clone();
+                        }
+                    }
+                    ChatKind::Team => {
+                        if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender)
+                        {
+                            log::debug!("T {}> {}", sender.name, chat.message);
+                            sender_name = sender.name.clone();
+                        }
+                    }
+                    ChatKind::Frequency => {
+                        if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender)
+                        {
+                            log::debug!("F {}> {}", sender.name, chat.message);
+
+                            sender_name = sender.name.clone();
+                        }
+                    }
+                    ChatKind::Arena | ChatKind::Error | ChatKind::Warning => {
+                        if !chat.message.is_empty() {
+                            log::debug!("A {}", chat.message);
+                        }
+                    }
+                    ChatKind::Private => {
+                        if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender)
+                        {
+                            log::debug!("P {}> {}", sender.name, chat.message);
+
+                            sender_name = sender.name.clone();
+                        }
+                    }
+                    ChatKind::RemotePrivate => {
+                        log::debug!("RP {}", chat.message);
+                    }
+                    ChatKind::Channel => {
+                        log::debug!("C {}", chat.message);
+                    }
+                    ChatKind::Fuchsia => {
+                        log::debug!("F {}", chat.message);
                     }
                 }
-                ChatKind::Team => {
-                    if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        log::debug!("T {}> {}", sender.name, chat.message);
-                    }
-                }
-                ChatKind::Frequency => {
-                    if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        log::debug!("F {}> {}", sender.name, chat.message);
-                    }
-                }
-                ChatKind::Arena | ChatKind::Error | ChatKind::Warning => {
-                    if !chat.message.is_empty() {
-                        log::debug!("A {}", chat.message);
-                    }
-                }
-                ChatKind::Private => {
-                    if let Some(sender) = self.simulation.player_manager.get_by_id(chat.sender) {
-                        log::debug!("P {}> {}", sender.name, chat.message);
-                    }
-                }
-                ChatKind::RemotePrivate => {
-                    log::debug!("RP {}", chat.message);
-                }
-                ChatKind::Channel => {
-                    log::debug!("C {}", chat.message);
-                }
-            },
+
+                self.chat_controller.handle_chat_message(
+                    chat.kind,
+                    sender_name,
+                    chat.message.clone(),
+                );
+            }
             GameServerMessage::PasswordResponse(password_response) => {
                 log::debug!("Got password response: {}", password_response.response);
 
@@ -791,6 +814,9 @@ impl Client {
 
                 if let Some(render_state) = render_state {
                     render_state.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
+
+                    render_state.animation_renderer.clear();
+                    self.chat_controller.clear();
                 }
             }
             GameServerMessage::ArenaSettings(settings_message) => {

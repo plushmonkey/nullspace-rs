@@ -145,6 +145,7 @@ pub struct Connection {
     pub state: ConnectionState,
     sequencer: PacketSequencer,
     pub player_id: PlayerId,
+    pub player_name: String,
     pub crypt: VieEncrypt,
 
     pub sync_history: ClockSyncHistory,
@@ -168,6 +169,7 @@ impl Connection {
             state: ConnectionState::Disconnected,
             sequencer: PacketSequencer::new(),
             player_id: PlayerId::invalid(),
+            player_name: String::new(),
             crypt: VieEncrypt::new(client_key),
             sync_history: ClockSyncHistory::new(),
             tick_diff: 0,
@@ -448,6 +450,13 @@ impl Connection {
             ServerMessage::Game(kind) => match kind {
                 GameServerMessage::PlayerId(message) => {
                     self.player_id = message.id;
+                }
+                GameServerMessage::PlayerEntering(entering) => {
+                    for player in &entering.players {
+                        if player.player_id == self.player_id {
+                            self.player_name = player.name.clone();
+                        }
+                    }
                 }
                 GameServerMessage::LargePosition(message) => {
                     if message.weapon != 0 {

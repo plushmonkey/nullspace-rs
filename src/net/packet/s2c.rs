@@ -217,6 +217,7 @@ pub enum ChatKind {
     RemotePrivate,
     Error,
     Channel,
+    Fuchsia = 0x4F,
 }
 
 // 0x07
@@ -849,6 +850,7 @@ impl ServerMessage {
                     0x07 => ChatKind::RemotePrivate,
                     0x08 => ChatKind::Error,
                     0x09 => ChatKind::Channel,
+                    0x4F => ChatKind::Fuchsia,
                     _ => ChatKind::Arena,
                 };
 
