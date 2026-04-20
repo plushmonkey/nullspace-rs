@@ -1,4 +1,4 @@
-use smol_str::format_smolstr;
+use smol_str::{StrExt, format_smolstr};
 
 use crate::{
     player::{PlayerId, PlayerManager},
@@ -502,7 +502,10 @@ impl Statbox {
             let left_player = player_manager.get_by_id(*left).unwrap();
             let right_player = player_manager.get_by_id(*right).unwrap();
 
-            left_player.name.cmp(&right_player.name)
+            left_player
+                .name
+                .to_lowercase_smolstr()
+                .cmp(&right_player.name.to_lowercase_smolstr())
         });
 
         let enemy_begin = self.sorted_players.len();
@@ -532,7 +535,10 @@ impl Statbox {
             let left_player = player_manager.get_by_id(*left).unwrap();
             let right_player = player_manager.get_by_id(*right).unwrap();
 
-            left_player.name.cmp(&right_player.name)
+            left_player
+                .name
+                .to_lowercase_smolstr()
+                .cmp(&right_player.name.to_lowercase_smolstr())
         });
     }
 
@@ -553,7 +559,10 @@ impl Statbox {
                 return left_player.frequency.cmp(&right_player.frequency);
             }
 
-            left_player.name.cmp(&right_player.name)
+            left_player
+                .name
+                .to_lowercase_smolstr()
+                .cmp(&right_player.name.to_lowercase_smolstr())
         });
     }
 
