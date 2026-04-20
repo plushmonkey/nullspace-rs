@@ -2,6 +2,7 @@ use crate::{
     map::Map,
     math::{Position, PositionUnit},
     render::{
+        game_sprites::GameSprites,
         layer::Layer,
         render_state::RenderState,
         sprite_renderer::{SheetIndex, SpriteRenderable},
@@ -160,6 +161,7 @@ impl Radar {
     pub fn render(
         &mut self,
         render_state: &mut RenderState,
+        game_sprites: &GameSprites,
         map: &Map,
         mapzoom: u16,
         frequency: u16,
@@ -180,7 +182,7 @@ impl Radar {
             return;
         }
 
-        const CORNER_INSET: u32 = 10;
+        const CORNER_INSET: u32 = 6;
 
         let bottom_x = render_state.config.width.saturating_sub(CORNER_INSET);
         let bottom_y = render_state.config.height.saturating_sub(CORNER_INSET);
@@ -218,6 +220,17 @@ impl Radar {
                 start_x as i32,
                 start_y as i32,
                 Layer::AfterChat,
+            );
+
+            game_sprites.colors.draw_border(
+                &mut render_state.sprite_renderer,
+                &render_state.ui_camera,
+                Layer::Chat,
+                start_x as i32 - 1,
+                start_y as i32 - 1,
+                bottom_x as i32,
+                bottom_y as i32,
+                false,
             );
         }
     }

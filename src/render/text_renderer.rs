@@ -74,6 +74,7 @@ impl TextRenderer {
 
     // This will push renderables to the sprite renderer.
     // The sprite renderer will need to be rendered to actually see the result of this draw call.
+    // Returns the width of the rendered text
     pub fn draw(
         &self,
         sprite_renderer: &mut SpriteRenderer,
@@ -84,7 +85,7 @@ impl TextRenderer {
         layer: Layer,
         color: TextColor,
         align: TextAlignment,
-    ) {
+    ) -> i32 {
         self.draw_slice(
             sprite_renderer,
             camera,
@@ -94,9 +95,12 @@ impl TextRenderer {
             layer,
             color,
             align,
-        );
+        )
     }
 
+    // This will push renderables to the sprite renderer.
+    // The sprite renderer will need to be rendered to actually see the result of this draw call.
+    // Returns the width of the rendered text
     pub fn draw_slice(
         &self,
         sprite_renderer: &mut SpriteRenderer,
@@ -107,9 +111,11 @@ impl TextRenderer {
         layer: Layer,
         color: TextColor,
         align: TextAlignment,
-    ) {
+    ) -> i32 {
         let mut current_x;
         let mut current_y = y;
+
+        let mut max_width = 0;
 
         // Precompute the transform so we don't have to matrix multiply every character.
         let mvp = camera.projection() * camera.view();
@@ -124,6 +130,11 @@ impl TextRenderer {
                     current_x -= line.len() as i32 * self.character_width;
                 }
                 _ => {}
+            }
+
+            let width = line.len() as i32 * self.character_width;
+            if width > max_width {
+                max_width = width;
             }
 
             // This game only supports ascii text, so we can just take the raw bytes and grab the character from it.
@@ -152,5 +163,7 @@ impl TextRenderer {
 
             current_y += self.character_height;
         }
+
+        max_width
     }
 }

@@ -3,6 +3,7 @@ use smol_str::format_smolstr;
 use crate::{
     player::{PlayerId, PlayerManager},
     render::{
+        game_sprites::GameSprites,
         layer::Layer,
         render_state::RenderState,
         text_renderer::{TextAlignment, TextColor},
@@ -97,11 +98,18 @@ impl Statbox {
         }
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState) {
+    pub fn render(&mut self, render_state: &mut RenderState, game_sprites: &GameSprites) {
+        if self.sorted_players.is_empty() {
+            return;
+        }
+
+        let current_x = 5;
+        let mut current_y = 5;
+
+        let mut window_width = 0;
+
         match &self.view {
             StatboxView::Names(view) => {
-                let mut current_y = 0;
-
                 let mut bottom = self.sliding_view.top + self.sliding_view.size;
                 if bottom > view.entries.len() {
                     bottom = view.entries.len();
@@ -112,23 +120,25 @@ impl Statbox {
                 for i in top..bottom {
                     let entry = &view.entries[i];
 
-                    render_state.text_renderer.draw(
+                    let width = render_state.text_renderer.draw(
                         &mut render_state.sprite_renderer,
                         &render_state.ui_camera,
                         &entry.text,
-                        0,
+                        current_x,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         entry.color,
                         TextAlignment::Left,
                     );
+
+                    if width > window_width {
+                        window_width = width;
+                    }
 
                     current_y += 12;
                 }
             }
             StatboxView::Points(view) => {
-                let mut current_y = 0;
-
                 let mut bottom = self.sliding_view.top + self.sliding_view.size;
                 if bottom > view.entries.len() {
                     bottom = view.entries.len();
@@ -145,9 +155,9 @@ impl Statbox {
                         &mut render_state.sprite_renderer,
                         &render_state.ui_camera,
                         name,
-                        0,
+                        current_x,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Left,
                     );
@@ -160,17 +170,17 @@ impl Statbox {
                         &entry.1,
                         185,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Right,
                     );
+
+                    window_width = 185;
 
                     current_y += 12;
                 }
             }
             StatboxView::PointSort(view) => {
-                let mut current_y = 0;
-
                 let mut bottom = self.sliding_view.top + self.sliding_view.size;
                 if bottom > view.entries.len() {
                     bottom = view.entries.len();
@@ -187,9 +197,9 @@ impl Statbox {
                         &mut render_state.sprite_renderer,
                         &render_state.ui_camera,
                         name,
-                        0,
+                        current_x,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Left,
                     );
@@ -202,17 +212,17 @@ impl Statbox {
                         &entry.1,
                         185,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Right,
                     );
+
+                    window_width = 185;
 
                     current_y += 12;
                 }
             }
             StatboxView::TeamSort(view) => {
-                let mut current_y = 0;
-
                 let mut bottom = self.sliding_view.top + self.sliding_view.size;
                 if bottom > view.entries.len() {
                     bottom = view.entries.len();
@@ -229,15 +239,30 @@ impl Statbox {
                     if entry.2 as u32 != prev_freq {
                         prev_freq = entry.2 as u32;
 
-                        let freq_string = format_smolstr!("{:04}", entry.2);
+                        let freq_string = if entry.2 < 100 {
+                            format_smolstr!("{:04}", entry.2)
+                        } else {
+                            format_smolstr!("----")
+                        };
+
+                        let width = render_state.text_renderer.draw(
+                            &mut render_state.sprite_renderer,
+                            &render_state.ui_camera,
+                            &freq_string,
+                            current_x,
+                            current_y,
+                            Layer::AfterGauges,
+                            TextColor::DarkRed,
+                            TextAlignment::Left,
+                        );
 
                         render_state.text_renderer.draw(
                             &mut render_state.sprite_renderer,
                             &render_state.ui_camera,
-                            &freq_string,
-                            0,
+                            "-------------",
+                            current_x + width,
                             current_y,
-                            Layer::Gauges,
+                            Layer::AfterGauges,
                             TextColor::DarkRed,
                             TextAlignment::Left,
                         );
@@ -249,9 +274,9 @@ impl Statbox {
                         &mut render_state.sprite_renderer,
                         &render_state.ui_camera,
                         name,
-                        0,
+                        current_x + 8,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Left,
                     );
@@ -264,10 +289,12 @@ impl Statbox {
                         &entry.1,
                         185,
                         current_y,
-                        Layer::Gauges,
+                        Layer::AfterGauges,
                         color,
                         TextAlignment::Right,
                     );
+
+                    window_width = 185;
 
                     current_y += 12;
                 }
@@ -310,6 +337,17 @@ impl Statbox {
             }
             _ => {}
         }
+
+        game_sprites.colors.draw_border(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            Layer::Gauges,
+            2,
+            2,
+            window_width + 1,
+            current_y + 1,
+            true,
+        );
     }
 
     pub fn next_view(&mut self, player_manager: &PlayerManager) {

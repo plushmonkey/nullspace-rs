@@ -1,13 +1,17 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::render::{
-    render_state::RenderState, sprite_renderer::SpriteRenderable, texture::Texture,
+    colors::Colors,
+    render_state::RenderState,
+    sprite_renderer::{SheetIndex, SpriteRenderable},
+    texture::Texture,
 };
 use thiserror::Error;
 
 pub struct SpriteSet {
     pub renderables: Vec<SpriteRenderable>,
     pub texture: Option<Texture>,
+    pub sheet_index: SheetIndex,
 }
 
 impl SpriteSet {
@@ -15,6 +19,7 @@ impl SpriteSet {
         Self {
             renderables: vec![],
             texture: None,
+            sheet_index: SheetIndex(0xFFFFFFFF),
         }
     }
 
@@ -77,6 +82,7 @@ impl SpriteSet {
         Self {
             renderables,
             texture: Some(texture),
+            sheet_index: sheet_index,
         }
     }
 }
@@ -100,6 +106,7 @@ pub enum GameSpriteKind {
     PlayerExplosion,
     EmpExplosion,
     Flash,
+    Colors,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -124,17 +131,22 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (6, 6),      // PlayerExplosion
     (5, 2),      // EmpExplosion
     (6, 3),      // Flash
+    (1, 1),      // Colors
     (5, 2),      // Repel
 ];
 
 pub struct GameSprites {
     pub sprites: [SpriteSet; GAME_SPRITE_KIND_SIZE],
+    pub colors: Colors,
 }
 
 impl GameSprites {
     pub fn new() -> Self {
         let sprites = [(); GAME_SPRITE_KIND_SIZE].map(|_| SpriteSet::empty());
-        Self { sprites }
+        Self {
+            sprites,
+            colors: Colors::new(0, 0),
+        }
     }
 
     pub fn get_set(&self, kind: GameSpriteKind) -> Option<&SpriteSet> {
@@ -189,6 +201,25 @@ impl GameSpriteLoader {
             sprites.sprites[index] = SpriteSet::new(render_state, &img, cols, rows);
         }
 
+        let (colors_width, colors_height, colors_sheet_index) =
+            if let Some(colors_spriteset) = sprites.get_set(GameSpriteKind::Colors) {
+                if let Some(texture) = &colors_spriteset.texture {
+                    (
+                        texture.texture.width(),
+                        texture.texture.height(),
+                        colors_spriteset.sheet_index,
+                    )
+                } else {
+                    (0, 0, SheetIndex(0xFFFFFFFF))
+                }
+            } else {
+                (0, 0, SheetIndex(0xFFFFFFFF))
+            };
+
+        sprites.colors.width = colors_width;
+        sprites.colors.height = colors_height;
+        sprites.colors.sheet_index = colors_sheet_index;
+
         Some(sprites)
     }
 
@@ -225,6 +256,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::PlayerExplosion, "graphics/explode1.bm2"),
             (GameSpriteKind::EmpExplosion, "graphics/empburst.bm2"),
             (GameSpriteKind::Flash, "graphics/warp.bm2"),
+            (GameSpriteKind::Colors, "graphics/colors.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

@@ -111,6 +111,7 @@ impl Client {
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         self.radar.render(
             render_state,
+            sprites,
             &self.map,
             self.settings.map_zoom_factor as u16,
             self.spec_freq,
@@ -119,7 +120,7 @@ impl Client {
         );
 
         self.chat_controller.render(render_state);
-        self.statbox.render(render_state);
+        self.statbox.render(render_state, sprites);
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {

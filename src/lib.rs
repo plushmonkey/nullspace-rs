@@ -241,6 +241,10 @@ impl ApplicationPlayingState {
         if let Err(e) = self.client.update(Some(render_state)) {
             log::error!("{e}");
         }
+
+        self.sprites
+            .colors
+            .tick(self.client.connection.get_game_tick());
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
