@@ -107,6 +107,7 @@ pub enum GameSpriteKind {
     EmpExplosion,
     Flash,
     Colors,
+    Powerball,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -132,6 +133,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (5, 2),      // EmpExplosion
     (6, 3),      // Flash
     (1, 1),      // Colors
+    (10, 3),     // Powerball
     (5, 2),      // Repel
 ];
 
@@ -257,6 +259,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::EmpExplosion, "graphics/empburst.bm2"),
             (GameSpriteKind::Flash, "graphics/warp.bm2"),
             (GameSpriteKind::Colors, "graphics/colors.bm2"),
+            (GameSpriteKind::Powerball, "graphics/powerb.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

@@ -81,6 +81,10 @@ impl Position {
     pub fn to_pixels(&self) -> (i32, i32) {
         (self.x.0 / 1000, self.y.0 / 1000)
     }
+
+    pub fn delta_pixels(&self, other: &Position) -> (i32, i32) {
+        ((self.x.0 - other.x.0) / 1000, (self.y.0 - other.y.0) / 1000)
+    }
 }
 
 impl Add<Position> for Position {
@@ -126,6 +130,13 @@ pub struct Velocity {
 impl Velocity {
     pub fn new(x: PositionUnit, y: PositionUnit) -> Self {
         Self { x, y }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            x: PositionUnit(0),
+            y: PositionUnit(0),
+        }
     }
 
     pub fn clear(&mut self) {
@@ -256,4 +267,31 @@ pub fn get_heading_from_direction(direction: u8) -> glam::Vec2 {
     let y = -f32::sin(rads);
 
     glam::Vec2::new(x, y)
+}
+
+pub fn ray_box_intersect(
+    origin: glam::Vec2,
+    direction: glam::Vec2,
+    box_position: glam::Vec2,
+    box_extent: glam::Vec2,
+) -> Option<f32> {
+    let recip = glam::Vec2::new(1.0f32 / direction.x, 1.0f32 / direction.y);
+    let lb = box_position + glam::Vec2::new(0.0f32, box_extent.y);
+    let rt = box_position + glam::Vec2::new(box_extent.x, 0.0f32);
+
+    let t1 = (lb.x - origin.x) * recip.x;
+    let t2 = (rt.x - origin.x) * recip.x;
+    let t3 = (lb.y - origin.y) * recip.y;
+    let t4 = (rt.y - origin.y) * recip.y;
+
+    let tmin = f32::max(t1.min(t2), t3.min(t4));
+    let tmax = f32::min(t1.max(t2), t3.max(t4));
+
+    if tmax < 0.0f32 {
+        return None;
+    } else if tmin > tmax {
+        return None;
+    }
+
+    Some(tmin)
 }

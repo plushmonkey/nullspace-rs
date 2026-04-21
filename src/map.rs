@@ -1,6 +1,11 @@
 use thiserror::Error;
 
-use crate::{arena_settings::ArenaSettings, clock::GameTick, math::Position, rng::VieRng};
+use crate::{
+    arena_settings::ArenaSettings,
+    clock::GameTick,
+    math::{PixelUnit, Position, ray_box_intersect},
+    rng::VieRng,
+};
 
 pub type TileId = u8;
 
@@ -471,4 +476,103 @@ impl Map {
     fn get_index(x: u16, y: u16) -> usize {
         y as usize * 1024 + x as usize
     }
+
+    // max_distance is in tile-space
+    pub fn cast(&self, from: Position, direction: glam::Vec2, max_distance: f32) -> CastResult {
+        let mut result = CastResult {
+            hit: false,
+            distance: 0.0f32,
+            position: Position::empty(),
+        };
+
+        if self.is_solid_position(from) {
+            result.hit = true;
+            result.distance = 0.0f32;
+            result.position = from;
+            return result;
+        }
+
+        let unit_step = glam::Vec2::new(
+            (1.0f32 + (direction.y / direction.x) * (direction.y / direction.x)).sqrt(),
+            (1.0f32 + (direction.x / direction.y) * (direction.x / direction.y)).sqrt(),
+        );
+        let from = glam::Vec2::new(from.x.0 as f32 / 16000.0f32, from.y.0 as f32 / 16000.0f32);
+
+        let mut check = glam::Vec2::new(from.x.floor(), from.y.floor());
+        let mut step = glam::Vec2::ZERO;
+        let mut travel = glam::Vec2::ZERO;
+
+        if direction.x < 0.0f32 {
+            step.x = -1.0f32;
+            travel.x = (from.x - check.x) * unit_step.x;
+        } else {
+            step.x = 1.0f32;
+            travel.x = (check.x + 1.0f32 - from.x) * unit_step.x;
+        }
+
+        if direction.y < 0.0f32 {
+            step.y = -1.0f32;
+            travel.y = (from.y - check.y) * unit_step.y;
+        } else {
+            step.y = 1.0f32;
+            travel.y = (check.y + 1.0f32 - from.y) * unit_step.y;
+        }
+
+        let mut distance = 0.0f32;
+
+        while distance < max_distance {
+            let clear_distance = distance;
+
+            if travel.x < travel.y {
+                check.x += step.x;
+                distance = travel.x;
+                travel.x += unit_step.x;
+            } else {
+                check.y += step.y;
+                distance = travel.y;
+                travel.y += unit_step.y;
+            }
+
+            if self.is_solid(check.x.floor() as u16, check.y.floor() as u16) {
+                result.hit = true;
+                result.distance = clear_distance;
+                break;
+            }
+        }
+
+        if result.hit {
+            if let Some(dist) =
+                ray_box_intersect(from, direction, check, glam::Vec2::new(1.0f32, 1.0f32))
+            {
+                if dist < max_distance {
+                    result.distance = dist;
+                    let hit_position_tile = from + direction * dist;
+                    result.position = Position::from_pixels(
+                        PixelUnit((hit_position_tile.x * 16.0f32) as i32),
+                        PixelUnit((hit_position_tile.y * 16.0f32) as i32),
+                    );
+
+                    return result;
+                }
+            }
+        }
+
+        result.hit = false;
+        result.distance = max_distance;
+
+        let hit_position_tile = from + direction * max_distance;
+
+        result.position = Position::from_pixels(
+            PixelUnit((hit_position_tile.x * 16.0f32) as i32),
+            PixelUnit((hit_position_tile.y * 16.0f32) as i32),
+        );
+
+        result
+    }
+}
+
+pub struct CastResult {
+    pub hit: bool,
+    pub distance: f32,
+    pub position: Position,
 }

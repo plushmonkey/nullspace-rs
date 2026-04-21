@@ -1,4 +1,188 @@
-use crate::math::Position;
+use crate::{
+    arena_settings::ArenaSettings,
+    clock::GameTick,
+    map::Map,
+    math::{PixelUnit, Position, PositionUnit, Velocity},
+    net::packet::s2c::PowerballPositionMessage,
+    player::{PlayerId, PlayerManager},
+    simulation::powerball_simulation::integrate_powerball,
+};
+
+const MAX_BALL_COUNT: usize = 8;
+const BALL_START_FRICTION: u32 = 1000000;
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum PowerballState {
+    Invalid,
+    World,
+    Carried,
+}
+
+pub struct Powerball {
+    pub carrier_id: PlayerId,
+    pub frequency: u16,
+
+    pub friction_delta: i16,
+    pub friction: u32,
+
+    pub position: Position,
+    pub velocity: Velocity,
+
+    pub timestamp: GameTick,
+
+    pub state: PowerballState,
+
+    // When a player is near the ball and could possibly pick the ball up,
+    // this gets set to a number of ticks to make the ball invisible/phased.
+    pub remaining_pickup_ticks: u32,
+}
+
+impl Powerball {
+    pub fn empty() -> Self {
+        Self {
+            carrier_id: PlayerId::invalid(),
+            frequency: 0xFFFF,
+            friction_delta: 0,
+            friction: 0,
+            position: Position::empty(),
+            velocity: Velocity::empty(),
+            timestamp: GameTick::empty(),
+            state: PowerballState::Invalid,
+            remaining_pickup_ticks: 0,
+        }
+    }
+
+    pub fn is_phasing(&self, current_tick: GameTick, pass_delay: i32) -> bool {
+        self.remaining_pickup_ticks > 0 || current_tick.diff(&self.timestamp) < pass_delay
+    }
+}
+
+pub struct PowerballManager {
+    pub balls: [Powerball; MAX_BALL_COUNT],
+}
+
+impl PowerballManager {
+    pub fn new() -> Self {
+        Self {
+            balls: [(); MAX_BALL_COUNT].map(|_| Powerball::empty()),
+        }
+    }
+
+    pub fn get_ball_by_id(&self, ball_id: u8) -> Option<&Powerball> {
+        if ball_id >= 8 {
+            None
+        } else {
+            Some(&self.balls[ball_id as usize])
+        }
+    }
+
+    pub fn get_ball_by_id_mut(&mut self, ball_id: u8) -> Option<&mut Powerball> {
+        if ball_id >= 8 {
+            None
+        } else {
+            Some(&mut self.balls[ball_id as usize])
+        }
+    }
+
+    pub fn is_carrying_ball(&self, player_id: PlayerId) -> bool {
+        for ball in &self.balls {
+            if ball.carrier_id == player_id {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn on_ball_position_message(
+        &mut self,
+        player_manager: &mut PlayerManager,
+        map: &Map,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
+        message: &PowerballPositionMessage,
+    ) {
+        let Some(ball) = self.get_ball_by_id_mut(message.ball_id) else {
+            log::warn!("Got ball position for invalid ball {}", message.ball_id);
+            return;
+        };
+
+        let new_ball_world_position = ball.state == PowerballState::Invalid
+            || message.timestamp > ball.timestamp
+            || (ball.state == PowerballState::Carried && message.timestamp.value() != 0);
+
+        if new_ball_world_position {
+            ball.carrier_id = message.owner_id;
+            ball.timestamp = message.timestamp;
+            ball.position =
+                Position::from_pixels(PixelUnit(message.x as i32), PixelUnit(message.y as i32));
+            ball.velocity = Velocity::new(
+                PositionUnit(message.x_velocity as i32),
+                PositionUnit(message.y_velocity as i32),
+            );
+            ball.frequency = 0xFFFF;
+            ball.state = PowerballState::World;
+
+            // TODO: Self carry update
+
+            let mut carrier_ship_kind = crate::ship::ShipKind::Warbird;
+
+            if let Some(carrier) = player_manager.get_by_id_mut(message.owner_id) {
+                carrier_ship_kind = carrier.ship_kind;
+
+                ball.frequency = carrier.frequency;
+                ball.remaining_pickup_ticks = 0;
+
+                carrier.carrying_ball = false;
+            }
+
+            ball.friction_delta = settings
+                .get_ship_settings(carrier_ship_kind)
+                .powerball_friction as i16;
+
+            if message.x_velocity != 0 || message.y_velocity != 0 {
+                let sim_ticks = current_tick.diff(&message.timestamp).min(6000);
+
+                ball.friction = BALL_START_FRICTION;
+
+                for _ in 0..sim_ticks {
+                    integrate_powerball(
+                        map,
+                        settings.powerball_mode,
+                        settings.powerball_bounce,
+                        ball,
+                    );
+
+                    if ball.friction == 0 {
+                        break;
+                    }
+                }
+            } else {
+                ball.friction = 0;
+            }
+        } else if message.timestamp.value() == 0 {
+            if message.owner_id != PlayerId::invalid() {
+                // Ball is carried if the timestamp is zero with a valid carrier id.
+                ball.timestamp = message.timestamp;
+                ball.carrier_id = message.owner_id;
+                ball.position =
+                    Position::from_pixels(PixelUnit(message.x as i32), PixelUnit(message.y as i32));
+                ball.velocity = Velocity::empty();
+
+                if let Some(carrier) = player_manager.get_by_id_mut(message.owner_id) {
+                    ball.state = PowerballState::Carried;
+                    ball.frequency = carrier.frequency;
+
+                    carrier.carrying_ball = true;
+                } else {
+                    ball.state = PowerballState::Invalid;
+                }
+            } else {
+                // Invalid player id and timestamp 0 means the ball no longer exists.
+                ball.state = PowerballState::Invalid;
+            }
+        }
+    }
+}
 
 pub fn is_team_goal(powerball_mode: u8, position: Position, frequency: u16) -> bool {
     let x = position.x.0 / 16000;

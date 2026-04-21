@@ -18,6 +18,7 @@ use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::player::*;
+use crate::powerball::PowerballState;
 use crate::powerball::is_team_goal;
 use crate::radar::Radar;
 use crate::render::game_sprites::GAME_SPRITE_SHEET_DEFINITIONS;
@@ -134,6 +135,7 @@ impl Client {
 
         self.render_players(render_state, sprites);
         self.render_weapons(render_state, sprites);
+        self.render_powerballs(render_state, sprites);
 
         self.render_map_animations(render_state, sprites);
     }
@@ -437,6 +439,76 @@ impl Client {
                                 Layer::Ships,
                                 name_color,
                                 TextAlignment::Left,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn render_powerballs(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+        let Some(ball_sprites) = sprites.get_set(GameSpriteKind::Powerball) else {
+            return;
+        };
+
+        let render_duration = 100;
+
+        for ball in &self.simulation.powerball_manager.balls {
+            match &ball.state {
+                PowerballState::World => {
+                    if ball.remaining_pickup_ticks > 80 {
+                        continue;
+                    }
+
+                    let phasing = ball.is_phasing(
+                        self.connection.get_game_tick(),
+                        self.settings.powerball_pass_delay as i32,
+                    );
+
+                    let x_pixels = ball.position.x.0 / 1000;
+                    let y_pixels = ball.position.y.0 / 1000;
+                    let index =
+                        self.get_animation_index(10, render_duration) + phasing as usize * 10;
+
+                    let renderable = &ball_sprites.renderables[index];
+
+                    render_state.sprite_renderer.draw_centered(
+                        &render_state.camera,
+                        renderable,
+                        x_pixels,
+                        y_pixels,
+                        Layer::AfterWeapons,
+                    );
+                }
+                PowerballState::Carried => {
+                    if let Some(carrier) = self.simulation.player_manager.get_by_id(ball.carrier_id)
+                    {
+                        if carrier.ship_kind == ShipKind::Spectator {
+                            continue;
+                        }
+
+                        if let Some(position) = carrier.position {
+                            let index = self.get_animation_index(10, render_duration);
+                            let heading = carrier.get_heading();
+                            let offset = heading
+                                * self
+                                    .settings
+                                    .get_ship_settings(carrier.ship_kind)
+                                    .get_radius() as f32;
+
+                            let renderable = &ball_sprites.renderables[index];
+
+                            let x_pixels = position.x.0 / 1000 + offset.x as i32;
+                            let y_pixels = position.y.0 / 1000 + offset.y as i32;
+
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::AfterWeapons,
                             );
                         }
                     }
@@ -1001,7 +1073,6 @@ impl Client {
 
                 self.statbox.rebuild(&self.simulation.player_manager);
             }
-
             GameServerMessage::SmallPosition(message) => {
                 if let Some(player) = self
                     .simulation
@@ -1369,6 +1440,15 @@ impl Client {
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
+            }
+            GameServerMessage::PowerballPosition(message) => {
+                self.simulation.powerball_manager.on_ball_position_message(
+                    &mut self.simulation.player_manager,
+                    &self.map,
+                    &self.settings,
+                    self.connection.get_game_tick(),
+                    message,
+                );
             }
             GameServerMessage::MapInformation(info) => {
                 log::debug!("Map name: {}", info.filename);

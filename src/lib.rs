@@ -224,7 +224,7 @@ impl ApplicationPlayingState {
         }
 
         let speed = if self.input.shift {
-            CAMERA_SPEED * 2.0f32
+            CAMERA_SPEED * 3.0f32
         } else {
             CAMERA_SPEED
         };

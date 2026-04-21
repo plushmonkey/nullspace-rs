@@ -122,6 +122,8 @@ pub struct Player {
 
     pub explosion_remaining_ticks: u32,
     pub flash_remaining_ticks: u32,
+
+    pub carrying_ball: bool,
 }
 
 impl Player {
@@ -169,6 +171,8 @@ impl Player {
 
             explosion_remaining_ticks: 0,
             flash_remaining_ticks: 0,
+
+            carrying_ball: false,
         }
     }
 
