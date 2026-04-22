@@ -337,9 +337,11 @@ impl Radar {
         // Adjust existing sheets and renderables if we already have one.
 
         if self.sprite_radar.sheet.0 == invalid_sheet.0 {
-            let sheet_index = render_state
-                .sprite_renderer
-                .create_sprite_sheet(&render_state.device, &radar_texture);
+            let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
+                &render_state.device,
+                &radar_texture,
+                false,
+            );
 
             self.sprite_radar.sheet = sheet_index;
             self.sprite_radar.renderable = SpriteRenderable {
@@ -360,9 +362,11 @@ impl Radar {
         }
 
         if self.sprite_entire.sheet.0 == invalid_sheet.0 {
-            let sheet_index = render_state
-                .sprite_renderer
-                .create_sprite_sheet(&render_state.device, &entire_texture);
+            let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
+                &render_state.device,
+                &entire_texture,
+                false,
+            );
 
             self.sprite_entire.sheet = sheet_index;
             self.sprite_entire.renderable = SpriteRenderable {

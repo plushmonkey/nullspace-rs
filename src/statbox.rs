@@ -129,7 +129,7 @@ impl Statbox {
                         Layer::AfterGauges,
                         entry.color,
                         TextAlignment::Left,
-                    );
+                    ) + current_x;
 
                     if width > window_width {
                         window_width = width;

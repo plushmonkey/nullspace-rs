@@ -94,10 +94,11 @@ impl AnimationRenderer {
             let ticks_per_frame = animation.duration as usize / frame_count;
             let tick_count = animation.duration - animation.remaining_ticks;
 
-            animation.current_frame = u16::min(
-                (tick_count / ticks_per_frame as u32) as u16,
-                frame_count as u16,
-            );
+            animation.current_frame = animation.frame_start
+                + u16::min(
+                    (tick_count / ticks_per_frame as u32) as u16,
+                    (frame_count - 1) as u16,
+                );
 
             if tick_diff > 0 {
                 animation.last_update_tick = current_tick;

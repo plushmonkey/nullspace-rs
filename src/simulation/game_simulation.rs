@@ -33,6 +33,7 @@ pub struct Simulation {
     pub powerball_manager: PowerballManager,
     pub tick: GameTick,
     pub events: Vec<SimulationEvent>,
+    pub powerball_paused: bool,
 }
 
 impl Simulation {
@@ -43,6 +44,7 @@ impl Simulation {
             powerball_manager: PowerballManager::new(),
             tick,
             events: vec![],
+            powerball_paused: true,
         }
     }
 
@@ -61,14 +63,38 @@ impl Simulation {
             &mut self.events,
         );
 
+        self.update_balls(map, settings);
+
+        self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
+    }
+
+    fn update_balls(&mut self, map: &Map, settings: &ArenaSettings) {
+        if self.powerball_paused {
+            return;
+        }
+
         for powerball in &mut self.powerball_manager.balls {
+            let sim_ticks = self.tick.diff(&powerball.current_sim_tick).min(6000);
+
             if powerball.state == PowerballState::World {
-                integrate_powerball(
-                    map,
-                    settings.powerball_mode,
-                    settings.powerball_bounce,
-                    powerball,
-                );
+                for _ in 0..sim_ticks {
+                    integrate_powerball(
+                        map,
+                        settings.powerball_mode,
+                        settings.powerball_bounce,
+                        powerball,
+                    );
+
+                    if powerball.velocity.x.0 == 0 && powerball.velocity.y.0 == 0 {
+                        break;
+                    }
+
+                    if powerball.friction == 0 {
+                        break;
+                    }
+                }
+
+                powerball.current_sim_tick = self.tick;
 
                 let phasing = powerball.is_phasing(self.tick, settings.powerball_pass_delay as i32);
 
@@ -120,7 +146,5 @@ impl Simulation {
                 }
             }
         }
-
-        self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
     }
 }

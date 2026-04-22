@@ -1,11 +1,9 @@
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
-    map::Map,
     math::{PixelUnit, Position, PositionUnit, Velocity},
     net::packet::s2c::PowerballPositionMessage,
     player::{PlayerId, PlayerManager},
-    simulation::powerball_simulation::integrate_powerball,
 };
 
 const MAX_BALL_COUNT: usize = 8;
@@ -35,6 +33,9 @@ pub struct Powerball {
     // When a player is near the ball and could possibly pick the ball up,
     // this gets set to a number of ticks to make the ball invisible/phased.
     pub remaining_pickup_ticks: u32,
+
+    pub current_sim_tick: GameTick,
+    pub last_trail_tick: GameTick,
 }
 
 impl Powerball {
@@ -49,6 +50,8 @@ impl Powerball {
             timestamp: GameTick::empty(),
             state: PowerballState::Invalid,
             remaining_pickup_ticks: 0,
+            current_sim_tick: GameTick::empty(),
+            last_trail_tick: GameTick::empty(),
         }
     }
 
@@ -96,9 +99,7 @@ impl PowerballManager {
     pub fn on_ball_position_message(
         &mut self,
         player_manager: &mut PlayerManager,
-        map: &Map,
         settings: &ArenaSettings,
-        current_tick: GameTick,
         message: &PowerballPositionMessage,
     ) {
         let Some(ball) = self.get_ball_by_id_mut(message.ball_id) else {
@@ -121,6 +122,7 @@ impl PowerballManager {
             );
             ball.frequency = 0xFFFF;
             ball.state = PowerballState::World;
+            ball.current_sim_tick = message.timestamp;
 
             // TODO: Self carry update
 
@@ -139,26 +141,7 @@ impl PowerballManager {
                 .get_ship_settings(carrier_ship_kind)
                 .powerball_friction as i16;
 
-            if message.x_velocity != 0 || message.y_velocity != 0 {
-                let sim_ticks = current_tick.diff(&message.timestamp).min(6000);
-
-                ball.friction = BALL_START_FRICTION;
-
-                for _ in 0..sim_ticks {
-                    integrate_powerball(
-                        map,
-                        settings.powerball_mode,
-                        settings.powerball_bounce,
-                        ball,
-                    );
-
-                    if ball.friction == 0 {
-                        break;
-                    }
-                }
-            } else {
-                ball.friction = 0;
-            }
+            ball.friction = BALL_START_FRICTION;
         } else if message.timestamp.value() == 0 {
             if message.owner_id != PlayerId::invalid() {
                 // Ball is carried if the timestamp is zero with a valid carrier id.

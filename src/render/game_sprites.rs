@@ -62,9 +62,13 @@ impl SpriteSet {
 
         RenderState::buffer_texture(&render_state.queue, &texture, &img.as_bytes());
 
-        let sheet_index = render_state
-            .sprite_renderer
-            .create_sprite_sheet(&render_state.device, &texture);
+        let nearest_sampler = renderable_width == 1 || renderable_height == 1;
+
+        let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
+            &render_state.device,
+            &texture,
+            nearest_sampler,
+        );
         let sheet = render_state.sprite_renderer.get_sheet(sheet_index).unwrap();
 
         let mut renderables = vec![];
@@ -75,6 +79,7 @@ impl SpriteSet {
                 let x = x_start + col * renderable_width;
 
                 let renderable = sheet.create_renderable(x, y, renderable_width, renderable_height);
+
                 renderables.push(renderable);
             }
         }
@@ -108,6 +113,8 @@ pub enum GameSpriteKind {
     Flash,
     Colors,
     Powerball,
+    Gradient,
+    Trail,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -134,6 +141,8 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (6, 3),      // Flash
     (1, 1),      // Colors
     (10, 3),     // Powerball
+    (14, 8),     // Gradient
+    (10, 5),     // Trail
     (5, 2),      // Repel
 ];
 
@@ -260,6 +269,8 @@ impl GameSpriteLoader {
             (GameSpriteKind::Flash, "graphics/warp.bm2"),
             (GameSpriteKind::Colors, "graphics/colors.bm2"),
             (GameSpriteKind::Powerball, "graphics/powerb.bm2"),
+            (GameSpriteKind::Gradient, "graphics/gradient.bm2"),
+            (GameSpriteKind::Trail, "graphics/trail.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

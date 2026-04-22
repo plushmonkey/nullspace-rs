@@ -46,7 +46,7 @@ impl TextRenderer {
         texture: &Texture,
         sprite_renderer: &mut SpriteRenderer,
     ) -> Self {
-        let sprite_sheet_index = sprite_renderer.create_sprite_sheet(device, texture);
+        let sprite_sheet_index = sprite_renderer.create_sprite_sheet(device, texture, true);
 
         let sheet = sprite_renderer.get_sheet(sprite_sheet_index).unwrap();
         let mut renderables = vec![];

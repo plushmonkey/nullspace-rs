@@ -518,6 +518,160 @@ impl Client {
         }
     }
 
+    pub fn render_trails(&mut self, render_state: &mut RenderState) {
+        const BULLET_TRAIL_DURATION: u32 = 14;
+        const BOMB_TRAIL_DURATION: u32 = 30;
+
+        for weapon in &mut self.simulation.weapon_manager.weapons {
+            match &weapon.kind {
+                WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
+                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+
+                    if trail_diff < 2 {
+                        continue;
+                    }
+
+                    let start_index = (bullet.level as usize * 14) + 3 * 14;
+                    let (x_pixels, y_pixels) = weapon.position.to_pixels();
+
+                    render_state.animation_renderer.add(
+                        GameSpriteKind::Gradient,
+                        weapon.last_update_tick,
+                        start_index,
+                        start_index + 14,
+                        BULLET_TRAIL_DURATION,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Weapons,
+                    );
+
+                    weapon.last_trail_tick = weapon.last_update_tick;
+                }
+                WeaponKind::Shrapnel(shrapnel) => {
+                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+
+                    if trail_diff < 2 {
+                        continue;
+                    }
+
+                    let start_index = (shrapnel.level as usize * 14) + 3 * 14;
+                    let (x_pixels, y_pixels) = weapon.position.to_pixels();
+
+                    render_state.animation_renderer.add(
+                        GameSpriteKind::Gradient,
+                        weapon.last_update_tick,
+                        start_index,
+                        start_index + 14,
+                        BULLET_TRAIL_DURATION,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Weapons,
+                    );
+
+                    weapon.last_trail_tick = weapon.last_update_tick;
+                }
+                WeaponKind::Burst(_) => {
+                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+
+                    if trail_diff < 2 {
+                        continue;
+                    }
+
+                    let start_index = 5 * 14;
+                    let (x_pixels, y_pixels) = weapon.position.to_pixels();
+
+                    render_state.animation_renderer.add(
+                        GameSpriteKind::Gradient,
+                        weapon.last_update_tick,
+                        start_index,
+                        start_index + 14,
+                        BULLET_TRAIL_DURATION,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Weapons,
+                    );
+
+                    weapon.last_trail_tick = weapon.last_update_tick;
+                }
+                WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+
+                    if trail_diff < 5 {
+                        continue;
+                    }
+
+                    let start_index = bomb.level as usize * 10;
+                    let (x_pixels, y_pixels) = weapon.position.to_pixels();
+
+                    render_state.animation_renderer.add(
+                        GameSpriteKind::Trail,
+                        weapon.last_update_tick,
+                        start_index,
+                        start_index + 10,
+                        BOMB_TRAIL_DURATION,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Weapons,
+                    );
+
+                    weapon.last_trail_tick = weapon.last_update_tick;
+                }
+                WeaponKind::Thor(_) => {
+                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+
+                    if trail_diff < 5 {
+                        continue;
+                    }
+
+                    let start_index = 4 * 10;
+                    let (x_pixels, y_pixels) = weapon.position.to_pixels();
+
+                    render_state.animation_renderer.add(
+                        GameSpriteKind::Trail,
+                        weapon.last_update_tick,
+                        start_index,
+                        start_index + 10,
+                        BOMB_TRAIL_DURATION,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Weapons,
+                    );
+
+                    weapon.last_trail_tick = weapon.last_update_tick;
+                }
+                _ => {}
+            }
+        }
+
+        let current_tick = self.connection.current_tick;
+
+        for ball in &mut self.simulation.powerball_manager.balls {
+            let trail_diff = current_tick.diff(&ball.last_trail_tick);
+
+            if trail_diff < 5 {
+                continue;
+            }
+
+            if ball.velocity.x.0 != 0 || ball.velocity.y.0 != 0 {
+                let start_index = 20;
+                let (x_pixels, y_pixels) = ball.position.to_pixels();
+
+                render_state.animation_renderer.add(
+                    GameSpriteKind::Powerball,
+                    current_tick,
+                    start_index,
+                    start_index + 10,
+                    BOMB_TRAIL_DURATION,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Weapons,
+                );
+
+                ball.last_trail_tick = current_tick;
+            }
+        }
+    }
+
     pub fn render_map_animations(&self, render_state: &mut RenderState, sprites: &GameSprites) {
         const OFFSCREEN_PIXELS: i32 = 8 * 16;
         let (screen_width, screen_height) = (
@@ -676,6 +830,8 @@ impl Client {
             self.simulation.tick(&self.map, &self.settings);
 
             if let Some(render_state) = &mut render_state {
+                self.render_trails(render_state);
+
                 let self_position = Position::new(
                     PositionUnit(render_state.camera.position.x as i32 * 16000),
                     PositionUnit(render_state.camera.position.y as i32 * 16000),
@@ -701,7 +857,7 @@ impl Client {
                                         GameSpriteKind::BulletExplosion,
                                         event.tick,
                                         0,
-                                        6,
+                                        7,
                                         7 * 6,
                                         x_pixels,
                                         y_pixels,
@@ -720,7 +876,7 @@ impl Client {
                                         kind,
                                         event.tick,
                                         0,
-                                        frames - 1,
+                                        frames,
                                         duration,
                                         x_pixels,
                                         y_pixels,
@@ -1101,7 +1257,7 @@ impl Client {
                                     GameSpriteKind::Flash,
                                     message_timestamp,
                                     0,
-                                    frame_count as usize - 1,
+                                    frame_count as usize,
                                     PLAYER_FLASH_DURATION,
                                     x_pixels,
                                     y_pixels,
@@ -1202,7 +1358,7 @@ impl Client {
                                     GameSpriteKind::Flash,
                                     message_timestamp,
                                     0,
-                                    frame_count as usize - 1,
+                                    frame_count as usize,
                                     PLAYER_FLASH_DURATION,
                                     x_pixels,
                                     y_pixels,
@@ -1444,9 +1600,7 @@ impl Client {
             GameServerMessage::PowerballPosition(message) => {
                 self.simulation.powerball_manager.on_ball_position_message(
                     &mut self.simulation.player_manager,
-                    &self.map,
                     &self.settings,
-                    self.connection.get_game_tick(),
                     message,
                 );
             }
@@ -1561,6 +1715,7 @@ impl Client {
         self.connection.state = ConnectionState::Playing;
 
         self.radar.invalidate();
+        self.simulation.powerball_paused = false;
     }
 
     fn process_message(
