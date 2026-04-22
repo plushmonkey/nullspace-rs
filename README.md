@@ -27,7 +27,7 @@ Install the requirements with `cargo install wasm-pack wasm-opt`
 Build the proxy in the `proxy` folder and execute it on the same server as the game server.  
 Running this in a non-https environment requires executing the proxy and copying the hash output to `hash` in `www/index.html`.  
 
-Build with `wasm-pack build --target web --out-dir www/scripts`   
+Build with `wasm-pack build --target web --out-dir www/scripts/nullspace`   
 The www folder contains the required files to run on a server.  
 A local test server can be ran by installing `cargo install static-web-server` and running `static-web-server -d www/`  
 

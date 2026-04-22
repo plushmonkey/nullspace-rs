@@ -1,1 +1,1 @@
-wasm-pack build --target web --out-dir www/scripts
+wasm-pack build --target web --out-dir www/scripts/nullspace

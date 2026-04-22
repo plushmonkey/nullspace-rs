@@ -455,7 +455,8 @@ impl EventProcessor {
         #[cfg(target_arch = "wasm32")]
         let proxy = Some(event_loop.create_proxy());
 
-        let interval_proxy = event_loop.create_proxy();
+        let interval_proxy: winit::event_loop::EventLoopProxy<ApplicationEvent> =
+            event_loop.create_proxy();
 
         #[cfg(target_arch = "wasm32")]
         let update_interval = crate::web_util::Interval::new(1, move || {
@@ -651,7 +652,29 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub fn execute_app(proxy_url: &str, proxy_hash: Vec<u8>, username: &str, password: &str) {
+pub struct WebUpdateProxy {
+    proxy: winit::event_loop::EventLoopProxy<ApplicationEvent>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl WebUpdateProxy {
+    #[wasm_bindgen]
+    pub fn request_update(&self) {
+        if let Err(e) = self.proxy.send_event(ApplicationEvent::Update) {
+            log::error!("{e}");
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn execute_app(
+    proxy_url: &str,
+    proxy_hash: Vec<u8>,
+    username: &str,
+    password: &str,
+) -> WebUpdateProxy {
     let config = ApplicationConfig::new_web(
         proxy_url.to_string(),
         proxy_hash,
@@ -663,8 +686,13 @@ pub fn execute_app(proxy_url: &str, proxy_hash: Vec<u8>, username: &str, passwor
         .expect("event loop must be supported on this platform");
 
     let event_processor = EventProcessor::new(config, &event_loop);
+    let update_proxy = WebUpdateProxy {
+        proxy: event_loop.create_proxy(),
+    };
 
     event_loop.spawn_app(event_processor);
+
+    update_proxy
 }
 
 #[cfg(target_arch = "wasm32")]

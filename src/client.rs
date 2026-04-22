@@ -648,7 +648,7 @@ impl Client {
         for ball in &mut self.simulation.powerball_manager.balls {
             let trail_diff = current_tick.diff(&ball.last_trail_tick);
 
-            if trail_diff < 5 {
+            if trail_diff < 3 {
                 continue;
             }
 
@@ -684,13 +684,13 @@ impl Client {
         let center_x = (render_state.camera.position.x * 16.0f32) as i32;
         let center_y = (render_state.camera.position.y * 16.0f32) as i32;
 
-        let view_min = Position::new(
-            PositionUnit(center_x - half_width),
-            PositionUnit(center_y - half_height),
+        let view_min = Position::from_pixels(
+            PixelUnit(center_x - half_width),
+            PixelUnit(center_y - half_height),
         );
-        let view_max = Position::new(
-            PositionUnit(center_x + half_width),
-            PositionUnit(center_y + half_height),
+        let view_max = Position::from_pixels(
+            PixelUnit(center_x + half_width),
+            PixelUnit(center_y + half_height),
         );
 
         let view_rect = Rectangle::new(view_min, view_max);
@@ -724,7 +724,7 @@ impl Client {
             for tile in tiles {
                 let x_pixels = tile.x() as i32 * 16;
                 let y_pixels = tile.y() as i32 * 16;
-                let position = Position::new(PositionUnit(x_pixels), PositionUnit(y_pixels));
+                let position = Position::from_pixels(PixelUnit(x_pixels), PixelUnit(y_pixels));
 
                 if !view_rect.contains(position) {
                     continue;
@@ -779,7 +779,7 @@ impl Client {
 
             let x_pixels = door_tile.x() as i32 * 16;
             let y_pixels = door_tile.y() as i32 * 16;
-            let position = Position::new(PositionUnit(x_pixels), PositionUnit(y_pixels));
+            let position = Position::from_pixels(PixelUnit(x_pixels), PixelUnit(y_pixels));
 
             if !view_rect.contains(position) {
                 continue;
@@ -1124,10 +1124,7 @@ impl Client {
                 }
 
                 // TODO: Test code for switching through views until input is handled.
-                self.statbox.next_view(&self.simulation.player_manager);
-                self.statbox.next_view(&self.simulation.player_manager);
-                self.statbox.next_view(&self.simulation.player_manager);
-                self.statbox.next_view(&self.simulation.player_manager);
+                self.statbox.change_view(&self.simulation.player_manager, 3);
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
@@ -1422,8 +1419,6 @@ impl Client {
                         );
 
                         log::trace!("Spawn count for {}: {}", player.name, spawn_count);
-                    } else {
-                        log::warn!("Failed to create WeaponKind from {}", message.weapon);
                     }
                 } else {
                     log::warn!(

@@ -30,8 +30,8 @@
       <canvas id="canvas"></canvas>
     </div>
     <script type="module">
-      import init from "./scripts/nullspace.js";
-      import { execute_app } from "./scripts/nullspace.js";
+      import init from "./scripts/nullspace/nullspace.js";
+      import { execute_app } from "./scripts/nullspace/nullspace.js";
 
       init().then(() => {
         console.log("nullspace loaded");
@@ -42,7 +42,15 @@
         let username = "web";
         let password = "password";
 
-        execute_app("https://127.0.0.1:4433", hash, username, password);
+        let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password);
+
+        let worker = new Worker('scripts/worker.js');
+        worker.onmessage = function() {
+          // This triggers an update for the app outside of the normal setInterval that the app registers itself.
+          // This is slower than the normal updateInterval, but it's necessary to keep a good connection when the 
+          // browser is minimized or the tab is in the background.
+          update_proxy.request_update();
+        };
       });
     </script>
   </body>

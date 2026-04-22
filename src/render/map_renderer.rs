@@ -69,6 +69,7 @@ impl MapTileset {
 
 pub struct MapRenderer {
     pipeline: wgpu::RenderPipeline,
+    pipeline_flyunder: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
 
     uniform_state: UniformState,
@@ -91,6 +92,8 @@ impl MapRenderer {
         depth_texture: &Texture,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/map.wgsl"));
+        let shader_flyunder =
+            device.create_shader_module(wgpu::include_wgsl!("shaders/map_flyunder.wgsl"));
 
         let vertex_size = size_of::<Vertex>();
 
@@ -233,8 +236,37 @@ impl MapRenderer {
             cache: None,
         });
 
+        let pipeline_flyunder = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_flyunder,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &vertex_buffers,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_flyunder,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some((*format).into())],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_texture.texture.format(),
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         MapRenderer {
             pipeline,
+            pipeline_flyunder,
             bind_group,
             uniform_state,
             uniform_buffer,
@@ -336,6 +368,11 @@ impl MapRenderer {
         );
 
         renderpass.set_pipeline(&self.pipeline);
+        renderpass.set_bind_group(0, Some(&self.bind_group), &[]);
+        renderpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        renderpass.draw(0..6, 0..1);
+
+        renderpass.set_pipeline(&self.pipeline_flyunder);
         renderpass.set_bind_group(0, Some(&self.bind_group), &[]);
         renderpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         renderpass.draw(0..6, 0..1);

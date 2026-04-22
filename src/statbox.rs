@@ -350,6 +350,20 @@ impl Statbox {
         );
     }
 
+    pub fn change_view(&mut self, player_manager: &PlayerManager, index: usize) {
+        self.view = match index {
+            0 => StatboxView::Names(NamesView { entries: vec![] }),
+            1 => StatboxView::Points(PointsView { entries: vec![] }),
+            2 => StatboxView::PointSort(PointSortView { entries: vec![] }),
+            3 => StatboxView::TeamSort(TeamSortView { entries: vec![] }),
+            4 => StatboxView::Full(FullView { entries: vec![] }),
+            5 => StatboxView::Frequency(FrequencyView { entries: vec![] }),
+            _ => StatboxView::Names(NamesView { entries: vec![] }),
+        };
+
+        self.rebuild(player_manager);
+    }
+
     pub fn next_view(&mut self, player_manager: &PlayerManager) {
         self.view = match &self.view {
             StatboxView::Names(_) => StatboxView::Points(PointsView { entries: vec![] }),

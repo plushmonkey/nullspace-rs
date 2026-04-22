@@ -166,7 +166,7 @@ impl WeaponManager {
 
         let (speed, remaining_ticks) = match &kind {
             WeaponKind::Bullet(_) | WeaponKind::BouncingBullet(_) => (
-                ship_settings.bullet_speed as u32,
+                ship_settings.bullet_speed as i32,
                 settings.bullet_alive_time as u32,
             ),
             WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
@@ -174,7 +174,7 @@ impl WeaponManager {
                     0
                 } else {
                     ship_settings.bomb_speed
-                } as u32;
+                } as i32;
                 let remaining_ticks = if bomb.mine {
                     settings.mine_alive_time
                 } else {
@@ -190,11 +190,11 @@ impl WeaponManager {
             }
             WeaponKind::Decoy(_) => (0, settings.decoy_alive_time as u32),
             WeaponKind::Burst(_) => (
-                ship_settings.burst_speed as u32,
+                ship_settings.burst_speed as i32,
                 settings.bullet_alive_time as u32,
             ),
             WeaponKind::Thor(_) => (
-                ship_settings.bomb_speed as u32,
+                ship_settings.bomb_speed as i32,
                 settings.bomb_alive_time as u32,
             ),
             _ => (0, 0),

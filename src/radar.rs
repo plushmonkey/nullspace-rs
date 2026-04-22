@@ -1,6 +1,6 @@
 use crate::{
     map::Map,
-    math::{Position, PositionUnit},
+    math::{PixelUnit, Position, PositionUnit},
     render::{
         game_sprites::GameSprites,
         layer::Layer,
@@ -465,7 +465,8 @@ impl Radar {
         } else if id == 171 {
             return 0xFF185218;
         } else if id == 172 {
-            let position = Position::new(PositionUnit(x as i32 * 16), PositionUnit(y as i32 * 16));
+            let position =
+                Position::from_pixels(PixelUnit(x as i32 * 16), PixelUnit(y as i32 * 16));
 
             if crate::powerball::is_team_goal(powerball_mode, position, frequency) {
                 return 0xFF219CAD;
