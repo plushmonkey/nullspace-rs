@@ -522,10 +522,12 @@ impl Client {
         const BULLET_TRAIL_DURATION: u32 = 14;
         const BOMB_TRAIL_DURATION: u32 = 30;
 
+        let current_tick = self.connection.current_tick;
+
         for weapon in &mut self.simulation.weapon_manager.weapons {
             match &weapon.kind {
                 WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
-                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+                    let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                     if trail_diff < 2 {
                         continue;
@@ -536,7 +538,7 @@ impl Client {
 
                     render_state.animation_renderer.add(
                         GameSpriteKind::Gradient,
-                        weapon.last_update_tick,
+                        current_tick,
                         start_index,
                         start_index + 14,
                         BULLET_TRAIL_DURATION,
@@ -545,10 +547,10 @@ impl Client {
                         Layer::Weapons,
                     );
 
-                    weapon.last_trail_tick = weapon.last_update_tick;
+                    weapon.last_trail_tick = current_tick;
                 }
                 WeaponKind::Shrapnel(shrapnel) => {
-                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+                    let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                     if trail_diff < 2 {
                         continue;
@@ -559,7 +561,7 @@ impl Client {
 
                     render_state.animation_renderer.add(
                         GameSpriteKind::Gradient,
-                        weapon.last_update_tick,
+                        current_tick,
                         start_index,
                         start_index + 14,
                         BULLET_TRAIL_DURATION,
@@ -568,10 +570,10 @@ impl Client {
                         Layer::Weapons,
                     );
 
-                    weapon.last_trail_tick = weapon.last_update_tick;
+                    weapon.last_trail_tick = current_tick;
                 }
                 WeaponKind::Burst(_) => {
-                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+                    let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                     if trail_diff < 2 {
                         continue;
@@ -582,7 +584,7 @@ impl Client {
 
                     render_state.animation_renderer.add(
                         GameSpriteKind::Gradient,
-                        weapon.last_update_tick,
+                        current_tick,
                         start_index,
                         start_index + 14,
                         BULLET_TRAIL_DURATION,
@@ -591,10 +593,10 @@ impl Client {
                         Layer::Weapons,
                     );
 
-                    weapon.last_trail_tick = weapon.last_update_tick;
+                    weapon.last_trail_tick = current_tick;
                 }
                 WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
-                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+                    let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                     if trail_diff < 5 {
                         continue;
@@ -605,7 +607,7 @@ impl Client {
 
                     render_state.animation_renderer.add(
                         GameSpriteKind::Trail,
-                        weapon.last_update_tick,
+                        current_tick,
                         start_index,
                         start_index + 10,
                         BOMB_TRAIL_DURATION,
@@ -614,10 +616,10 @@ impl Client {
                         Layer::Weapons,
                     );
 
-                    weapon.last_trail_tick = weapon.last_update_tick;
+                    weapon.last_trail_tick = current_tick;
                 }
                 WeaponKind::Thor(_) => {
-                    let trail_diff = weapon.last_update_tick.diff(&weapon.last_trail_tick);
+                    let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                     if trail_diff < 5 {
                         continue;
@@ -628,7 +630,7 @@ impl Client {
 
                     render_state.animation_renderer.add(
                         GameSpriteKind::Trail,
-                        weapon.last_update_tick,
+                        current_tick,
                         start_index,
                         start_index + 10,
                         BOMB_TRAIL_DURATION,
@@ -637,13 +639,11 @@ impl Client {
                         Layer::Weapons,
                     );
 
-                    weapon.last_trail_tick = weapon.last_update_tick;
+                    weapon.last_trail_tick = current_tick;
                 }
                 _ => {}
             }
         }
-
-        let current_tick = self.connection.current_tick;
 
         for ball in &mut self.simulation.powerball_manager.balls {
             let trail_diff = current_tick.diff(&ball.last_trail_tick);
@@ -861,7 +861,7 @@ impl Client {
                                         7 * 6,
                                         x_pixels,
                                         y_pixels,
-                                        Layer::Explosions,
+                                        Layer::AfterShips,
                                     );
                                 }
                                 WeaponKind::Bomb(bomb)

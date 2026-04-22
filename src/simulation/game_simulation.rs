@@ -51,6 +51,8 @@ impl Simulation {
     pub fn tick(&mut self, map: &Map, settings: &ArenaSettings) {
         self.events.clear();
 
+        self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
+
         for player in &mut self.player_manager.players {
             player_simulation::integrate_player(map, settings, player);
         }
@@ -64,8 +66,6 @@ impl Simulation {
         );
 
         self.update_balls(map, settings);
-
-        self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
     }
 
     fn update_balls(&mut self, map: &Map, settings: &ArenaSettings) {
