@@ -121,7 +121,8 @@ impl Client {
         );
 
         self.chat_controller.render(render_state);
-        self.statbox.render(render_state, sprites);
+        self.statbox
+            .render(&self.simulation.player_manager, render_state, sprites);
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind != ShipKind::Spectator {
@@ -1124,7 +1125,7 @@ impl Client {
                 }
 
                 // TODO: Test code for switching through views until input is handled.
-                self.statbox.change_view(&self.simulation.player_manager, 3);
+                self.statbox.set_view(&self.simulation.player_manager, crate::statbox::StatboxView::Names);
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
@@ -1188,6 +1189,8 @@ impl Client {
                         entry.kill_points,
                     );
 
+                    player.wins = entry.kills;
+                    player.losses = entry.deaths;
                     player.flag_count = entry.flag_count;
                     player.attach_parent = entry.attach_parent;
                     player.last_position_timestamp = self.connection.get_game_tick();

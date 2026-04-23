@@ -254,6 +254,11 @@ impl ApplicationPlayingState {
     pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             //(KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::F2, true) => {
+                self.client
+                    .statbox
+                    .next_view(&self.client.simulation.player_manager);
+            }
             _ => {}
         }
 

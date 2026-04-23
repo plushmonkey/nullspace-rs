@@ -120,6 +120,9 @@ pub struct Player {
     pub flag_points: u32,
     pub kill_points: u32,
 
+    pub wins: u16,
+    pub losses: u16,
+
     pub explosion_remaining_ticks: u32,
     pub flash_remaining_ticks: u32,
 
@@ -169,6 +172,9 @@ impl Player {
             flag_points,
             kill_points,
 
+            wins: 0,
+            losses: 0,
+
             explosion_remaining_ticks: 0,
             flash_remaining_ticks: 0,
 
@@ -200,6 +206,28 @@ impl Player {
 
     pub fn get_points(&self) -> u32 {
         self.flag_points.wrapping_add(self.kill_points)
+    }
+
+    pub fn get_rating(&self) -> u32 {
+        let wins = self.wins as i64;
+        let losses = self.losses as i64;
+        let kill_points = self.kill_points as i64;
+
+        let r = ((kill_points + (wins - losses) * 10) * 10) / (wins + 100);
+
+        if r < 0 {
+            return 0;
+        }
+
+        r as u32
+    }
+
+    pub fn get_average(&self) -> f32 {
+        if self.wins == 0 {
+            return 0.0f32;
+        }
+
+        self.kill_points as f32 / self.wins as f32
     }
 }
 
@@ -248,5 +276,17 @@ impl PlayerManager {
 
     pub fn get_by_id_mut(&mut self, player_id: PlayerId) -> Option<&mut Player> {
         self.players.iter_mut().find(|p| p.id == player_id)
+    }
+
+    pub fn get_frequency_count(&self, frequency: u16) -> usize {
+        let mut count = 0;
+
+        for player in &self.players {
+            if player.frequency == frequency {
+                count += 1;
+            }
+        }
+
+        count
     }
 }
