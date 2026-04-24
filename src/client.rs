@@ -1610,7 +1610,7 @@ impl Client {
                 {
                     killer.flag_count += message.flag_transfer;
                     killer.wins = killer.wins.wrapping_add(1);
-                    killer.kill_points = killer.kill_points.wrapping_add(message.bounty as u32);
+                    killer.kill_points = killer.kill_points.wrapping_add(message.bounty as i32);
                     killer.bounty = killer
                         .bounty
                         .wrapping_add_signed(self.settings.bounty_increase_for_kill);
@@ -1627,6 +1627,19 @@ impl Client {
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
+            }
+            GameServerMessage::ScoreUpdate(message) => {
+                if let Some(player) = self
+                    .simulation
+                    .player_manager
+                    .get_by_id_mut(message.player_id)
+                {
+                    player.kill_points = message.kill_points;
+                    player.flag_points = message.flag_points;
+                    player.wins = message.kills;
+                    player.losses = message.deaths;
+                    self.statbox.rebuild(&self.simulation.player_manager);
+                }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {
                 if let Some(player) = self

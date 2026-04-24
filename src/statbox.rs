@@ -49,7 +49,7 @@ const SPACING_WIDTH: i32 = 2;
 
 struct FrequencyViewEntry {
     freq: u16,
-    points: u64,
+    points: i64,
     wins: u64,
     losses: u64,
     flags: u64,
@@ -469,7 +469,7 @@ impl Statbox {
         i: usize,
         current_x: i32,
         current_y: i32,
-        points_width_pixels: i32,
+        points_x: i32,
     ) -> i32 {
         let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
             return 0;
@@ -494,22 +494,18 @@ impl Statbox {
             TextAlignment::Left,
         );
 
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
-
-        let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
-
         render_state.text_renderer.draw(
             &mut render_state.sprite_renderer,
             &render_state.ui_camera,
             &format_smolstr!("{}", player.get_points()),
-            points_x + points_width_pixels,
+            points_x,
             current_y,
             Layer::AfterGauges,
             color,
             TextAlignment::Right,
         );
 
-        points_x + points_width_pixels
+        points_x
     }
 
     fn render_full_row(
@@ -798,7 +794,9 @@ impl Statbox {
                 let points_width_pixels =
                     max_points_length as i32 * render_state.text_renderer.character_width + 4;
 
-                let heading_x = (MAX_NAME_VIEW_LENGTH as i32
+                const FREQ_END_PIXELS: i32 = 166 + 8;
+
+                let mut points_x = (MAX_NAME_VIEW_LENGTH as i32
                     * render_state.text_renderer.character_width)
                     + BORDER_LEFT_WIDTH
                     + TICKER_WIDTH
@@ -806,11 +804,15 @@ impl Statbox {
                     + SPACING_WIDTH
                     + points_width_pixels;
 
+                if points_x < FREQ_END_PIXELS {
+                    points_x = FREQ_END_PIXELS;
+                }
+
                 render_state.text_renderer.draw(
                     &mut render_state.sprite_renderer,
                     &render_state.ui_camera,
                     "Team Sort",
-                    heading_x,
+                    points_x,
                     heading_y,
                     Layer::AfterGauges,
                     TextColor::Green,
@@ -895,7 +897,7 @@ impl Statbox {
                         i,
                         BORDER_LEFT_WIDTH + TICKER_WIDTH,
                         current_y,
-                        points_width_pixels,
+                        points_x,
                     );
 
                     self.render_ticker(
@@ -1246,7 +1248,7 @@ impl Statbox {
         };
 
         let mut current_freq = start_player.frequency;
-        let mut current_points: u64 = 0;
+        let mut current_points: i64 = 0;
         let mut current_wins: u64 = 0;
         let mut current_losses: u64 = 0;
         let mut current_flags: u64 = 0;
@@ -1286,7 +1288,7 @@ impl Statbox {
                 current_flags = 0;
             }
 
-            current_points += player.get_points() as u64;
+            current_points += player.get_points() as i64;
             current_wins += player.wins as u64;
             current_losses += player.losses as u64;
             current_flags += player.flag_count as u64;

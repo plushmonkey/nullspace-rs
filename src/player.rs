@@ -117,8 +117,8 @@ pub struct Player {
     pub flag_timer: Option<u16>,
     pub items: Option<PlayerItemSet>,
 
-    pub flag_points: u32,
-    pub kill_points: u32,
+    pub flag_points: i32,
+    pub kill_points: i32,
 
     pub wins: u16,
     pub losses: u16,
@@ -136,8 +136,8 @@ impl Player {
         squad: &str,
         ship_kind: ShipKind,
         frequency: u16,
-        flag_points: u32,
-        kill_points: u32,
+        flag_points: i32,
+        kill_points: i32,
     ) -> Self {
         Self {
             id,
@@ -204,7 +204,7 @@ impl Player {
         current_tick.diff(&self.last_position_timestamp).abs() < PLAYER_SYNC_TIMEOUT
     }
 
-    pub fn get_points(&self) -> u32 {
+    pub fn get_points(&self) -> i32 {
         self.flag_points.wrapping_add(self.kill_points)
     }
 

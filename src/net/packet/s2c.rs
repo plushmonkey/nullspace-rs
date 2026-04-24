@@ -109,8 +109,8 @@ pub struct PlayerEntering {
     pub ship_kind: ShipKind,
     pub name: String,
     pub squad: String,
-    pub kill_points: u32,
-    pub flag_points: u32,
+    pub kill_points: i32,
+    pub flag_points: i32,
     pub player_id: PlayerId,
     pub frequency: u16,
     pub kills: u16,
@@ -240,8 +240,8 @@ pub struct PrizePickupMessage {
 // 0x09
 pub struct ScoreUpdateMessage {
     pub player_id: PlayerId,
-    pub kill_points: u32,
-    pub flag_points: u32,
+    pub kill_points: i32,
+    pub flag_points: i32,
     pub kills: u16,
     pub deaths: u16,
 }
@@ -728,8 +728,8 @@ impl ServerMessage {
                         ship_kind: ShipKind::from_network_value(data[1]),
                         name: name.to_owned(),
                         squad: squad.to_owned(),
-                        kill_points: u32::from_le_bytes(data[43..47].try_into().unwrap()),
-                        flag_points: u32::from_le_bytes(data[47..51].try_into().unwrap()),
+                        kill_points: i32::from_le_bytes(data[43..47].try_into().unwrap()),
+                        flag_points: i32::from_le_bytes(data[47..51].try_into().unwrap()),
                         player_id: PlayerId::new(u16::from_le_bytes(
                             data[51..53].try_into().unwrap(),
                         )),
@@ -894,8 +894,8 @@ impl ServerMessage {
 
                 let message = ScoreUpdateMessage {
                     player_id: u16::from_le_bytes(packet[1..3].try_into().unwrap()).into(),
-                    kill_points: u32::from_le_bytes(packet[3..7].try_into().unwrap()),
-                    flag_points: u32::from_le_bytes(packet[7..11].try_into().unwrap()),
+                    kill_points: i32::from_le_bytes(packet[3..7].try_into().unwrap()),
+                    flag_points: i32::from_le_bytes(packet[7..11].try_into().unwrap()),
                     kills: u16::from_le_bytes(packet[11..13].try_into().unwrap()),
                     deaths: u16::from_le_bytes(packet[13..15].try_into().unwrap()),
                 };
