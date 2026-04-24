@@ -51,7 +51,7 @@ impl ChatController {
 
         let height = render_state.config.height;
 
-        let mut current_y = height.saturating_sub_signed(font_height) as i32;
+        let mut current_y = height.saturating_sub_signed(font_height + 2) as i32;
 
         if !self.input.is_empty() {
             let color = match self.get_chat_send_kind() {

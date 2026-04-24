@@ -70,7 +70,8 @@ pub struct Client {
     // This is the local tick for the last processed tick.
     local_tick: GameTick,
 
-    spec_freq: u16,
+    spectate_player_id: Option<PlayerId>,
+    last_spectate_freq: u16,
 
     radar: Radar,
     // TODO: Remove. This is just for testing until input is handled.
@@ -101,12 +102,26 @@ impl Client {
             registration,
             simulation: Simulation::new(GameTick::now(0)),
             local_tick: GameTick::now(0),
-            spec_freq: 0,
+            spectate_player_id: None,
+            last_spectate_freq: 0xFFFF,
             radar: Radar::new(),
             fullscreen_radar: false,
             chat_controller: ChatController::new(),
             statbox: Statbox::new(),
         })
+    }
+
+    pub fn get_freq(&self) -> u16 {
+        let Some(spectate_player_id) = self.spectate_player_id else {
+            return self.last_spectate_freq;
+        };
+
+        if let Some(spectate_player) = self.simulation.player_manager.get_by_id(spectate_player_id)
+        {
+            spectate_player.frequency
+        } else {
+            self.last_spectate_freq
+        }
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
@@ -115,7 +130,7 @@ impl Client {
             sprites,
             &self.map,
             self.settings.map_zoom_factor as u16,
-            self.spec_freq,
+            self.get_freq(),
             self.settings.powerball_mode,
             self.fullscreen_radar,
         );
@@ -124,13 +139,11 @@ impl Client {
         self.statbox
             .render(&self.simulation.player_manager, render_state, sprites);
 
-        for player in &self.simulation.player_manager.players {
-            if player.ship_kind != ShipKind::Spectator {
+        if let Some(spectate_player_id) = self.spectate_player_id {
+            if let Some(player) = self.simulation.player_manager.get_by_id(spectate_player_id) {
                 if let Some(player_position) = player.position {
                     render_state.camera.position = player_position.into();
-                    self.spec_freq = player.frequency;
                 }
-                break;
             }
         }
 
@@ -139,6 +152,39 @@ impl Client {
         self.render_powerballs(render_state, sprites);
 
         self.render_map_animations(render_state, sprites);
+    }
+
+    pub fn spectate_player(&mut self, player_id: Option<PlayerId>) {
+        let Some(player_id) = player_id else {
+            if let Some(existing_spectate_player_id) = self.spectate_player_id {
+                if let Some(player) = self
+                    .simulation
+                    .player_manager
+                    .get_by_id(existing_spectate_player_id)
+                {
+                    self.last_spectate_freq = player.frequency;
+                }
+            }
+
+            self.spectate_player_id = None;
+            return;
+        };
+
+        if let Some(existing_id) = self.spectate_player_id {
+            if existing_id == player_id {
+                return;
+            }
+        }
+
+        if let Some(_) = self.simulation.player_manager.get_by_id(player_id) {
+            self.spectate_player_id = Some(player_id);
+
+            let spectate_request = SpectateMessage { player_id };
+
+            if let Err(e) = self.connection.send_reliable(&spectate_request) {
+                log::error!("{e}");
+            }
+        }
     }
 
     fn render_players(&self, render_state: &mut RenderState, sprites: &GameSprites) {
@@ -215,7 +261,7 @@ impl Client {
                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                 let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                let name_color = if player.frequency == self.spec_freq {
+                let name_color = if player.frequency == self.get_freq() {
                     TextColor::Yellow
                 } else {
                     TextColor::Blue
@@ -427,7 +473,7 @@ impl Client {
                             let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                             let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                            let name_color = if player.frequency == self.spec_freq {
+                            let name_color = if player.frequency == self.get_freq() {
                                 TextColor::Yellow
                             } else {
                                 TextColor::Blue
@@ -736,7 +782,7 @@ impl Client {
                         const GOAL_FRAMES: usize = 9;
 
                         let enemy_goal =
-                            !is_team_goal(self.settings.powerball_mode, position, self.spec_freq);
+                            !is_team_goal(self.settings.powerball_mode, position, self.get_freq());
 
                         // First half of goal frames are team goals, second half are enemy.
                         // This increments the animation index to point into the appropriate set.
@@ -1125,7 +1171,10 @@ impl Client {
                 }
 
                 // TODO: Test code for switching through views until input is handled.
-                self.statbox.set_view(&self.simulation.player_manager, crate::statbox::StatboxView::Names);
+                self.statbox.set_view(
+                    &self.simulation.player_manager,
+                    crate::statbox::StatboxView::Names,
+                );
             }
             GameServerMessage::ArenaSettings(settings_message) => {
                 log::debug!("Received arena settings");
@@ -1203,7 +1252,7 @@ impl Client {
                         };
 
                         self.connection.send_reliable(&spectate_request)?;
-                        self.spec_freq = player.frequency;
+                        self.spectate_player_id = Some(player.id);
 
                         log::debug!("Spectating target {}", entry.name);
                         sent_spectate_request = true;
@@ -1560,6 +1609,11 @@ impl Client {
                     .get_by_id_mut(message.killer_id)
                 {
                     killer.flag_count += message.flag_transfer;
+                    killer.wins = killer.wins.wrapping_add(1);
+                    killer.kill_points = killer.kill_points.wrapping_add(message.bounty as u32);
+                    killer.bounty = killer
+                        .bounty
+                        .wrapping_add_signed(self.settings.bounty_increase_for_kill);
                 }
 
                 if let Some(killed) = self
@@ -1569,6 +1623,7 @@ impl Client {
                 {
                     killed.enter_delay = self.settings.enter_delay as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
+                    killed.losses = killed.losses.wrapping_add(1);
                 }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {

@@ -3,21 +3,27 @@ use smol_str::{StrExt, format_smolstr};
 use crate::{
     player::{Player, PlayerId, PlayerManager},
     render::{
-        game_sprites::GameSprites,
+        game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::RenderState,
         text_renderer::{TextAlignment, TextColor},
     },
+    ship::ShipKind,
 };
 
 struct SlidingView {
     pub top: usize,
     pub size: usize,
+    pub max_size: usize,
 }
 
 impl SlidingView {
     pub fn new(size: usize) -> Self {
-        Self { top: 0, size }
+        Self {
+            top: 0,
+            size,
+            max_size: size,
+        }
     }
 }
 
@@ -38,7 +44,7 @@ const MAX_SQUAD_VIEW_LENGTH: usize = 10;
 const BORDER_LEFT_WIDTH: i32 = 3;
 const TICKER_WIDTH: i32 = 10;
 const BANNER_WIDTH: i32 = 12;
-const SPACING_WIDTH: i32 = 8;
+const SPACING_WIDTH: i32 = 2;
 
 // TODO: This allocates a lot more than it needs to. It could end up being really slow with many players.
 // Could use smolstr to allocate on the stack when rendering instead of building strings for everything.
@@ -46,7 +52,7 @@ pub struct Statbox {
     view: StatboxView,
 
     sliding_view: SlidingView,
-    _selected_index: usize,
+    selected_index: usize,
 
     sorted_players: Vec<PlayerId>,
 }
@@ -56,622 +62,51 @@ impl Statbox {
         Self {
             view: StatboxView::None,
             sliding_view: SlidingView::new(15),
-            _selected_index: 0,
+            selected_index: 0,
             sorted_players: vec![],
         }
     }
 
-    fn render_name_row(
-        &mut self,
-        player_manager: &PlayerManager,
-        render_state: &mut RenderState,
-        _game_sprites: &GameSprites,
-        me: &Player,
-        i: usize,
-        current_x: i32,
-        current_y: i32,
-    ) -> i32 {
-        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
-            return 0;
-        };
+    pub fn get_selected_player_id(&self) -> PlayerId {
+        if self.selected_index >= self.sorted_players.len() {
+            return PlayerId::invalid();
+        }
 
-        let color = if me.frequency == player.frequency {
-            TextColor::Yellow
-        } else {
-            TextColor::White
-        };
-
-        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &player.name[..name_len],
-            current_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Left,
-        );
-
-        12 * 8 + 10 + 3
+        self.sorted_players[self.selected_index]
     }
 
-    fn render_points_row(
-        &mut self,
-        player_manager: &PlayerManager,
-        render_state: &mut RenderState,
-        _game_sprites: &GameSprites,
-        me: &Player,
-        i: usize,
-        current_x: i32,
-        current_y: i32,
-        points_width_pixels: i32,
-    ) -> i32 {
-        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
-            return 0;
-        };
+    pub fn set_view(&mut self, player_manager: &PlayerManager, view_kind: StatboxView) {
+        let selected_id = self.get_selected_player_id();
 
-        let color = if me.frequency == player.frequency {
-            TextColor::Yellow
-        } else {
-            TextColor::White
-        };
+        self.view = view_kind;
 
-        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
+        self.rebuild(player_manager);
 
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &player.name[..name_len],
-            current_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Left,
-        );
-
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
-
-        let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{}", player.get_points()),
-            points_x + points_width_pixels,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        points_x + points_width_pixels
+        // Adjust our selected into so we are pointing to the same player in the new view.
+        if let Some(new_selected_index) =
+            self.sorted_players.iter().position(|id| *id == selected_id)
+        {
+            self.selected_index = new_selected_index;
+        }
     }
 
-    fn render_teamsort_row(
-        &mut self,
-        player_manager: &PlayerManager,
-        render_state: &mut RenderState,
-        _game_sprites: &GameSprites,
-        me: &Player,
-        i: usize,
-        current_x: i32,
-        current_y: i32,
-        points_width_pixels: i32,
-    ) -> i32 {
-        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
-            return 0;
-        };
-
-        let color = if me.frequency == player.frequency {
-            TextColor::Yellow
-        } else {
-            TextColor::White
-        };
-
-        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &player.name[..name_len],
-            current_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Left,
-        );
-
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
-
-        let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{}", player.get_points()),
-            points_x + points_width_pixels,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        points_x + points_width_pixels
-    }
-
-    fn render_full_row(
-        &mut self,
-        player_manager: &PlayerManager,
-        render_state: &mut RenderState,
-        _game_sprites: &GameSprites,
-        me: &Player,
-        i: usize,
-        current_x: i32,
-        current_y: i32,
-        wins_width_pixels: i32,
-        losses_width_pixels: i32,
-        rating_width_pixels: i32,
-        average_width_pixels: i32,
-    ) -> i32 {
-        let font_width = render_state.text_renderer.character_width;
-
-        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
-            return 0;
-        };
-
-        let color = if me.frequency == player.frequency {
-            TextColor::Yellow
-        } else {
-            TextColor::White
-        };
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &player.name,
-            current_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Left,
-        );
-
-        let squad_x = MAX_NAME_VIEW_LENGTH as i32 * font_width
-            + BORDER_LEFT_WIDTH
-            + TICKER_WIDTH
-            + BANNER_WIDTH
-            + SPACING_WIDTH;
-
-        let squad_len = player.squad.len().min(MAX_SQUAD_VIEW_LENGTH);
-
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &player.squad[..squad_len],
-            squad_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Left,
-        );
-
-        let wins_x = squad_x + (MAX_SQUAD_VIEW_LENGTH as i32 + 1) * font_width;
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{}", player.wins),
-            wins_x + wins_width_pixels,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        let losses_x = wins_x + wins_width_pixels + font_width;
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{}", player.losses),
-            losses_x + losses_width_pixels,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        let rating_x = losses_x + losses_width_pixels + font_width;
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{}", player.get_rating()),
-            rating_x + rating_width_pixels,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        let average_x = rating_x + rating_width_pixels + font_width + average_width_pixels;
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!("{:.1}", player.get_average()),
-            average_x,
-            current_y,
-            Layer::AfterGauges,
-            color,
-            TextAlignment::Right,
-        );
-
-        average_x
-    }
-
-    fn render_window(
-        &mut self,
-        player_manager: &PlayerManager,
-        render_state: &mut RenderState,
-        game_sprites: &GameSprites,
-    ) {
-        let Some(me) = player_manager.get_by_id(player_manager.self_id) else {
-            return;
-        };
-
-        let mut current_y = 4;
-        let heading_y = current_y;
-
+    pub fn next_view(&mut self, player_manager: &PlayerManager) {
         match &self.view {
-            StatboxView::Frequency => {
-                //
-            }
-            _ => {
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    &format_smolstr!("{}", player_manager.players.len()),
-                    10 + 5 * render_state.text_renderer.character_width,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-                current_y += 12 + 2;
-            }
-        }
+            StatboxView::Names => self.set_view(player_manager, StatboxView::Points),
+            StatboxView::Points => self.set_view(player_manager, StatboxView::PointSort),
+            StatboxView::PointSort => self.set_view(player_manager, StatboxView::TeamSort),
+            StatboxView::TeamSort => self.set_view(player_manager, StatboxView::Full),
+            StatboxView::Full => self.set_view(player_manager, StatboxView::None),
+            //StatboxView::Frequency => self.set_view(player_manager, StatboxView::None),
+            _ => self.set_view(player_manager, StatboxView::Names),
+        };
 
-        let heading_border_y = current_y - 2;
+        self.rebuild(player_manager);
+    }
 
-        let mut window_width = 0;
-
-        let mut bottom = self.sliding_view.top + self.sliding_view.size;
-        if bottom > self.sorted_players.len() {
-            bottom = self.sorted_players.len();
-        }
-
-        let top = bottom.saturating_sub(self.sliding_view.size);
-
-        match &self.view {
-            StatboxView::Names => {
-                for i in top..bottom {
-                    let width = self.render_name_row(
-                        player_manager,
-                        render_state,
-                        game_sprites,
-                        me,
-                        i,
-                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
-                        current_y,
-                    );
-
-                    if width > window_width {
-                        window_width = width;
-                    }
-
-                    current_y += 12;
-                }
-            }
-            StatboxView::Points | StatboxView::PointSort => {
-                let max_points_length = self.calculate_max_length(player_manager, |p| {
-                    format_smolstr!("{}", p.get_points()).len()
-                });
-
-                let points_width_pixels =
-                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
-
-                let heading_x = (MAX_NAME_VIEW_LENGTH as i32
-                    * render_state.text_renderer.character_width)
-                    + BORDER_LEFT_WIDTH
-                    + TICKER_WIDTH
-                    + BANNER_WIDTH
-                    + SPACING_WIDTH
-                    + points_width_pixels;
-                let heading_text = if self.view == StatboxView::Points {
-                    "Points"
-                } else {
-                    "Point Sort"
-                };
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    heading_text,
-                    heading_x,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                for i in top..bottom {
-                    let width = self.render_points_row(
-                        player_manager,
-                        render_state,
-                        game_sprites,
-                        me,
-                        i,
-                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
-                        current_y,
-                        points_width_pixels,
-                    );
-
-                    if width > window_width {
-                        window_width = width;
-                    }
-
-                    current_y += 12;
-                }
-            }
-            StatboxView::TeamSort => {
-                let max_points_length = self.calculate_max_length(player_manager, |p| {
-                    format_smolstr!("{}", p.get_points()).len()
-                });
-
-                let points_width_pixels =
-                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
-
-                let heading_x = (MAX_NAME_VIEW_LENGTH as i32
-                    * render_state.text_renderer.character_width)
-                    + BORDER_LEFT_WIDTH
-                    + TICKER_WIDTH
-                    + BANNER_WIDTH
-                    + SPACING_WIDTH
-                    + points_width_pixels;
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "Team Sort",
-                    heading_x,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                let mut prev_freq: u32 = 0xFFFFFFFF;
-
-                if top > 0 {
-                    if let Some(player) = player_manager.get_by_id(self.sorted_players[top - 1]) {
-                        prev_freq = player.frequency as u32;
-                    }
-                }
-
-                for i in top..bottom {
-                    let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
-                        continue;
-                    };
-
-                    let freq = player.frequency;
-                    if freq as u32 != prev_freq {
-                        prev_freq = player.frequency as u32;
-
-                        // TODO: Setting visibility
-                        let freq_string = if freq < 100 {
-                            format_smolstr!("{:04}", freq)
-                        } else {
-                            format_smolstr!("----")
-                        };
-
-                        let start_spacer_width = 2;
-
-                        let width = render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
-                            &freq_string,
-                            BORDER_LEFT_WIDTH + start_spacer_width,
-                            current_y,
-                            Layer::AfterGauges,
-                            TextColor::DarkRed,
-                            TextAlignment::Left,
-                        );
-
-                        let dash_width = render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
-                            "-------------",
-                            BORDER_LEFT_WIDTH + start_spacer_width + width,
-                            current_y,
-                            Layer::AfterGauges,
-                            TextColor::DarkRed,
-                            TextAlignment::Left,
-                        );
-
-                        let spacer_width = 3 * render_state.text_renderer.character_width;
-
-                        render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
-                            &format_smolstr!(
-                                "{}",
-                                player_manager.get_frequency_count(player.frequency)
-                            ),
-                            BORDER_LEFT_WIDTH
-                                + start_spacer_width
-                                + width
-                                + dash_width
-                                + spacer_width,
-                            current_y,
-                            Layer::AfterGauges,
-                            TextColor::DarkRed,
-                            TextAlignment::Right,
-                        );
-
-                        current_y += 12;
-                    }
-
-                    let width = self.render_teamsort_row(
-                        player_manager,
-                        render_state,
-                        game_sprites,
-                        me,
-                        i,
-                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
-                        current_y,
-                        points_width_pixels,
-                    );
-
-                    if width > window_width {
-                        window_width = width;
-                    }
-
-                    current_y += 12;
-                }
-            }
-            StatboxView::Full => {
-                let font_width = render_state.text_renderer.character_width;
-
-                let max_wins_length = self
-                    .calculate_max_length(player_manager, |p| format_smolstr!("{}", p.wins).len());
-                let wins_width_pixels = max_wins_length as i32 * font_width;
-
-                let max_losses_length = self.calculate_max_length(player_manager, |p| {
-                    format_smolstr!("{}", p.losses).len()
-                });
-                let losses_width_pixels = max_losses_length as i32 * font_width;
-
-                let max_rating_length = self.calculate_max_length(player_manager, |p| {
-                    format_smolstr!("{}", p.get_rating()).len()
-                });
-                let rating_width_pixels = max_rating_length as i32 * font_width;
-
-                let max_average_length = self.calculate_max_length(player_manager, |p| {
-                    format_smolstr!("{:.1}", p.get_average()).len()
-                });
-                let average_width_pixels = max_average_length.max(3) as i32 * font_width;
-
-                let squad_x = (MAX_NAME_VIEW_LENGTH as i32 * font_width)
-                    + BORDER_LEFT_WIDTH
-                    + TICKER_WIDTH
-                    + BANNER_WIDTH
-                    + SPACING_WIDTH;
-
-                let wins_x = squad_x + (MAX_SQUAD_VIEW_LENGTH as i32 + 1) * font_width;
-                let losses_x = wins_x + wins_width_pixels + font_width;
-                let rating_x = losses_x + losses_width_pixels + font_width;
-                let average_x = rating_x + rating_width_pixels + font_width;
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "Squad",
-                    squad_x,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Left,
-                );
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "W",
-                    wins_x + wins_width_pixels,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "L",
-                    losses_x + losses_width_pixels,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "R",
-                    rating_x + rating_width_pixels,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                render_state.text_renderer.draw(
-                    &mut render_state.sprite_renderer,
-                    &render_state.ui_camera,
-                    "Ave",
-                    average_x + average_width_pixels,
-                    heading_y,
-                    Layer::AfterGauges,
-                    TextColor::Green,
-                    TextAlignment::Right,
-                );
-
-                for i in top..bottom {
-                    let width = self.render_full_row(
-                        player_manager,
-                        render_state,
-                        game_sprites,
-                        me,
-                        i,
-                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
-                        current_y,
-                        wins_width_pixels,
-                        losses_width_pixels,
-                        rating_width_pixels,
-                        average_width_pixels,
-                    );
-
-                    if width > window_width {
-                        window_width = width;
-                    }
-
-                    current_y += 12;
-                }
-            }
-            _ => {}
-        }
-
-        game_sprites.colors.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            Layer::Gauges,
-            crate::render::colors::ColorRenderableKind::BorderInner,
-            3,
-            heading_border_y,
-            window_width + 1,
-            1,
-        );
-
-        game_sprites.colors.draw_border(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            Layer::Gauges,
-            2,
-            2,
-            window_width + 1,
-            current_y + 1,
-            true,
-        );
+    pub fn rebuild(&mut self, player_manager: &PlayerManager) {
+        log::debug!("Rebuilding statbox");
+        self.sort(player_manager);
     }
 
     pub fn render(
@@ -688,32 +123,67 @@ impl Statbox {
             return;
         }
 
+        self.updating_sliding_view(player_manager);
+
         self.render_window(player_manager, render_state, game_sprites);
     }
 
-    pub fn set_view(&mut self, player_manager: &PlayerManager, view_kind: StatboxView) {
-        self.view = view_kind;
+    pub fn move_selected(&mut self, player_manager: &PlayerManager, direction: i32, shift: bool) {
+        if player_manager.players.is_empty() {
+            return;
+        }
 
-        self.rebuild(player_manager);
+        if self.view == StatboxView::None {
+            self.view = StatboxView::Names;
+            return;
+        }
+
+        if shift {
+            if direction < 0 {
+                self.sliding_view.top =
+                    self.sliding_view.top.saturating_sub(self.sliding_view.size);
+                self.selected_index = self.selected_index.saturating_sub(self.sliding_view.size);
+            } else if direction > 0 {
+                let max_count = player_manager.players.len();
+
+                self.selected_index += self.sliding_view.size;
+
+                if self.selected_index >= max_count {
+                    self.selected_index = max_count - 1;
+                }
+
+                self.sliding_view.top = self.selected_index.saturating_sub(self.sliding_view.size);
+            }
+        } else {
+            if direction < 0 {
+                if self.selected_index > 0 {
+                    self.selected_index -= 1;
+                }
+            } else if direction > 0 {
+                if self.selected_index < player_manager.players.len() - 1 {
+                    self.selected_index += 1;
+                }
+            }
+        }
     }
 
-    pub fn next_view(&mut self, player_manager: &PlayerManager) {
-        self.view = match &self.view {
-            StatboxView::Names => StatboxView::Points,
-            StatboxView::Points => StatboxView::PointSort,
-            StatboxView::PointSort => StatboxView::TeamSort,
-            StatboxView::TeamSort => StatboxView::Full,
-            StatboxView::Full => StatboxView::None,
-            //StatboxView::Frequency => StatboxView::None,
-            _ => StatboxView::Names,
-        };
+    fn updating_sliding_view(&mut self, player_manager: &PlayerManager) {
+        if self.sliding_view.size >= self.sliding_view.max_size {
+            self.sliding_view.size = self.sliding_view.max_size;
+        }
 
-        self.rebuild(player_manager);
-    }
+        let player_count = player_manager.players.len();
 
-    pub fn rebuild(&mut self, player_manager: &PlayerManager) {
-        log::debug!("Rebuilding statbox");
-        self.sort(player_manager);
+        if player_count < self.sliding_view.top + self.sliding_view.size {
+            self.sliding_view.top = player_count.saturating_sub(self.sliding_view.size);
+        }
+
+        // Adjusts the sliding view to match our selected index move.
+        if self.selected_index >= self.sliding_view.top + self.sliding_view.size {
+            self.sliding_view.top += 1;
+        } else if self.selected_index < self.sliding_view.top {
+            self.sliding_view.top -= 1;
+        }
     }
 
     fn sort(&mut self, player_manager: &PlayerManager) {
@@ -859,5 +329,666 @@ impl Statbox {
         }
 
         max_length
+    }
+
+    fn render_name_row(
+        &mut self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        me: &Player,
+        i: usize,
+        current_x: i32,
+        current_y: i32,
+    ) -> i32 {
+        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
+            return 0;
+        };
+
+        let color = if me.frequency == player.frequency {
+            TextColor::Yellow
+        } else {
+            TextColor::White
+        };
+
+        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &player.name[..name_len],
+            current_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Left,
+        );
+
+        12 * 8 + 10 + 3
+    }
+
+    fn render_points_row(
+        &mut self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        me: &Player,
+        i: usize,
+        current_x: i32,
+        current_y: i32,
+        points_width_pixels: i32,
+    ) -> i32 {
+        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
+            return 0;
+        };
+
+        let color = if me.frequency == player.frequency {
+            TextColor::Yellow
+        } else {
+            TextColor::White
+        };
+
+        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &player.name[..name_len],
+            current_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Left,
+        );
+
+        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+
+        let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{}", player.get_points()),
+            points_x + points_width_pixels,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        points_x + points_width_pixels
+    }
+
+    fn render_teamsort_row(
+        &mut self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        me: &Player,
+        i: usize,
+        current_x: i32,
+        current_y: i32,
+        points_width_pixels: i32,
+    ) -> i32 {
+        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
+            return 0;
+        };
+
+        let color = if me.frequency == player.frequency {
+            TextColor::Yellow
+        } else {
+            TextColor::White
+        };
+
+        let name_len = player.name.len().min(MAX_NAME_VIEW_LENGTH);
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &player.name[..name_len],
+            current_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Left,
+        );
+
+        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+
+        let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{}", player.get_points()),
+            points_x + points_width_pixels,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        points_x + points_width_pixels
+    }
+
+    fn render_full_row(
+        &mut self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        me: &Player,
+        i: usize,
+        current_x: i32,
+        current_y: i32,
+        wins_width_pixels: i32,
+        losses_width_pixels: i32,
+        rating_width_pixels: i32,
+        average_width_pixels: i32,
+    ) -> i32 {
+        let font_width = render_state.text_renderer.character_width;
+
+        let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
+            return 0;
+        };
+
+        let color = if me.frequency == player.frequency {
+            TextColor::Yellow
+        } else {
+            TextColor::White
+        };
+
+        let namelen = player.name.len().min(MAX_NAME_VIEW_LENGTH);
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &player.name[..namelen],
+            current_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Left,
+        );
+
+        let squad_x = MAX_NAME_VIEW_LENGTH as i32 * font_width
+            + BORDER_LEFT_WIDTH
+            + TICKER_WIDTH
+            + BANNER_WIDTH
+            + SPACING_WIDTH;
+
+        let squad_len = player.squad.len().min(MAX_SQUAD_VIEW_LENGTH);
+
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &player.squad[..squad_len],
+            squad_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Left,
+        );
+
+        let wins_x = squad_x + (MAX_SQUAD_VIEW_LENGTH as i32 + 1) * font_width;
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{}", player.wins),
+            wins_x + wins_width_pixels,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        let losses_x = wins_x + wins_width_pixels + font_width;
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{}", player.losses),
+            losses_x + losses_width_pixels,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        let rating_x = losses_x + losses_width_pixels + font_width;
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{}", player.get_rating()),
+            rating_x + rating_width_pixels,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        let average_x = rating_x + rating_width_pixels + font_width + average_width_pixels;
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!("{:.1}", player.get_average()),
+            average_x,
+            current_y,
+            Layer::AfterGauges,
+            color,
+            TextAlignment::Right,
+        );
+
+        average_x
+    }
+
+    fn render_ticker(
+        &self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        game_sprites: &GameSprites,
+        current_y: i32,
+        i: usize,
+    ) {
+        if let Some(spectate_sprites) = game_sprites.get_set(GameSpriteKind::Spectate) {
+            let spectating = if let Some(player) = player_manager.get_by_id(self.sorted_players[i])
+            {
+                player.ship_kind == ShipKind::Spectator
+            } else {
+                false
+            };
+
+            let selected = i == self.selected_index;
+
+            if spectating || selected {
+                let index = match (spectating, selected) {
+                    (false, false) => 0,
+                    (false, true) => 0,
+                    (true, false) => 1,
+                    (true, true) => 2,
+                };
+
+                let renderable = &spectate_sprites.renderables[index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    BORDER_LEFT_WIDTH,
+                    current_y + renderable.size[1] as i32 / 2,
+                    Layer::AfterGauges,
+                );
+            }
+        }
+    }
+
+    fn render_window(
+        &mut self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        game_sprites: &GameSprites,
+    ) {
+        let Some(me) = player_manager.get_by_id(player_manager.self_id) else {
+            return;
+        };
+
+        let mut current_y = 4;
+        let heading_y = current_y;
+
+        match &self.view {
+            StatboxView::Frequency => {
+                //
+            }
+            _ => {
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    &format_smolstr!("{}", player_manager.players.len()),
+                    10 + 5 * render_state.text_renderer.character_width,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+                current_y += 12 + 2;
+            }
+        }
+
+        let heading_border_y = current_y - 2;
+
+        let mut window_width = 0;
+
+        let mut bottom = self.sliding_view.top + self.sliding_view.size;
+        if bottom > self.sorted_players.len() {
+            bottom = self.sorted_players.len();
+        }
+
+        let top = bottom.saturating_sub(self.sliding_view.size);
+
+        match &self.view {
+            StatboxView::Names => {
+                for i in top..bottom {
+                    let width = self.render_name_row(
+                        player_manager,
+                        render_state,
+                        me,
+                        i,
+                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                        current_y,
+                    );
+
+                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+
+                    if width > window_width {
+                        window_width = width;
+                    }
+
+                    current_y += 12;
+                }
+            }
+            StatboxView::Points | StatboxView::PointSort => {
+                let max_points_length = self.calculate_max_length(player_manager, |p| {
+                    format_smolstr!("{}", p.get_points()).len()
+                });
+
+                let points_width_pixels =
+                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
+
+                let heading_x = (MAX_NAME_VIEW_LENGTH as i32
+                    * render_state.text_renderer.character_width)
+                    + BORDER_LEFT_WIDTH
+                    + TICKER_WIDTH
+                    + BANNER_WIDTH
+                    + SPACING_WIDTH
+                    + points_width_pixels;
+                let heading_text = if self.view == StatboxView::Points {
+                    "Points"
+                } else {
+                    "Point Sort"
+                };
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    heading_text,
+                    heading_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                for i in top..bottom {
+                    let width = self.render_points_row(
+                        player_manager,
+                        render_state,
+                        me,
+                        i,
+                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                        current_y,
+                        points_width_pixels,
+                    );
+
+                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+
+                    if width > window_width {
+                        window_width = width;
+                    }
+
+                    current_y += 12;
+                }
+            }
+            StatboxView::TeamSort => {
+                let max_points_length = self.calculate_max_length(player_manager, |p| {
+                    format_smolstr!("{}", p.get_points()).len()
+                });
+
+                let points_width_pixels =
+                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
+
+                let heading_x = (MAX_NAME_VIEW_LENGTH as i32
+                    * render_state.text_renderer.character_width)
+                    + BORDER_LEFT_WIDTH
+                    + TICKER_WIDTH
+                    + BANNER_WIDTH
+                    + SPACING_WIDTH
+                    + points_width_pixels;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Team Sort",
+                    heading_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                let mut prev_freq: u32 = 0xFFFFFFFF;
+
+                if top > 0 {
+                    if let Some(player) = player_manager.get_by_id(self.sorted_players[top - 1]) {
+                        prev_freq = player.frequency as u32;
+                    }
+                }
+
+                for i in top..bottom {
+                    let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
+                        continue;
+                    };
+
+                    let freq = player.frequency;
+                    if freq as u32 != prev_freq {
+                        prev_freq = player.frequency as u32;
+
+                        // TODO: Setting visibility
+                        let freq_string = if freq < 100 {
+                            format_smolstr!("{:04}", freq)
+                        } else {
+                            format_smolstr!("----")
+                        };
+
+                        let start_spacer_width = 2;
+
+                        let width = render_state.text_renderer.draw(
+                            &mut render_state.sprite_renderer,
+                            &render_state.ui_camera,
+                            &freq_string,
+                            BORDER_LEFT_WIDTH + start_spacer_width,
+                            current_y,
+                            Layer::AfterGauges,
+                            TextColor::DarkRed,
+                            TextAlignment::Left,
+                        );
+
+                        let dash_width = render_state.text_renderer.draw(
+                            &mut render_state.sprite_renderer,
+                            &render_state.ui_camera,
+                            "-------------",
+                            BORDER_LEFT_WIDTH + start_spacer_width + width,
+                            current_y,
+                            Layer::AfterGauges,
+                            TextColor::DarkRed,
+                            TextAlignment::Left,
+                        );
+
+                        let spacer_width = 3 * render_state.text_renderer.character_width;
+
+                        render_state.text_renderer.draw(
+                            &mut render_state.sprite_renderer,
+                            &render_state.ui_camera,
+                            &format_smolstr!(
+                                "{}",
+                                player_manager.get_frequency_count(player.frequency)
+                            ),
+                            BORDER_LEFT_WIDTH
+                                + start_spacer_width
+                                + width
+                                + dash_width
+                                + spacer_width,
+                            current_y,
+                            Layer::AfterGauges,
+                            TextColor::DarkRed,
+                            TextAlignment::Right,
+                        );
+
+                        current_y += 12;
+                    }
+
+                    let width = self.render_teamsort_row(
+                        player_manager,
+                        render_state,
+                        me,
+                        i,
+                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                        current_y,
+                        points_width_pixels,
+                    );
+
+                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+
+                    if width > window_width {
+                        window_width = width;
+                    }
+
+                    current_y += 12;
+                }
+            }
+            StatboxView::Full => {
+                const MIN_COL_LEN: usize = 4;
+
+                let font_width = render_state.text_renderer.character_width;
+
+                let max_wins_length = self
+                    .calculate_max_length(player_manager, |p| format_smolstr!("{}", p.wins).len())
+                    .max(MIN_COL_LEN);
+                let wins_width_pixels = max_wins_length as i32 * font_width;
+
+                let max_losses_length = self
+                    .calculate_max_length(player_manager, |p| format_smolstr!("{}", p.losses).len())
+                    .max(MIN_COL_LEN);
+                let losses_width_pixels = max_losses_length as i32 * font_width;
+
+                let max_rating_length = self
+                    .calculate_max_length(player_manager, |p| {
+                        format_smolstr!("{}", p.get_rating()).len()
+                    })
+                    .max(MIN_COL_LEN);
+                let rating_width_pixels = max_rating_length as i32 * font_width;
+
+                let max_average_length = self
+                    .calculate_max_length(player_manager, |p| {
+                        format_smolstr!("{:.1}", p.get_average()).len()
+                    })
+                    .max(MIN_COL_LEN);
+                let average_width_pixels = max_average_length.max(3) as i32 * font_width;
+
+                let squad_x = (MAX_NAME_VIEW_LENGTH as i32 * font_width)
+                    + BORDER_LEFT_WIDTH
+                    + TICKER_WIDTH
+                    + BANNER_WIDTH
+                    + SPACING_WIDTH;
+
+                let wins_x = squad_x + (MAX_SQUAD_VIEW_LENGTH as i32 + 1) * font_width;
+                let losses_x = wins_x + wins_width_pixels + font_width;
+                let rating_x = losses_x + losses_width_pixels + font_width;
+                let average_x = rating_x + rating_width_pixels + font_width;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Squad",
+                    squad_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Left,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "W",
+                    wins_x + wins_width_pixels,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "L",
+                    losses_x + losses_width_pixels,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "R",
+                    rating_x + rating_width_pixels,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Ave",
+                    average_x + average_width_pixels,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                for i in top..bottom {
+                    let width = self.render_full_row(
+                        player_manager,
+                        render_state,
+                        me,
+                        i,
+                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                        current_y,
+                        wins_width_pixels,
+                        losses_width_pixels,
+                        rating_width_pixels,
+                        average_width_pixels,
+                    );
+
+                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+
+                    if width > window_width {
+                        window_width = width;
+                    }
+
+                    current_y += 12;
+                }
+            }
+            _ => {}
+        }
+
+        game_sprites.colors.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            Layer::Gauges,
+            crate::render::colors::ColorRenderableKind::BorderInner,
+            3,
+            heading_border_y,
+            window_width + 1,
+            1,
+        );
+
+        game_sprites.colors.draw_border(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            Layer::Gauges,
+            2,
+            2,
+            window_width + 1,
+            current_y + 1,
+            true,
+        );
     }
 }

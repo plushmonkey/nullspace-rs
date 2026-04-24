@@ -227,7 +227,9 @@ impl Player {
             return 0.0f32;
         }
 
-        self.kill_points as f32 / self.wins as f32
+        let avg = self.kill_points as f32 / self.wins as f32;
+
+        (avg * 10.0f32).floor() / 10.0f32
     }
 }
 

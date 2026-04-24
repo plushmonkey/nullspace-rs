@@ -212,15 +212,19 @@ impl ApplicationPlayingState {
 
         if self.input.down {
             offset.y += 1.0f32;
+            self.client.spectate_player(None);
         }
         if self.input.up {
             offset.y -= 1.0f32;
+            self.client.spectate_player(None);
         }
         if self.input.right {
             offset.x += 1.0f32;
+            self.client.spectate_player(None);
         }
         if self.input.left {
             offset.x -= 1.0f32;
+            self.client.spectate_player(None);
         }
 
         let speed = if self.input.shift {
@@ -252,16 +256,6 @@ impl ApplicationPlayingState {
     }
 
     pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) {
-        match (code, is_pressed) {
-            //(KeyCode::Escape, true) => event_loop.exit(),
-            (KeyCode::F2, true) => {
-                self.client
-                    .statbox
-                    .next_view(&self.client.simulation.player_manager);
-            }
-            _ => {}
-        }
-
         match code {
             KeyCode::ArrowLeft => {
                 self.input.left = is_pressed;
@@ -285,6 +279,44 @@ impl ApplicationPlayingState {
                 // This is technically wrong because you could hold one down and toggle another off.
                 // But it's so unusual that it doesn't matter.
                 self.input.control = is_pressed;
+            }
+            _ => {}
+        }
+
+        match (code, is_pressed) {
+            //(KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::F2, true) => {
+                self.client
+                    .statbox
+                    .next_view(&self.client.simulation.player_manager);
+            }
+            (KeyCode::PageUp, true) => {
+                self.client.statbox.move_selected(
+                    &self.client.simulation.player_manager,
+                    -1,
+                    self.input.shift,
+                );
+
+                if self.input.control {
+                    let selected_player_id = self.client.statbox.get_selected_player_id();
+                    self.client.spectate_player(Some(selected_player_id));
+                }
+            }
+            (KeyCode::PageDown, true) => {
+                self.client.statbox.move_selected(
+                    &self.client.simulation.player_manager,
+                    1,
+                    self.input.shift,
+                );
+
+                if self.input.control {
+                    let selected_player_id = self.client.statbox.get_selected_player_id();
+                    self.client.spectate_player(Some(selected_player_id));
+                }
+            }
+            (KeyCode::ControlLeft, true) | (KeyCode::ControlRight, true) => {
+                let selected_player_id = self.client.statbox.get_selected_player_id();
+                self.client.spectate_player(Some(selected_player_id));
             }
             _ => {}
         }

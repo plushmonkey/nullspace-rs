@@ -309,8 +309,6 @@ impl Radar {
         // Use original width here so we don't get render artifacts.
         let radar_dim = (render_state.config.width * 8) / mapzoom;
 
-        log::debug!("Recreating radar {} {}", radar_dim, entire_dim);
-
         let entire_texture = Self::render_radar(
             &render_state.device,
             &render_state.queue,
