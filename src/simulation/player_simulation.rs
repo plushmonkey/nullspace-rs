@@ -61,7 +61,7 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
 
     if check_x.0 <= 0
         || check_x.0 >= crate::math::MAX_POSITION
-        || map.is_solid_position(Position::new(check_x, player_position.y))
+        || map.is_solid_position(Position::new(check_x, player_position.y), player.frequency)
     {
         player_position.x = prev_x;
         player.velocity.x = PositionUnit((-player.velocity.x.0 * 16) / bounce_factor);
@@ -85,7 +85,7 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
 
     if check_y.0 <= 0
         || check_y.0 >= crate::math::MAX_POSITION
-        || map.is_solid_position(Position::new(player_position.x, check_y))
+        || map.is_solid_position(Position::new(player_position.x, check_y), player.frequency)
     {
         player_position.y = prev_y;
         player.velocity.x = PositionUnit((player.velocity.x.0 * 16) / bounce_factor);

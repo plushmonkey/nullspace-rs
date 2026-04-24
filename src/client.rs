@@ -807,6 +807,27 @@ impl Client {
             }
         }
 
+        let self_freq = self.get_freq();
+
+        if let Some(brick_sprites) = sprites.get_set(GameSpriteKind::Brick) {
+            for brick in &self.map.bricks {
+                let index =
+                    self.get_animation_index(10, 50) + (self_freq == brick.frequency) as usize * 10;
+
+                let renderable = &brick_sprites.renderables[index];
+                let x_pixels = brick.tile.x() as i32 * 16;
+                let y_pixels = brick.tile.y() as i32 * 16;
+
+                render_state.sprite_renderer.draw(
+                    &render_state.camera,
+                    renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Tiles,
+                );
+            }
+        }
+
         if render_state
             .map_renderer
             .door_spriteset
@@ -1163,6 +1184,8 @@ impl Client {
                 self.last_position_tick = self.connection.get_game_tick();
                 self.simulation.player_manager.self_id = message.id;
 
+                self.map.clear_bricks();
+
                 if let Some(render_state) = render_state {
                     render_state.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
 
@@ -1221,6 +1244,29 @@ impl Client {
                     );
                     log::debug!("Sending game sync packet");
                     self.connection.send_reliable(&response)?;
+                }
+            }
+            GameServerMessage::BrickDrop(message) => {
+                let start = glam::Vec2::new(message.x1 as f32, message.y1 as f32);
+                let end = glam::Vec2::new(message.x2 as f32, message.y2 as f32);
+                let direction = (end - start).normalize();
+                let distance = start.distance(end).ceil() as i32 + 1;
+
+                let end_tick = message.timestamp + self.settings.brick_time as i32;
+
+                let mut position = start;
+
+                // TODO: Self brick warp.
+
+                for _ in 0..distance {
+                    self.map.insert_brick(
+                        position.x as u16,
+                        position.y as u16,
+                        message.frequency,
+                        end_tick,
+                    );
+
+                    position += direction;
                 }
             }
             GameServerMessage::PlayerEntering(entering) => {

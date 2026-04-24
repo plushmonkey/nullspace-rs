@@ -116,6 +116,7 @@ pub enum GameSpriteKind {
     Gradient,
     Trail,
     Spectate,
+    Brick,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -145,6 +146,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (14, 8),     // Gradient
     (10, 5),     // Trail
     (11, 1),     // Spectate
+    (10, 2),     // Brick
     (5, 2),      // Repel
 ];
 
@@ -274,6 +276,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::Gradient, "graphics/gradient.bm2"),
             (GameSpriteKind::Trail, "graphics/trail.bm2"),
             (GameSpriteKind::Spectate, "graphics/spectate.bm2"),
+            (GameSpriteKind::Brick, "graphics/wall.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

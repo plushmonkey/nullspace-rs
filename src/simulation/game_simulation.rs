@@ -135,7 +135,10 @@ impl Simulation {
                                 let dy = delta.1 as f32 / 16.0f32;
                                 let dist = (dx * dx + dy * dy).sqrt();
 
-                                if map.cast(player_position, direction, dist).hit {
+                                if map
+                                    .cast(player_position, direction, dist, player.frequency)
+                                    .hit
+                                {
                                     continue;
                                 }
                             }

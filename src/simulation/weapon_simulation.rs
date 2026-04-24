@@ -559,7 +559,7 @@ impl WeaponManager {
             WeaponKind::Thor(_) => false,
             _ => {
                 // TODO: Handle special tiles here
-                if map.is_solid_position(weapon.position) {
+                if map.is_solid_position(weapon.position, weapon.frequency) {
                     weapon.position.x = prev_x;
                     weapon.velocity.x.0 *= -1;
                     true
@@ -576,7 +576,7 @@ impl WeaponManager {
             WeaponKind::Thor(_) => false,
             _ => {
                 // TODO: Handle special tiles here
-                if map.is_solid_position(weapon.position) {
+                if map.is_solid_position(weapon.position, weapon.frequency) {
                     weapon.position.y = prev_y;
                     weapon.velocity.y.0 *= -1;
                     true

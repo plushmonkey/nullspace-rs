@@ -19,7 +19,7 @@ pub fn integrate_powerball(
 
         if powerball.position.x.0 <= 0
             || powerball.position.x.0 >= crate::math::MAX_POSITION
-            || (powerball_bounce && map.is_solid_position(powerball.position))
+            || (powerball_bounce && map.is_solid_position(powerball.position, powerball.frequency))
         {
             powerball.position.x = prev_x;
             powerball.velocity.x.0 *= -1;
@@ -30,7 +30,7 @@ pub fn integrate_powerball(
 
         if powerball.position.y.0 <= 0
             || powerball.position.y.0 >= crate::math::MAX_POSITION
-            || (powerball_bounce && map.is_solid_position(powerball.position))
+            || (powerball_bounce && map.is_solid_position(powerball.position, powerball.frequency))
         {
             powerball.position.y = prev_y;
             powerball.velocity.y.0 *= -1;

@@ -16,6 +16,7 @@ pub const TILE_ID_FLAG: TileId = 170;
 pub const TILE_ID_SAFE: TileId = 171;
 pub const TILE_ID_GOAL: TileId = 172;
 pub const TILE_ID_WORMHOLE: TileId = 220;
+pub const TILE_ID_FAKE_BRICK: TileId = 250;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -25,6 +26,12 @@ pub struct Tile {
 
 impl Tile {
     pub fn new(value: u32) -> Self {
+        Self { value }
+    }
+
+    pub fn from_parts(id: TileId, x: u16, y: u16) -> Self {
+        let value = ((id as u32) << 24) | ((y as u32) << 12) | (x as u32);
+
         Self { value }
     }
 
@@ -112,6 +119,12 @@ impl DoorRng {
     }
 }
 
+pub struct Brick {
+    pub frequency: u16,
+    pub end_tick: GameTick,
+    pub tile: Tile,
+}
+
 pub struct Map {
     pub filename: String,
     pub tiles: Box<[TileId; 1024 * 1024]>,
@@ -120,6 +133,8 @@ pub struct Map {
 
     pub doors: Vec<Tile>,
     pub door_rng: Option<DoorRng>,
+
+    pub bricks: Vec<Brick>,
 }
 
 impl Map {
@@ -193,6 +208,7 @@ impl Map {
             animated_tiles: [(); ANIMATED_TILE_KIND_COUNT].map(|_| Vec::new()),
             doors: vec![],
             door_rng: None,
+            bricks: vec![],
         }
     }
 
@@ -221,7 +237,7 @@ impl Map {
         return self.is_door(tile_x, tile_y);
     }
 
-    pub fn is_solid(&self, x: u16, y: u16) -> bool {
+    pub fn is_solid(&self, x: u16, y: u16, frequency: u16) -> bool {
         let tile_id = self.get_tile(x, y);
 
         if tile_id == 0 {
@@ -240,6 +256,12 @@ impl Map {
             return true;
         }
 
+        if tile_id == 250 {
+            if let Some(brick) = self.get_brick(x, y) {
+                return brick.frequency != frequency;
+            }
+        }
+
         if tile_id >= 242 && tile_id <= 252 {
             return true;
         }
@@ -247,12 +269,12 @@ impl Map {
         false
     }
 
-    pub fn is_solid_position(&self, position: Position) -> bool {
+    pub fn is_solid_position(&self, position: Position, frequency: u16) -> bool {
         let (tile_x, tile_y) = position.to_tile();
-        return self.is_solid(tile_x, tile_y);
+        return self.is_solid(tile_x, tile_y, frequency);
     }
 
-    pub fn is_solid_empty_doors(&self, x: u16, y: u16) -> bool {
+    pub fn is_solid_empty_doors(&self, x: u16, y: u16, frequency: u16) -> bool {
         let tile_id = self.get_tile(x, y);
 
         if tile_id == 0 {
@@ -275,6 +297,12 @@ impl Map {
             return true;
         }
 
+        if tile_id == 250 {
+            if let Some(brick) = self.get_brick(x, y) {
+                return brick.frequency != frequency;
+            }
+        }
+
         if tile_id >= 242 && tile_id <= 252 {
             return true;
         }
@@ -282,18 +310,19 @@ impl Map {
         false
     }
 
-    pub fn is_solid_empty_doors_position(&self, position: Position) -> bool {
+    pub fn is_solid_empty_doors_position(&self, position: Position, frequency: u16) -> bool {
         let (tile_x, tile_y) = position.to_tile();
-        return self.is_solid_empty_doors(tile_x, tile_y);
+        return self.is_solid_empty_doors(tile_x, tile_y, frequency);
     }
 
-    pub fn can_fit(&self, x: u16, y: u16, radius: u16, _frequency: u16) -> bool {
+    pub fn can_fit(&self, x: u16, y: u16, radius: u16, frequency: u16) -> bool {
         let radius = radius as i16;
         for y_offset in -radius..radius {
             for x_offset in -radius..radius {
                 if self.is_solid(
                     x.saturating_add_signed(x_offset),
                     y.saturating_add_signed(y_offset),
+                    frequency,
                 ) {
                     return false;
                 }
@@ -310,6 +339,8 @@ impl Map {
     }
 
     pub fn tick(&mut self, settings: &ArenaSettings, current_tick: GameTick) {
+        self.tick_bricks(current_tick);
+
         if self.doors.is_empty() {
             return;
         }
@@ -338,6 +369,78 @@ impl Map {
         }
 
         door_rng.last_tick = door_rng.last_tick + update_count * delay;
+    }
+
+    pub fn clear_bricks(&mut self) {
+        for brick in &self.bricks {
+            let tile_index = Self::get_index(brick.tile.x(), brick.tile.y());
+            self.tiles[tile_index] = brick.tile.id();
+        }
+
+        self.bricks.clear();
+    }
+
+    pub fn insert_brick(&mut self, x: u16, y: u16, frequency: u16, end_tick: GameTick) {
+        if x >= 1024 || y >= 1024 {
+            return;
+        }
+
+        let tile_index = Self::get_index(x, y);
+
+        for index in 0..self.bricks.len() {
+            if self.bricks[index].tile.x() == x && self.bricks[index].tile.y() == y {
+                self.tiles[tile_index] = self.bricks[index].tile.id();
+                self.bricks.swap_remove(index);
+                break;
+            }
+        }
+
+        let tile_id = self.get_tile(x, y);
+        let tile = Tile::from_parts(tile_id, x, y);
+
+        self.bricks.push(Brick {
+            frequency,
+            end_tick,
+            tile,
+        });
+
+        self.tiles[tile_index] = TILE_ID_FAKE_BRICK;
+    }
+
+    fn get_brick(&self, x: u16, y: u16) -> Option<&Brick> {
+        // This is probably the fastest method in average game since there's so few bricks.
+        // Could switch to a hashmap with x, y as lookup key, but it's probably slower or irrelevant.
+        for brick in &self.bricks {
+            if brick.tile.x() == x && brick.tile.y() == y {
+                return Some(brick);
+            }
+        }
+
+        None
+    }
+
+    fn tick_bricks(&mut self, current_tick: GameTick) {
+        let mut brick_index = 0;
+
+        loop {
+            if brick_index >= self.bricks.len() {
+                break;
+            }
+
+            let brick = &self.bricks[brick_index];
+
+            if current_tick >= brick.end_tick {
+                let tile_index = Self::get_index(brick.tile.x(), brick.tile.y());
+
+                assert!(self.tiles[tile_index] == TILE_ID_FAKE_BRICK);
+                self.tiles[tile_index] = brick.tile.id();
+
+                self.bricks.swap_remove(brick_index);
+                continue;
+            }
+
+            brick_index = brick_index + 1;
+        }
     }
 
     // This mutates the door seed and returns the new door mode.
@@ -478,14 +581,20 @@ impl Map {
     }
 
     // max_distance is in tile-space
-    pub fn cast(&self, from: Position, direction: glam::Vec2, max_distance: f32) -> CastResult {
+    pub fn cast(
+        &self,
+        from: Position,
+        direction: glam::Vec2,
+        max_distance: f32,
+        frequency: u16,
+    ) -> CastResult {
         let mut result = CastResult {
             hit: false,
             distance: 0.0f32,
             position: Position::empty(),
         };
 
-        if self.is_solid_position(from) {
+        if self.is_solid_position(from, frequency) {
             result.hit = true;
             result.distance = 0.0f32;
             result.position = from;
@@ -533,7 +642,7 @@ impl Map {
                 travel.y += unit_step.y;
             }
 
-            if self.is_solid(check.x.floor() as u16, check.y.floor() as u16) {
+            if self.is_solid(check.x.floor() as u16, check.y.floor() as u16, frequency) {
                 result.hit = true;
                 result.distance = clear_distance;
                 break;
