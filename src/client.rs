@@ -1625,6 +1625,8 @@ impl Client {
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
                     killed.losses = killed.losses.wrapping_add(1);
                 }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
             }
             GameServerMessage::PlayerFrequencyChange(change) => {
                 if let Some(player) = self

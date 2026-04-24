@@ -11,6 +11,7 @@ use crate::{
     ship::ShipKind,
 };
 
+#[derive(Copy, Clone)]
 struct SlidingView {
     pub top: usize,
     pub size: usize,
@@ -46,47 +47,86 @@ const TICKER_WIDTH: i32 = 10;
 const BANNER_WIDTH: i32 = 12;
 const SPACING_WIDTH: i32 = 2;
 
+struct FrequencyViewEntry {
+    freq: u16,
+    points: u64,
+    wins: u64,
+    losses: u64,
+    flags: u64,
+}
+
 // TODO: This allocates a lot more than it needs to. It could end up being really slow with many players.
 // Could use smolstr to allocate on the stack when rendering instead of building strings for everything.
 pub struct Statbox {
     view: StatboxView,
+    sorted_players: Vec<PlayerId>,
 
     sliding_view: SlidingView,
     selected_index: usize,
+    selected_player_id: PlayerId,
 
-    sorted_players: Vec<PlayerId>,
+    frequency_view_entries: Vec<FrequencyViewEntry>,
+    restore_selected_index: usize,
 }
 
 impl Statbox {
     pub fn new() -> Self {
         Self {
             view: StatboxView::None,
+            sorted_players: vec![],
+
             sliding_view: SlidingView::new(15),
             selected_index: 0,
-            sorted_players: vec![],
+            selected_player_id: PlayerId::invalid(),
+
+            frequency_view_entries: vec![],
+            restore_selected_index: 0,
         }
     }
 
     pub fn get_selected_player_id(&self) -> PlayerId {
-        if self.selected_index >= self.sorted_players.len() {
-            return PlayerId::invalid();
-        }
-
-        self.sorted_players[self.selected_index]
+        self.selected_player_id
     }
 
     pub fn set_view(&mut self, player_manager: &PlayerManager, view_kind: StatboxView) {
-        let selected_id = self.get_selected_player_id();
+        if view_kind == StatboxView::Frequency {
+            self.restore_selected_index = self.selected_index;
+            self.selected_index = 0;
+        } else if self.view == StatboxView::Frequency {
+            self.selected_index = self.restore_selected_index;
+        } else {
+            if self.selected_index < self.sorted_players.len() {
+                self.selected_player_id = self.sorted_players[self.selected_index];
+            }
+        }
 
         self.view = view_kind;
 
         self.rebuild(player_manager);
 
-        // Adjust our selected into so we are pointing to the same player in the new view.
-        if let Some(new_selected_index) =
-            self.sorted_players.iter().position(|id| *id == selected_id)
+        if self.view != StatboxView::Frequency {
+            self.restore_selected_index();
+        }
+    }
+
+    // Adjust our selected into so we are pointing to the same player in the new view.
+    fn restore_selected_index(&mut self) {
+        if self.view == StatboxView::Frequency {
+            return;
+        }
+
+        if let Some(new_selected_index) = self
+            .sorted_players
+            .iter()
+            .position(|id| *id == self.selected_player_id)
         {
             self.selected_index = new_selected_index;
+
+            if self.selected_index < self.sliding_view.top {
+                self.sliding_view.top = self.selected_index;
+            } else if self.selected_index > self.sliding_view.top + self.sliding_view.size {
+                self.sliding_view.top = self.selected_index.saturating_sub(self.sliding_view.size);
+            }
         }
     }
 
@@ -96,8 +136,8 @@ impl Statbox {
             StatboxView::Points => self.set_view(player_manager, StatboxView::PointSort),
             StatboxView::PointSort => self.set_view(player_manager, StatboxView::TeamSort),
             StatboxView::TeamSort => self.set_view(player_manager, StatboxView::Full),
-            StatboxView::Full => self.set_view(player_manager, StatboxView::None),
-            //StatboxView::Frequency => self.set_view(player_manager, StatboxView::None),
+            StatboxView::Full => self.set_view(player_manager, StatboxView::Frequency),
+            StatboxView::Frequency => self.set_view(player_manager, StatboxView::None),
             _ => self.set_view(player_manager, StatboxView::Names),
         };
 
@@ -107,6 +147,7 @@ impl Statbox {
     pub fn rebuild(&mut self, player_manager: &PlayerManager) {
         log::debug!("Rebuilding statbox");
         self.sort(player_manager);
+        self.restore_selected_index();
     }
 
     pub fn render(
@@ -140,9 +181,10 @@ impl Statbox {
 
         if shift {
             if direction < 0 {
-                self.sliding_view.top =
-                    self.sliding_view.top.saturating_sub(self.sliding_view.size);
                 self.selected_index = self.selected_index.saturating_sub(self.sliding_view.size);
+                if self.sliding_view.top > self.selected_index {
+                    self.sliding_view.top = self.selected_index;
+                }
             } else if direction > 0 {
                 let max_count = player_manager.players.len();
 
@@ -164,6 +206,16 @@ impl Statbox {
                     self.selected_index += 1;
                 }
             }
+        }
+
+        if self.view == StatboxView::Frequency {
+            if !self.frequency_view_entries.is_empty()
+                && self.selected_index > self.frequency_view_entries.len() - 1
+            {
+                self.selected_index = self.frequency_view_entries.len() - 1;
+            }
+        } else if self.selected_index < self.sorted_players.len() {
+            self.selected_player_id = self.sorted_players[self.selected_index];
         }
     }
 
@@ -310,21 +362,13 @@ impl Statbox {
     where
         F: Fn(&Player) -> usize,
     {
-        let mut bottom = self.sliding_view.top + self.sliding_view.size;
-        if bottom > self.sorted_players.len() {
-            bottom = self.sorted_players.len();
-        }
-
-        let top = bottom.saturating_sub(self.sliding_view.size);
         let mut max_length = 1;
 
-        for i in top..bottom {
-            if let Some(player) = player_manager.get_by_id(self.sorted_players[i]) {
-                let length = calculator(player);
+        for player in &player_manager.players {
+            let length = calculator(player);
 
-                if length > max_length {
-                    max_length = length;
-                }
+            if length > max_length {
+                max_length = length;
             }
         }
 
@@ -583,6 +627,7 @@ impl Statbox {
         game_sprites: &GameSprites,
         current_y: i32,
         i: usize,
+        render_spectator: bool,
     ) {
         if let Some(spectate_sprites) = game_sprites.get_set(GameSpriteKind::Spectate) {
             let spectating = if let Some(player) = player_manager.get_by_id(self.sorted_players[i])
@@ -590,7 +635,7 @@ impl Statbox {
                 player.ship_kind == ShipKind::Spectator
             } else {
                 false
-            };
+            } && render_spectator;
 
             let selected = i == self.selected_index;
 
@@ -608,7 +653,7 @@ impl Statbox {
                     &render_state.ui_camera,
                     renderable,
                     BORDER_LEFT_WIDTH,
-                    current_y + renderable.size[1] as i32 / 2,
+                    current_y + renderable.size[1] as i32 / 2 - 1,
                     Layer::AfterGauges,
                 );
             }
@@ -630,7 +675,7 @@ impl Statbox {
 
         match &self.view {
             StatboxView::Frequency => {
-                //
+                current_y += 12 + 2;
             }
             _ => {
                 render_state.text_renderer.draw(
@@ -670,7 +715,14 @@ impl Statbox {
                         current_y,
                     );
 
-                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+                    self.render_ticker(
+                        player_manager,
+                        render_state,
+                        game_sprites,
+                        current_y,
+                        i,
+                        true,
+                    );
 
                     if width > window_width {
                         window_width = width;
@@ -722,7 +774,14 @@ impl Statbox {
                         points_width_pixels,
                     );
 
-                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+                    self.render_ticker(
+                        player_manager,
+                        render_state,
+                        game_sprites,
+                        current_y,
+                        i,
+                        true,
+                    );
 
                     if width > window_width {
                         window_width = width;
@@ -839,7 +898,14 @@ impl Statbox {
                         points_width_pixels,
                     );
 
-                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+                    self.render_ticker(
+                        player_manager,
+                        render_state,
+                        game_sprites,
+                        current_y,
+                        i,
+                        true,
+                    );
 
                     if width > window_width {
                         window_width = width;
@@ -957,7 +1023,14 @@ impl Statbox {
                         average_width_pixels,
                     );
 
-                    self.render_ticker(player_manager, render_state, game_sprites, current_y, i);
+                    self.render_ticker(
+                        player_manager,
+                        render_state,
+                        game_sprites,
+                        current_y,
+                        i,
+                        true,
+                    );
 
                     if width > window_width {
                         window_width = width;
@@ -965,6 +1038,170 @@ impl Statbox {
 
                     current_y += 12;
                 }
+            }
+            StatboxView::Frequency => {
+                let (points_length, wins_length, losses_length, flags_length) =
+                    self.build_frequency_view(player_manager);
+
+                let font_width = render_state.text_renderer.character_width;
+
+                let points_width_pixels = points_length as i32 * font_width;
+                let wins_width_pixels = wins_length as i32 * font_width;
+                let losses_width_pixels = losses_length as i32 * font_width;
+                let flags_width_pixels = flags_length as i32 * font_width;
+
+                let points_x =
+                    BORDER_LEFT_WIDTH + TICKER_WIDTH + 8 * font_width + points_width_pixels;
+                let wins_x = points_x + wins_width_pixels;
+                let losses_x = wins_x + losses_width_pixels;
+                let flags_x = losses_x + flags_width_pixels;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Freq",
+                    BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Left,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Points",
+                    points_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Win",
+                    wins_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Lose",
+                    losses_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    "Flag",
+                    flags_x,
+                    heading_y,
+                    Layer::AfterGauges,
+                    TextColor::Green,
+                    TextAlignment::Right,
+                );
+
+                self.sliding_view.size;
+
+                if bottom >= self.frequency_view_entries.len() {
+                    bottom = self.frequency_view_entries.len();
+                }
+
+                let top = bottom.saturating_sub(self.sliding_view.size);
+
+                for i in top..bottom {
+                    self.render_ticker(
+                        player_manager,
+                        render_state,
+                        game_sprites,
+                        current_y,
+                        i,
+                        false,
+                    );
+
+                    let entry = &self.frequency_view_entries[i];
+
+                    let color = if me.frequency == entry.freq {
+                        TextColor::Yellow
+                    } else {
+                        TextColor::White
+                    };
+
+                    let freq_str = if entry.freq < 100 {
+                        format_smolstr!("{}", entry.freq)
+                    } else {
+                        format_smolstr!("----")
+                    };
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &freq_str,
+                        BORDER_LEFT_WIDTH + TICKER_WIDTH,
+                        current_y,
+                        Layer::AfterGauges,
+                        color,
+                        TextAlignment::Left,
+                    );
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!("{}", entry.points),
+                        points_x,
+                        current_y,
+                        Layer::AfterGauges,
+                        color,
+                        TextAlignment::Right,
+                    );
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!("{}", entry.wins),
+                        wins_x,
+                        current_y,
+                        Layer::AfterGauges,
+                        color,
+                        TextAlignment::Right,
+                    );
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!("{}", entry.losses),
+                        losses_x,
+                        current_y,
+                        Layer::AfterGauges,
+                        color,
+                        TextAlignment::Right,
+                    );
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!("{}", entry.flags),
+                        flags_x,
+                        current_y,
+                        Layer::AfterGauges,
+                        color,
+                        TextAlignment::Right,
+                    );
+
+                    current_y += 12;
+                }
+
+                window_width = flags_x + 1;
             }
             _ => {}
         }
@@ -990,5 +1227,92 @@ impl Statbox {
             current_y + 1,
             true,
         );
+    }
+
+    fn build_frequency_view(
+        &mut self,
+        player_manager: &PlayerManager,
+    ) -> (usize, usize, usize, usize) {
+        const MIN_COL_LEN: usize = 6;
+
+        self.frequency_view_entries.clear();
+
+        if self.sorted_players.is_empty() {
+            return (MIN_COL_LEN, MIN_COL_LEN, MIN_COL_LEN, MIN_COL_LEN);
+        }
+
+        let Some(start_player) = player_manager.get_by_id(self.sorted_players[0]) else {
+            return (MIN_COL_LEN, MIN_COL_LEN, MIN_COL_LEN, MIN_COL_LEN);
+        };
+
+        let mut current_freq = start_player.frequency;
+        let mut current_points: u64 = 0;
+        let mut current_wins: u64 = 0;
+        let mut current_losses: u64 = 0;
+        let mut current_flags: u64 = 0;
+
+        let mut highest_points_len = 0;
+        let mut highest_wins_len = 0;
+        let mut highest_losses_len = 0;
+        let mut highest_flags_len = 0;
+
+        for id in &self.sorted_players {
+            let Some(player) = player_manager.get_by_id(*id) else {
+                continue;
+            };
+
+            if player.frequency != current_freq {
+                highest_points_len =
+                    highest_points_len.max(format_smolstr!("{}", current_points).len() + 1);
+                highest_wins_len =
+                    highest_wins_len.max(format_smolstr!("{}", current_wins).len() + 1);
+                highest_losses_len =
+                    highest_losses_len.max(format_smolstr!("{}", current_losses).len() + 1);
+                highest_flags_len =
+                    highest_flags_len.max(format_smolstr!("{}", current_flags).len() + 1);
+
+                self.frequency_view_entries.push(FrequencyViewEntry {
+                    freq: current_freq,
+                    points: current_points,
+                    wins: current_wins,
+                    losses: current_losses,
+                    flags: current_flags,
+                });
+
+                current_freq = player.frequency;
+                current_points = 0;
+                current_wins = 0;
+                current_losses = 0;
+                current_flags = 0;
+            }
+
+            current_points += player.get_points() as u64;
+            current_wins += player.wins as u64;
+            current_losses += player.losses as u64;
+            current_flags += player.flag_count as u64;
+        }
+
+        self.frequency_view_entries.push(FrequencyViewEntry {
+            freq: current_freq,
+            points: current_points,
+            wins: current_wins,
+            losses: current_losses,
+            flags: current_flags,
+        });
+
+        (
+            highest_points_len
+                .max(format_smolstr!("{}", current_points).len() + 1)
+                .max(MIN_COL_LEN),
+            highest_wins_len
+                .max(format_smolstr!("{}", current_wins).len() + 1)
+                .max(MIN_COL_LEN),
+            highest_losses_len
+                .max(format_smolstr!("{}", current_losses).len() + 1)
+                .max(MIN_COL_LEN),
+            highest_flags_len
+                .max(format_smolstr!("{}", current_flags).len() + 1)
+                .max(MIN_COL_LEN),
+        )
     }
 }
