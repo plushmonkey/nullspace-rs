@@ -307,6 +307,7 @@ impl WeaponManager {
                     let event = SimulationEvent {
                         kind: SimulationEventKind::WeaponExplosion(WeaponExplosionEvent {
                             position: weapon.position,
+                            frequency: weapon.frequency,
                             kind: weapon.kind.clone(),
                         }),
                         tick: weapon.last_update_tick,
@@ -360,6 +361,7 @@ impl WeaponManager {
                                         let event = SimulationEvent {
                                             kind: SimulationEventKind::WeaponExplosion(
                                                 WeaponExplosionEvent {
+                                                    frequency: weapon.frequency,
                                                     position: weapon.position,
                                                     kind: weapon.kind.clone(),
                                                 },

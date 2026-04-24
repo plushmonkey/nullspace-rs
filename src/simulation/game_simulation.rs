@@ -15,6 +15,7 @@ use crate::{
 
 pub struct WeaponExplosionEvent {
     pub position: Position,
+    pub frequency: u16,
     pub kind: WeaponKind,
 }
 

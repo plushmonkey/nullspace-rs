@@ -1048,6 +1048,7 @@ impl Client {
                                     } else {
                                         (GameSpriteKind::BombExplosion, 44, 44 * 3)
                                     };
+
                                     render_state.animation_renderer.add(
                                         kind,
                                         event.tick,
@@ -1059,25 +1060,38 @@ impl Client {
                                         Layer::Explosions,
                                     );
 
-                                    if let Some(player) = self.get_view_self() {
-                                        if player.ship_kind != ShipKind::Spectator {
-                                            let visbility_level = self
-                                                .settings
-                                                .get_ship_settings(player.ship_kind)
-                                                .see_bomb_level;
+                                    const RADAR_EXPLOSION_DURATION: i32 = 132;
 
-                                            if visbility_level > 0
-                                                && visbility_level <= 1 + bomb.level as u16
-                                            {
-                                                const RADAR_EXPLOSION_DURATION: i32 = 125;
+                                    if explosion.frequency == self.get_freq() {
+                                        self.radar.add_indicator(
+                                            ColorRenderableKind::RadarExplosion,
+                                            explosion.position,
+                                            self.connection.get_game_tick()
+                                                + RADAR_EXPLOSION_DURATION,
+                                            IndicatorFlag::SmallMap,
+                                        );
+                                    } else {
+                                        // We render the RadarBomb color if have visibility of bombs because we terminate weapons differently than Continuum.
+                                        // Continuum keeps the weapon around with its RadarBomb still animating during the explosion, but we remove the weapon
+                                        // and have to do it manually here.
+                                        if let Some(player) = self.get_view_self() {
+                                            if player.ship_kind != ShipKind::Spectator {
+                                                let visbility_level = self
+                                                    .settings
+                                                    .get_ship_settings(player.ship_kind)
+                                                    .see_bomb_level;
 
-                                                self.radar.add_indicator(
-                                                    ColorRenderableKind::RadarExplosion,
-                                                    explosion.position,
-                                                    self.connection.get_game_tick()
-                                                        + RADAR_EXPLOSION_DURATION,
-                                                    IndicatorFlag::SmallMap,
-                                                );
+                                                if visbility_level > 0
+                                                    && visbility_level <= 1 + bomb.level as u16
+                                                {
+                                                    self.radar.add_indicator(
+                                                        ColorRenderableKind::RadarBomb,
+                                                        explosion.position,
+                                                        self.connection.get_game_tick()
+                                                            + RADAR_EXPLOSION_DURATION,
+                                                        IndicatorFlag::SmallMap,
+                                                    );
+                                                }
                                             }
                                         }
                                     }
