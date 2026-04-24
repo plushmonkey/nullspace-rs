@@ -1266,8 +1266,6 @@ impl ServerMessage {
                     ),
                 };
 
-                log::info!("Brick packet len: {}", packet.len());
-
                 return Ok(Some(ServerMessage::Game(GameServerMessage::BrickDrop(
                     message,
                 ))));

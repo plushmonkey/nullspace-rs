@@ -92,7 +92,7 @@ impl AnimationRenderer {
 
             let frame_count = (animation.frame_end - animation.frame_start) as usize;
             let ticks_per_frame = animation.duration as usize / frame_count;
-            let tick_count = animation.duration - animation.remaining_ticks;
+            let tick_count = animation.duration.saturating_sub(animation.remaining_ticks);
 
             animation.current_frame = animation.frame_start
                 + u16::min(

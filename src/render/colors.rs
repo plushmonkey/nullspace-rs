@@ -24,8 +24,9 @@ pub enum ColorRenderableKind {
     RadarSelfFlagCarry = 27,
     RadarSelf = 28,
     RadarTeammate = 29,
+    RadarTeammateFlagCarry = 30,
 
-    RadarEnemyFlag = 31,
+    RadarEnemyFlagCarry = 31,
     RadarEnemyTarget = 33,
     RadarEnemy = 34,
     RadarBomb = 35,
@@ -78,6 +79,43 @@ impl Colors {
         };
 
         sprite_renderer.draw(camera, &renderable, x_pixels, y_pixels, layer);
+    }
+
+    pub fn draw_centered(
+        &self,
+        sprite_renderer: &mut SpriteRenderer,
+        camera: &Camera,
+        layer: Layer,
+        kind: ColorRenderableKind,
+        x_pixels: i32,
+        y_pixels: i32,
+        width: i32,
+        height: i32,
+    ) {
+        let v = (kind as i32 as f32 / self.height as f32) + 1.0f32 / (self.height as f32 * 2.0f32);
+
+        let renderable = SpriteRenderable {
+            uv_start: [self.current_u, v],
+            uv_size: [0.0f32, 0.0f32],
+            size: [width as u32, height as u32],
+            sheet_index: self.sheet_index,
+        };
+
+        let mvp = camera.projection() * camera.view();
+
+        let (width, height) = (renderable.size[0] as f32, renderable.size[1] as f32);
+
+        let x_pixels = x_pixels as f32 - width / 2.0f32;
+        let y_pixels = y_pixels as f32 - height / 2.0f32;
+
+        sprite_renderer.draw_with_transform(
+            mvp,
+            camera.scale,
+            &renderable,
+            x_pixels,
+            y_pixels,
+            layer,
+        );
     }
 
     // This draws a border starting from the inner border pixel position.

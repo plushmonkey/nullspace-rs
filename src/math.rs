@@ -228,6 +228,10 @@ impl Rectangle {
         }
     }
 
+    pub fn extents(&self) -> (i32, i32) {
+        (self.max.x.0 - self.min.x.0, self.max.y.0 - self.min.y.0)
+    }
+
     pub fn intersects(&self, other: &Rectangle) -> bool {
         let first_min_x = self.min.x.0;
         let first_min_y = self.min.y.0;

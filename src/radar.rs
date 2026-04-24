@@ -1,7 +1,9 @@
 use crate::{
+    clock::GameTick,
     map::Map,
-    math::{PixelUnit, Position, PositionUnit},
+    math::{PixelUnit, Position, Rectangle},
     render::{
+        colors::ColorRenderableKind,
         game_sprites::GameSprites,
         layer::Layer,
         render_state::RenderState,
@@ -9,6 +11,20 @@ use crate::{
         texture::Texture,
     },
 };
+
+#[allow(nonstandard_style)]
+pub mod IndicatorFlag {
+    pub const SmallMap: u8 = 1 << 0;
+    pub const FullMap: u8 = 1 << 1;
+}
+pub type IndicatorFlags = u8;
+
+struct RadarIndicator {
+    color_kind: ColorRenderableKind,
+    world_position: Position,
+    end_tick: GameTick,
+    flags: IndicatorFlags,
+}
 
 struct RadarSprite {
     renderable: SpriteRenderable,
@@ -86,6 +102,8 @@ pub struct Radar {
     build_parameters: RadarBuildParameters,
 
     view: RadarView,
+
+    indicators: Vec<RadarIndicator>,
 }
 
 impl Radar {
@@ -98,6 +116,8 @@ impl Radar {
 
             build_parameters: RadarBuildParameters::empty(),
             view: RadarView::empty(),
+
+            indicators: vec![],
         }
     }
 
@@ -105,7 +125,15 @@ impl Radar {
         self.dirty = true;
     }
 
-    pub fn update(&mut self, surface_width: u32, mapzoom: u16, position: Position) {
+    pub fn update(
+        &mut self,
+        surface_width: u32,
+        mapzoom: u16,
+        position: Position,
+        current_tick: GameTick,
+    ) {
+        self.indicators.retain(|i| current_tick < i.end_tick);
+
         if self.dirty {
             return;
         }
@@ -148,14 +176,31 @@ impl Radar {
             texture_max_y as f32 / full_dim as f32,
         ];
 
-        self.view.world_min = Position::new(
-            PositionUnit((self.view.min_uv[0] * 1024.0f32 * 16.0f32) as i32),
-            PositionUnit((self.view.min_uv[1] * 1024.0f32 * 16.0f32) as i32),
+        self.view.world_min = Position::from_pixels(
+            PixelUnit((self.view.min_uv[0] * 1024.0f32 * 16.0f32) as i32),
+            PixelUnit((self.view.min_uv[1] * 1024.0f32 * 16.0f32) as i32),
         );
-        self.view.world_max = Position::new(
-            PositionUnit((self.view.max_uv[0] * 1024.0f32 * 16.0f32) as i32),
-            PositionUnit((self.view.max_uv[1] * 1024.0f32 * 16.0f32) as i32),
+        self.view.world_max = Position::from_pixels(
+            PixelUnit((self.view.max_uv[0] * 1024.0f32 * 16.0f32) as i32),
+            PixelUnit((self.view.max_uv[1] * 1024.0f32 * 16.0f32) as i32),
         );
+    }
+
+    pub fn add_indicator(
+        &mut self,
+        kind: ColorRenderableKind,
+        position: Position,
+        end_tick: GameTick,
+        flags: IndicatorFlags,
+    ) {
+        let indicator = RadarIndicator {
+            color_kind: kind,
+            world_position: position,
+            end_tick,
+            flags,
+        };
+
+        self.indicators.push(indicator);
     }
 
     pub fn render(
@@ -199,6 +244,28 @@ impl Radar {
                 start_y as i32,
                 Layer::AfterChat,
             );
+
+            for indicator in &self.indicators {
+                if indicator.flags & IndicatorFlag::FullMap == 0 {
+                    continue;
+                }
+
+                let u = (indicator.world_position.x.0 / 1000) as f32 / 16.0f32 / 1024.0f32;
+                let v = (indicator.world_position.y.0 / 1000) as f32 / 16.0f32 / 1024.0f32;
+
+                let radar_position = [
+                    (self.sprite_entire.renderable.size[0] as f32 * u) as i32,
+                    (self.sprite_entire.renderable.size[1] as f32 * v) as i32,
+                ];
+
+                self.render_indicator(
+                    render_state,
+                    game_sprites,
+                    indicator.color_kind,
+                    start_x as i32 + radar_position[0],
+                    start_y as i32 + radar_position[1],
+                );
+            }
         } else {
             let uv_size = [
                 self.view.max_uv[0] - self.view.min_uv[0],
@@ -232,7 +299,65 @@ impl Radar {
                 bottom_y as i32,
                 false,
             );
+
+            let world_rect = Rectangle::new(self.view.world_min, self.view.world_max);
+            let world_extents = world_rect.extents();
+
+            for indicator in &self.indicators {
+                if indicator.flags & IndicatorFlag::SmallMap == 0 {
+                    continue;
+                }
+
+                if !world_rect.contains(indicator.world_position) {
+                    continue;
+                }
+
+                let u = (indicator.world_position.x.0 - self.view.world_min.x.0) as f32
+                    / world_extents.0 as f32;
+                let v = (indicator.world_position.y.0 - self.view.world_min.y.0) as f32
+                    / world_extents.1 as f32;
+
+                let radar_position = [
+                    (self.view.dim[0] as f32 * u) as i32,
+                    (self.view.dim[1] as f32 * v) as i32,
+                ];
+
+                self.render_indicator(
+                    render_state,
+                    game_sprites,
+                    indicator.color_kind,
+                    start_x as i32 + radar_position[0],
+                    start_y as i32 + radar_position[1],
+                );
+            }
         }
+    }
+
+    fn render_indicator(
+        &self,
+        render_state: &mut RenderState,
+        game_sprites: &GameSprites,
+        color_kind: ColorRenderableKind,
+        x_pixels: i32,
+        y_pixels: i32,
+    ) {
+        let (width, height) = match &color_kind {
+            ColorRenderableKind::RadarSelfFlagCarry
+            | ColorRenderableKind::RadarTeammateFlagCarry
+            | ColorRenderableKind::RadarEnemyFlagCarry => (3, 3),
+            _ => (2, 2),
+        };
+
+        game_sprites.colors.draw_centered(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            Layer::AfterChat,
+            color_kind,
+            x_pixels,
+            y_pixels,
+            width,
+            height,
+        );
     }
 
     fn should_recreate(

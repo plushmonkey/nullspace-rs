@@ -20,7 +20,9 @@ use crate::net::packet::s2c::*;
 use crate::player::*;
 use crate::powerball::PowerballState;
 use crate::powerball::is_team_goal;
+use crate::radar::IndicatorFlag;
 use crate::radar::Radar;
+use crate::render::colors::ColorRenderableKind;
 use crate::render::game_sprites::GAME_SPRITE_SHEET_DEFINITIONS;
 use crate::render::game_sprites::GameSpriteKind;
 use crate::render::game_sprites::GameSprites;
@@ -111,6 +113,16 @@ impl Client {
         })
     }
 
+    pub fn get_view_self(&self) -> Option<&Player> {
+        let id = if let Some(spectate_player_id) = self.spectate_player_id {
+            spectate_player_id
+        } else {
+            self.connection.player_id
+        };
+
+        self.simulation.player_manager.get_by_id(id)
+    }
+
     pub fn get_freq(&self) -> u16 {
         let Some(spectate_player_id) = self.spectate_player_id else {
             return self.last_spectate_freq;
@@ -125,16 +137,6 @@ impl Client {
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
-        self.radar.render(
-            render_state,
-            sprites,
-            &self.map,
-            self.settings.map_zoom_factor as u16,
-            self.get_freq(),
-            self.settings.powerball_mode,
-            self.fullscreen_radar,
-        );
-
         self.chat_controller.render(render_state);
         self.statbox
             .render(&self.simulation.player_manager, render_state, sprites);
@@ -152,6 +154,16 @@ impl Client {
         self.render_powerballs(render_state, sprites);
 
         self.render_map_animations(render_state, sprites);
+
+        self.radar.render(
+            render_state,
+            sprites,
+            &self.map,
+            self.settings.map_zoom_factor as u16,
+            self.get_freq(),
+            self.settings.powerball_mode,
+            self.fullscreen_radar,
+        );
     }
 
     pub fn spectate_player(&mut self, player_id: Option<PlayerId>) {
@@ -187,7 +199,40 @@ impl Client {
         }
     }
 
-    fn render_players(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+    fn render_players(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
+        let self_position = Position::new(
+            PositionUnit(render_state.camera.position.x as i32 * 16000),
+            PositionUnit(render_state.camera.position.y as i32 * 16000),
+        );
+
+        let (self_view_id, self_indicator_flags) =
+            if let Some(spectate_id) = self.spectate_player_id {
+                (
+                    spectate_id,
+                    IndicatorFlag::SmallMap | IndicatorFlag::FullMap,
+                )
+            } else {
+                (
+                    self.simulation.player_manager.self_id,
+                    IndicatorFlag::FullMap,
+                )
+            };
+
+        if let Some(player) = self.simulation.player_manager.get_by_id(self_view_id) {
+            let color_kind = if player.flag_count > 0 {
+                ColorRenderableKind::RadarSelfFlagCarry
+            } else {
+                ColorRenderableKind::RadarSelf
+            };
+
+            self.radar.add_indicator(
+                color_kind,
+                self_position,
+                self.connection.get_game_tick(),
+                self_indicator_flags,
+            );
+        }
+
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
                 continue;
@@ -238,6 +283,23 @@ impl Client {
                         Layer::AfterShips,
                     );
                 }
+            }
+
+            // Player indicator continues to be on radar even while they are exploding, so add it before the enter delay check.
+            // Don't render our own indicator because we did it already.
+            if Some(player.id) != self.spectate_player_id {
+                let color_kind = if player.frequency == self.get_freq() {
+                    ColorRenderableKind::RadarTeammate
+                } else {
+                    ColorRenderableKind::RadarEnemyTarget
+                };
+
+                self.radar.add_indicator(
+                    color_kind,
+                    player_position,
+                    self.connection.get_game_tick(),
+                    IndicatorFlag::SmallMap,
+                );
             }
 
             if player.enter_delay > 0 {
@@ -306,7 +368,7 @@ impl Client {
         }
     }
 
-    fn render_weapons(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+    fn render_weapons(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         for weapon in &self.simulation.weapon_manager.weapons {
             let x_pixels = weapon.position.x.0 / 1000;
             let y_pixels = weapon.position.y.0 / 1000;
@@ -489,6 +551,51 @@ impl Client {
                             );
                         }
                     }
+                }
+                _ => {}
+            }
+
+            match &weapon.kind {
+                WeaponKind::Bomb(bomb)
+                | WeaponKind::ProximityBomb(bomb)
+                | WeaponKind::Thor(bomb) => {
+                    if let Some(player) = self.get_view_self() {
+                        if player.ship_kind != ShipKind::Spectator {
+                            let mut visbility_level = self
+                                .settings
+                                .get_ship_settings(player.ship_kind)
+                                .see_bomb_level;
+
+                            if bomb.mine
+                                && !self.settings.get_ship_settings(player.ship_kind).see_mines
+                            {
+                                visbility_level = 0;
+                            }
+
+                            if visbility_level > 0 && visbility_level <= 1 + bomb.level as u16 {
+                                self.radar.add_indicator(
+                                    ColorRenderableKind::RadarBomb,
+                                    weapon.position,
+                                    self.connection.get_game_tick(),
+                                    IndicatorFlag::SmallMap,
+                                );
+                            }
+                        }
+                    }
+                }
+                WeaponKind::Decoy(_) => {
+                    let color_kind = if self.get_freq() == weapon.frequency {
+                        ColorRenderableKind::RadarDecoy
+                    } else {
+                        ColorRenderableKind::RadarEnemyTarget
+                    };
+
+                    self.radar.add_indicator(
+                        color_kind,
+                        weapon.position,
+                        self.connection.get_game_tick(),
+                        IndicatorFlag::SmallMap,
+                    );
                 }
                 _ => {}
             }
@@ -909,6 +1016,7 @@ impl Client {
                     render_state.config.width,
                     self.settings.map_zoom_factor as u16,
                     self_position,
+                    self.connection.get_game_tick(),
                 );
 
                 for event in &self.simulation.events {
@@ -950,6 +1058,29 @@ impl Client {
                                         y_pixels,
                                         Layer::Explosions,
                                     );
+
+                                    if let Some(player) = self.get_view_self() {
+                                        if player.ship_kind != ShipKind::Spectator {
+                                            let visbility_level = self
+                                                .settings
+                                                .get_ship_settings(player.ship_kind)
+                                                .see_bomb_level;
+
+                                            if visbility_level > 0
+                                                && visbility_level <= 1 + bomb.level as u16
+                                            {
+                                                const RADAR_EXPLOSION_DURATION: i32 = 125;
+
+                                                self.radar.add_indicator(
+                                                    ColorRenderableKind::RadarExplosion,
+                                                    explosion.position,
+                                                    self.connection.get_game_tick()
+                                                        + RADAR_EXPLOSION_DURATION,
+                                                    IndicatorFlag::SmallMap,
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                                 _ => {}
                             }
