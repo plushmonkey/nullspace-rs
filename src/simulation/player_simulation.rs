@@ -113,6 +113,7 @@ pub fn update_player_lerp_target(
 
     projected_player.position = Some(position);
     projected_player.lerp_remaining_ticks = 0;
+    projected_player.explosion_remaining_ticks = 0;
 
     for _ in 0..sim_ticks {
         integrate_player(map, settings, &mut projected_player);
