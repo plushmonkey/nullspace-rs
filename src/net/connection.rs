@@ -403,7 +403,7 @@ impl Connection {
                     );
 
                     let current_time_diff =
-                        (((rtt * 3) / 5) + server_timestamp).wrapping_sub(current_timestamp);
+                        (rtt / 2 + server_timestamp).wrapping_sub(current_timestamp);
 
                     let first_sync = self.sync_history.is_empty();
 

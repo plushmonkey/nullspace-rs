@@ -991,10 +991,10 @@ impl Client {
     ) -> Result<(), ConnectionError> {
         let mut render_state = render_state;
 
+        self.receive_messages(&mut render_state)?;
+
         let local_now = GameTick::now(0);
         let tick_count = local_now.diff(&self.local_tick);
-
-        self.receive_messages(&mut render_state)?;
 
         for _ in 0..tick_count {
             self.connection.tick();

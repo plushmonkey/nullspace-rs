@@ -6,12 +6,13 @@
     <title>nullspace</title>
     <style>
       * {
-        padding: 0 !important;
-        margin: 0 !important;
+        padding: 0;
+        margin: 0;
         overflow: hidden;
       }
       body {
         background-color: #090909;
+        color: #ffffff;
       }
       canvas {
         background-color: black;
@@ -23,35 +24,80 @@
         height: 100vh;
         box-sizing: border-box;
       }
+      #login {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        width: 400px;
+        margin: auto;
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+      }
+      input {
+        display: block;
+      }
+      #username, #password {
+        width: 150px;
+        align-self: center;
+        margin: auto;
+      }
+      #play-button {
+        align-self: center;
+        width: 75px;
+        margin: auto;
+      }
     </style>
   </head>
   <body>
-    <div id="game-container">
-      <canvas id="canvas"></canvas>
+    <div id="login">
+      <form id="login-form">
+        <input type="text" id="username" placeholder="username" autofocus />
+        <input type="password" id="password" placeholder="password" />
+
+        <input id="play-button" type="submit" value="Play" />
+      </form>
     </div>
+
     <script type="module">
-      import init from "./scripts/nullspace/nullspace.js";
-      import { execute_app } from "./scripts/nullspace/nullspace.js";
+      import init, { execute_app } from "./scripts/nullspace/nullspace.js";
 
-      init().then(() => {
-        console.log("nullspace loaded");
+      document.getElementById("login-form").onsubmit = function(e) {
+        let username = document.getElementById("username").value;
+        let password = document.getElementById("password").value;
+
+        document.getElementById("login").remove();
+
+        let game_container = document.createElement("div");
+        game_container.id = "game-container";
+
+        let canvas = document.createElement("canvas");
+        canvas.id = "canvas";
+
+        game_container.appendChild(canvas);
+
+        document.body.appendChild(game_container);
+
+        init().then(() => {
+          console.log("nullspace loaded");
+          
+          let hash = new Uint8Array([241, 46, 66, 31, 201, 83, 242, 237, 196, 185, 202, 93, 133, 177, 247, 101, 217, 162, 26, 186, 43, 182, 61, 61, 139, 1, 127, 212, 148, 240, 168, 116]);
+
+          let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password);
+
+          let worker = new Worker('scripts/worker.js');
+          worker.onmessage = function() {
+            // This triggers an update for the app outside of the normal setInterval that the app registers itself.
+            // This is slower than the normal updateInterval, but it's necessary to keep a good connection when the 
+            // browser is minimized or the tab is in the background.
+            update_proxy.request_update();
+          };
+        });
         
-        let hash = new Uint8Array([241, 46, 66, 31, 201, 83, 242, 237, 196, 185, 202, 93, 133, 177, 247, 101, 217, 162, 26, 186, 43, 182, 61, 61, 139, 1, 127, 212, 148, 240, 168, 116]);
-        // TODO: Could have these grabbed from some login screen before initializing.
-        // Or just don't send them in and have the application handle login info.
-        let username = "web";
-        let password = "password";
-
-        let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password);
-
-        let worker = new Worker('scripts/worker.js');
-        worker.onmessage = function() {
-          // This triggers an update for the app outside of the normal setInterval that the app registers itself.
-          // This is slower than the normal updateInterval, but it's necessary to keep a good connection when the 
-          // browser is minimized or the tab is in the background.
-          update_proxy.request_update();
-        };
-      });
+        e.preventDefault();
+      };
     </script>
   </body>
 </html>
