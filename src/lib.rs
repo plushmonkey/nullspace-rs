@@ -15,14 +15,18 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-use crate::render::{
-    game_sprites::{GameSpriteLoader, GameSprites},
-    layer::Layer,
-    render_state::{RenderError, RenderState, RenderStateCreateError},
-};
 use crate::{
     client::Client,
+    menu::MenuAction,
     net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
+};
+use crate::{
+    menu::Menu,
+    render::{
+        game_sprites::{GameSpriteLoader, GameSprites},
+        layer::Layer,
+        render_state::{RenderError, RenderState, RenderStateCreateError},
+    },
 };
 
 pub mod arena_settings;
@@ -32,6 +36,7 @@ pub mod client;
 pub mod clock;
 pub mod map;
 pub mod math;
+pub mod menu;
 pub mod net;
 pub mod player;
 pub mod powerball;
@@ -143,6 +148,7 @@ struct ApplicationPlayingState {
     timer: Timer, // Used for delta time calculations for client update.
     client: Client,
     sprites: GameSprites,
+    menu: Menu,
 }
 
 impl ApplicationPlayingState {
@@ -201,6 +207,7 @@ impl ApplicationPlayingState {
             timer: Timer::new(),
             client,
             sprites,
+            menu: Menu::new(),
         }
     }
 
@@ -250,13 +257,25 @@ impl ApplicationPlayingState {
         self.sprites
             .colors
             .tick(self.client.connection.get_game_tick());
+
+        self.menu.handled = false;
+        self.client.chat_controller.full_history = self.menu.is_open();
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
         self.client.render(render_state, &self.sprites);
+
+        if self.menu.is_open() {
+            self.menu.render(render_state, &self.sprites);
+        }
     }
 
-    pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) {
+    pub fn handle_key(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        code: KeyCode,
+        is_pressed: bool,
+    ) {
         match code {
             KeyCode::ArrowLeft => {
                 self.input.left = is_pressed;
@@ -284,9 +303,32 @@ impl ApplicationPlayingState {
             _ => {}
         }
 
+        if is_pressed {
+            if let Some(action) = self.menu.handle_key(code) {
+                match action {
+                    MenuAction::Quit => {
+                        event_loop.exit();
+                    }
+                    MenuAction::ArenaList => {
+                        self.client
+                            .chat_controller
+                            .send_public(&mut self.client.connection, "?arena");
+                    }
+                    MenuAction::ShipRequest(ship_kind) => {
+                        log::debug!("MenuAction::ShipRequest({:?})", ship_kind);
+                    }
+                    _ => {}
+                }
+
+                return;
+            }
+        }
+
         match (code, is_pressed) {
             (KeyCode::Escape, true) => {
-                self.client.statbox.cancel_select_box();
+                if !self.client.statbox.cancel_select_box() {
+                    self.menu.toggle();
+                }
             }
             (KeyCode::F2, true) => {
                 self.client
@@ -331,6 +373,15 @@ impl ApplicationPlayingState {
         }
 
         let code = c.as_bytes()[0];
+
+        // If we receive some text that isn't Escape, close the menu and proceed to handle it.
+        if code != 0x1B && self.menu.is_open() {
+            self.menu.toggle();
+        }
+
+        if self.menu.handled {
+            return;
+        }
 
         // If we press enter with the chat controller empty, handle select box.
         if code == 0x0d {
@@ -432,7 +483,7 @@ impl Application {
         let _ = event_loop;
 
         match &mut self.state {
-            ApplicationState::Playing(playing) => playing.handle_key(code, is_pressed),
+            ApplicationState::Playing(playing) => playing.handle_key(event_loop, code, is_pressed),
             ApplicationState::Loading(_) => {}
         }
     }

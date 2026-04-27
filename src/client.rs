@@ -1375,7 +1375,6 @@ impl Client {
 
                 if let Some(render_state) = render_state {
                     render_state.animation_renderer.clear();
-                    self.chat_controller.clear();
                 }
 
                 // TODO: Test code for switching through views until input is handled.

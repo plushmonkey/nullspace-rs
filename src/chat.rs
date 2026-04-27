@@ -25,16 +25,19 @@ pub struct ChatController {
     pub input: Vec<u8>,
     pub messages: Vec<ChatEntry>,
     pub insert_index: usize,
+    pub full_history: bool,
 }
 
 impl ChatController {
-    const MAX_MESSAGE_HISTORY: usize = 10;
+    const MAX_MESSAGE_HISTORY: usize = 64;
+    const MAX_DISPLAY: usize = 10;
 
     pub fn new() -> Self {
         Self {
             input: vec![],
             messages: vec![],
             insert_index: 0,
+            full_history: false,
         }
     }
 
@@ -45,6 +48,7 @@ impl ChatController {
 
     pub fn render(&self, render_state: &mut RenderState) {
         const NAMELEN: usize = 10;
+        const LEFT_SPACING: i32 = 2;
 
         let font_width = render_state.text_renderer.character_width;
         let font_height = render_state.text_renderer.character_height;
@@ -65,7 +69,7 @@ impl ChatController {
                 &mut render_state.sprite_renderer,
                 &render_state.ui_camera,
                 &self.input,
-                0,
+                LEFT_SPACING,
                 current_y,
                 Layer::Chat,
                 color,
@@ -80,9 +84,17 @@ impl ChatController {
             let mut current_index = Self::wrap_index(self.insert_index, -1, self.messages.len());
             let first_index = current_index;
 
+            let mut output_count = 0;
+
             loop {
                 let entry = &self.messages[current_index];
                 let message_color = Self::get_chat_message_color(entry.kind);
+
+                if !self.full_history && output_count >= Self::MAX_DISPLAY {
+                    break;
+                }
+
+                output_count += 1;
 
                 match entry.kind {
                     ChatKind::Public
@@ -104,7 +116,7 @@ impl ChatController {
                             &mut render_state.sprite_renderer,
                             &render_state.ui_camera,
                             &entry.sender[..trimmed_name_len],
-                            inset_pixels,
+                            LEFT_SPACING + inset_pixels,
                             current_y,
                             Layer::Chat,
                             name_color,
@@ -117,7 +129,7 @@ impl ChatController {
                             &mut render_state.sprite_renderer,
                             &render_state.ui_camera,
                             "> ",
-                            inset_pixels + name_width as i32,
+                            LEFT_SPACING + inset_pixels + name_width as i32,
                             current_y,
                             Layer::Chat,
                             name_color,
@@ -130,7 +142,7 @@ impl ChatController {
                             &mut render_state.sprite_renderer,
                             &render_state.ui_camera,
                             &entry.message,
-                            message_inset,
+                            LEFT_SPACING + message_inset,
                             current_y,
                             Layer::Chat,
                             message_color,
@@ -142,7 +154,7 @@ impl ChatController {
                             &mut render_state.sprite_renderer,
                             &render_state.ui_camera,
                             &entry.message,
-                            0,
+                            LEFT_SPACING,
                             current_y,
                             Layer::Chat,
                             message_color,
@@ -206,6 +218,16 @@ impl ChatController {
         }
 
         false
+    }
+
+    pub fn send_public(&mut self, connection: &mut Connection, message: &str) {
+        use crate::net::packet::Serialize;
+
+        let chat = crate::net::packet::c2s::SendChatMessage::public(message);
+
+        if let Err(e) = connection.send_packet(&chat.serialize()) {
+            log::error!("{e}");
+        }
     }
 
     pub fn send_input(&mut self, connection: &mut Connection) {

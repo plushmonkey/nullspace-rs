@@ -105,8 +105,13 @@ impl Statbox {
         None
     }
 
-    pub fn cancel_select_box(&mut self) {
-        self.select_box = None;
+    pub fn cancel_select_box(&mut self) -> bool {
+        if self.select_box.is_some() {
+            self.select_box = None;
+            return true;
+        }
+
+        false
     }
 
     pub fn get_selected_player_id(&self) -> PlayerId {
