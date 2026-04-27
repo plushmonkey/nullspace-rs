@@ -56,6 +56,8 @@ pub struct RenderState {
     pub text_renderer: TextRenderer,
     pub background_renderer: BackgroundRenderer,
     pub animation_renderer: AnimationRenderer,
+
+    pub render_map: bool,
 }
 
 impl RenderState {
@@ -179,10 +181,11 @@ impl RenderState {
         let background_renderer = BackgroundRenderer::new(&device, &config.format, &depth_texture);
         let animation_renderer = AnimationRenderer::new();
 
+        // Start camera at y 1024 so we slowly scroll up during join screen.
         let camera = Camera::new(
             size.width as f32,
             size.height as f32,
-            glam::Vec2::new(0.0f32, 0.0f32),
+            glam::Vec2::new(0.0f32, 1024.0f32),
             1.0f32 / 16.0f32,
         );
 
@@ -208,6 +211,7 @@ impl RenderState {
             text_renderer,
             background_renderer,
             animation_renderer,
+            render_map: false,
         })
     }
 
@@ -305,8 +309,10 @@ impl RenderState {
             self.background_renderer
                 .render(&mut render_pass, &self.camera, &self.queue);
 
-            self.map_renderer
-                .render(&mut render_pass, &self.camera, &self.queue);
+            if self.render_map {
+                self.map_renderer
+                    .render(&mut render_pass, &self.camera, &self.queue);
+            }
 
             self.sprite_renderer.render(&mut render_pass, &self.queue);
         }
@@ -358,6 +364,8 @@ impl RenderState {
 
         self.map_renderer.door_spriteset =
             SpriteSet::new_from_slice(self, &tileset.image, x_start, y_start, x_end, y_end, 8, 1);
+
+        self.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
     }
 
     pub fn draw_world_text(

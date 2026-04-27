@@ -8,6 +8,7 @@ use crate::{
         render_state::RenderState,
         text_renderer::{TextAlignment, TextColor},
     },
+    select_box::SelectBox,
     ship::ShipKind,
 };
 
@@ -67,6 +68,8 @@ pub struct Statbox {
 
     frequency_view_entries: Vec<FrequencyViewEntry>,
     restore_selected_index: usize,
+
+    select_box: Option<Box<SelectBox>>,
 }
 
 impl Statbox {
@@ -81,7 +84,29 @@ impl Statbox {
 
             frequency_view_entries: vec![],
             restore_selected_index: 0,
+
+            select_box: None,
         }
+    }
+
+    pub fn display_select_box(&mut self, select_box: Box<SelectBox>) {
+        self.select_box = Some(select_box);
+    }
+
+    pub fn activate_select_box(&mut self) -> Option<String> {
+        if let Some(select_box) = &mut self.select_box {
+            let result = select_box.select();
+
+            self.select_box = None;
+
+            return Some(result);
+        }
+
+        None
+    }
+
+    pub fn cancel_select_box(&mut self) {
+        self.select_box = None;
     }
 
     pub fn get_selected_player_id(&self) -> PlayerId {
@@ -156,6 +181,11 @@ impl Statbox {
         render_state: &mut RenderState,
         game_sprites: &GameSprites,
     ) {
+        // TODO: Select box and statbox should be handled by some interface controller, but this is fine for now.
+        if let Some(select_box) = &mut self.select_box {
+            select_box.render(render_state, game_sprites);
+        }
+
         if self.sorted_players.is_empty() {
             return;
         }
@@ -170,6 +200,11 @@ impl Statbox {
     }
 
     pub fn move_selected(&mut self, player_manager: &PlayerManager, direction: i32, shift: bool) {
+        if let Some(select_box) = &mut self.select_box {
+            select_box.move_selected(direction, shift);
+            return;
+        }
+
         if player_manager.players.is_empty() {
             return;
         }

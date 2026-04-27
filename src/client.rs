@@ -30,6 +30,7 @@ use crate::render::layer::Layer;
 use crate::render::render_state::RenderState;
 use crate::render::text_renderer::TextAlignment;
 use crate::render::text_renderer::TextColor;
+use crate::select_box::SelectBox;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::game_simulation::SimulationEventKind;
@@ -141,29 +142,62 @@ impl Client {
         self.statbox
             .render(&self.simulation.player_manager, render_state, sprites);
 
-        if let Some(spectate_player_id) = self.spectate_player_id {
-            if let Some(player) = self.simulation.player_manager.get_by_id(spectate_player_id) {
-                if let Some(player_position) = player.position {
-                    render_state.camera.position = player_position.into();
+        match self.connection.state {
+            ConnectionState::Playing | ConnectionState::Disconnected => {
+                if let Some(spectate_player_id) = self.spectate_player_id {
+                    if let Some(player) =
+                        self.simulation.player_manager.get_by_id(spectate_player_id)
+                    {
+                        if let Some(player_position) = player.position {
+                            render_state.camera.position = player_position.into();
+                        }
+                    }
                 }
+
+                render_state.render_map = true;
+
+                self.render_players(render_state, sprites);
+                self.render_weapons(render_state, sprites);
+                self.render_powerballs(render_state, sprites);
+
+                self.render_map_animations(render_state, sprites);
+
+                self.radar.render(
+                    render_state,
+                    sprites,
+                    &self.map,
+                    self.settings.map_zoom_factor as u16,
+                    self.get_freq(),
+                    self.settings.powerball_mode,
+                    self.fullscreen_radar,
+                );
+            }
+            _ => {
+                render_state.render_map = false;
+
+                let (x_pixels, y_pixels) = (
+                    render_state.config.width as i32 / 2,
+                    render_state.config.height as i32 - (render_state.config.height as i32 / 4),
+                );
+
+                let text = if let ConnectionState::MapDownload = self.connection.state {
+                    "Downloading"
+                } else {
+                    "Entering arena"
+                };
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    text,
+                    x_pixels,
+                    y_pixels,
+                    Layer::TopMost,
+                    TextColor::Blue,
+                    TextAlignment::Center,
+                );
             }
         }
-
-        self.render_players(render_state, sprites);
-        self.render_weapons(render_state, sprites);
-        self.render_powerballs(render_state, sprites);
-
-        self.render_map_animations(render_state, sprites);
-
-        self.radar.render(
-            render_state,
-            sprites,
-            &self.map,
-            self.settings.map_zoom_factor as u16,
-            self.get_freq(),
-            self.settings.powerball_mode,
-            self.fullscreen_radar,
-        );
     }
 
     pub fn spectate_player(&mut self, player_id: Option<PlayerId>) {
@@ -988,6 +1022,7 @@ impl Client {
     pub fn update(
         &mut self,
         render_state: Option<&mut RenderState>,
+        dt: f32,
     ) -> Result<(), ConnectionError> {
         let mut render_state = render_state;
 
@@ -1150,7 +1185,14 @@ impl Client {
                 ConnectionState::Disconnected => {
                     break;
                 }
-                _ => {}
+                _ => {
+                    // Move our world position so the stars move while we join the game.
+                    if let Some(render_state) = &mut render_state {
+                        let scroll_speed = 10.0f32;
+                        render_state.camera.position = render_state.camera.position
+                            - glam::Vec2::new(0.0f32, scroll_speed * dt);
+                    }
+                }
             }
         }
 
@@ -1332,8 +1374,6 @@ impl Client {
                 self.map.clear_bricks();
 
                 if let Some(render_state) = render_state {
-                    render_state.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
-
                     render_state.animation_renderer.clear();
                     self.chat_controller.clear();
                 }
@@ -1868,9 +1908,6 @@ impl Client {
 
                 self.connection.state = ConnectionState::MapDownload;
 
-                let chat = SendChatMessage::public("?arena");
-                self.connection.send_reliable(&chat)?;
-
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let map_path = get_zone_path(&self.zone, &info.filename);
@@ -1945,7 +1982,8 @@ impl Client {
                 }
             }
             GameServerMessage::ArenaDirectory(directory) => {
-                log::debug!("directory: {:?}", directory);
+                self.statbox
+                    .display_select_box(Box::new(SelectBox::new_directory(&directory.entries)));
             }
             _ => {}
         }

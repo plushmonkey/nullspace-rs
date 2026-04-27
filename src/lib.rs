@@ -39,6 +39,7 @@ pub mod prize;
 pub mod radar;
 pub mod render;
 pub mod rng;
+pub mod select_box;
 pub mod ship;
 pub mod simulation;
 pub mod spawn;
@@ -242,7 +243,7 @@ impl ApplicationPlayingState {
             .animation_renderer
             .update(self.client.connection.get_game_tick());
 
-        if let Err(e) = self.client.update(Some(render_state)) {
+        if let Err(e) = self.client.update(Some(render_state), dt) {
             log::error!("{e}");
         }
 
@@ -284,7 +285,9 @@ impl ApplicationPlayingState {
         }
 
         match (code, is_pressed) {
-            //(KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::Escape, true) => {
+                self.client.statbox.cancel_select_box();
+            }
             (KeyCode::F2, true) => {
                 self.client
                     .statbox
@@ -328,6 +331,22 @@ impl ApplicationPlayingState {
         }
 
         let code = c.as_bytes()[0];
+
+        // If we press enter with the chat controller empty, handle select box.
+        if code == 0x0d {
+            if self.client.chat_controller.input.is_empty() {
+                if let Some(input_text) = self.client.statbox.activate_select_box() {
+                    for c in input_text.as_bytes() {
+                        self.client.chat_controller.input.push(*c);
+                    }
+
+                    self.client
+                        .chat_controller
+                        .send_input(&mut self.client.connection);
+                }
+                return;
+            }
+        }
 
         if self
             .client
