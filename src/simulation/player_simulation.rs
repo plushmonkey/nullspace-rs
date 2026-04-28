@@ -59,16 +59,19 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
     let sign_x: i32 = if delta_x >= 0 { 1 } else { -1 };
     let check_x = player_position.x + PixelUnit(radius as i32 * sign_x).into();
 
-    if check_x.0 <= 0
-        || check_x.0 >= crate::math::MAX_POSITION
-        || map.is_solid_position(Position::new(check_x, player_position.y), player.frequency)
-    {
-        player_position.x = prev_x;
-        player.velocity.x = PositionUnit((-player.velocity.x.0 * 16) / bounce_factor);
-        player.velocity.y = PositionUnit((player.velocity.y.0 * 16) / bounce_factor);
+    let start_tile_y = (player_position.y.0 - radius as i32 * 1000) / 16000;
+    let end_tile_y: i32 = (player_position.y.0 + radius as i32 * 1000) / 16000;
 
-        player.lerp_velocity.x = PositionUnit((-player.lerp_velocity.x.0 * 16) / bounce_factor);
-        player.lerp_velocity.y = PositionUnit((player.lerp_velocity.y.0 * 16) / bounce_factor);
+    for y in start_tile_y..=end_tile_y {
+        if map.is_solid((check_x.0 / 16000) as u16, y as u16, player.frequency) {
+            player_position.x = prev_x;
+            player.velocity.x = PositionUnit((-player.velocity.x.0 * 16) / bounce_factor);
+            player.velocity.y = PositionUnit((player.velocity.y.0 * 16) / bounce_factor);
+
+            player.lerp_velocity.x = PositionUnit((-player.lerp_velocity.x.0 * 16) / bounce_factor);
+            player.lerp_velocity.y = PositionUnit((player.lerp_velocity.y.0 * 16) / bounce_factor);
+            break;
+        }
     }
 
     let mut delta_y = player.velocity.y.0;
@@ -83,16 +86,19 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
     let sign_y: i32 = if delta_y >= 0 { 1 } else { -1 };
     let check_y = player_position.y + PixelUnit(radius as i32 * sign_y).into();
 
-    if check_y.0 <= 0
-        || check_y.0 >= crate::math::MAX_POSITION
-        || map.is_solid_position(Position::new(player_position.x, check_y), player.frequency)
-    {
-        player_position.y = prev_y;
-        player.velocity.x = PositionUnit((player.velocity.x.0 * 16) / bounce_factor);
-        player.velocity.y = PositionUnit((-player.velocity.y.0 * 16) / bounce_factor);
+    let start_tile_x = (player_position.x.0 - radius as i32 * 1000) / 16000;
+    let end_tile_x: i32 = (player_position.x.0 + radius as i32 * 1000) / 16000;
 
-        player.lerp_velocity.x = PositionUnit((player.lerp_velocity.x.0 * 16) / bounce_factor);
-        player.lerp_velocity.y = PositionUnit((-player.lerp_velocity.y.0 * 16) / bounce_factor);
+    for x in start_tile_x..=end_tile_x {
+        if map.is_solid(x as u16, (check_y.0 / 16000) as u16, player.frequency) {
+            player_position.y = prev_y;
+            player.velocity.x = PositionUnit((player.velocity.x.0 * 16) / bounce_factor);
+            player.velocity.y = PositionUnit((-player.velocity.y.0 * 16) / bounce_factor);
+
+            player.lerp_velocity.x = PositionUnit((player.lerp_velocity.x.0 * 16) / bounce_factor);
+            player.lerp_velocity.y = PositionUnit((-player.lerp_velocity.y.0 * 16) / bounce_factor);
+            break;
+        }
     }
 
     if player.lerp_remaining_ticks > 0 {
