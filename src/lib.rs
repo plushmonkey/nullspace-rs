@@ -50,6 +50,7 @@ pub mod select_box;
 pub mod ship;
 pub mod simulation;
 pub mod spawn;
+pub mod spectate_controller;
 pub mod statbox;
 pub mod weapon;
 
@@ -310,15 +311,6 @@ impl ApplicationPlayingState {
 
                 return;
             }
-        }
-
-        // TODO: Handle in spectator controller
-        if self
-            .input_state
-            .is_modifier_triggered(input::InputModifier::Control)
-        {
-            let selected_player_id = self.client.statbox.get_selected_player_id();
-            self.client.spectate_player(Some(selected_player_id));
         }
     }
 

@@ -90,12 +90,7 @@ impl Statbox {
         }
     }
 
-    // Handles input and returns an optional player id to spectate.
-    pub fn handle_input(
-        &mut self,
-        input_state: &InputState,
-        player_manager: &PlayerManager,
-    ) -> Option<PlayerId> {
+    pub fn handle_input(&mut self, input_state: &InputState, player_manager: &PlayerManager) {
         if input_state.is_triggered(InputAction::StatboxCycle) {
             self.next_view(player_manager);
         }
@@ -106,11 +101,6 @@ impl Statbox {
                 -1,
                 input_state.is_modifier_down(InputModifier::Shift),
             );
-
-            if input_state.is_modifier_down(InputModifier::Control) {
-                let selected_player_id = self.get_selected_player_id();
-                return Some(selected_player_id);
-            }
         }
 
         if input_state.is_triggered(InputAction::StatboxDown) {
@@ -119,14 +109,7 @@ impl Statbox {
                 1,
                 input_state.is_modifier_down(InputModifier::Shift),
             );
-
-            if input_state.is_modifier_down(InputModifier::Control) {
-                let selected_player_id = self.get_selected_player_id();
-                return Some(selected_player_id);
-            }
         }
-
-        None
     }
 
     pub fn display_select_box(&mut self, select_box: Box<SelectBox>) {
@@ -156,6 +139,26 @@ impl Statbox {
 
     pub fn get_selected_player_id(&self) -> PlayerId {
         self.selected_player_id
+    }
+
+    pub fn get_first_playing_id(&self, player_manager: &PlayerManager) -> Option<PlayerId> {
+        for player_id in &self.sorted_players {
+            if let Some(player) = player_manager.get_by_id(*player_id) {
+                if player.ship_kind != ShipKind::Spectator {
+                    return Some(*player_id);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn reset(&mut self) {
+        self.selected_index = 0;
+        self.restore_selected_index = 0;
+        self.selected_player_id = PlayerId::invalid();
+        self.sliding_view.top = 0;
+        self.sorted_players.clear();
     }
 
     pub fn set_view(&mut self, player_manager: &PlayerManager, view_kind: StatboxView) {

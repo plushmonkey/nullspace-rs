@@ -9,7 +9,6 @@ use crate::map::DoorRng;
 use crate::map::Map;
 use crate::map::TILE_ID_FIRST_DOOR;
 use crate::map::TILE_ID_FLAG;
-use crate::math::MAX_POSITION;
 use crate::math::PixelUnit;
 use crate::math::PositionUnit;
 use crate::math::Rectangle;
@@ -43,6 +42,7 @@ use crate::simulation::player_simulation::PLAYER_EXPLOSION_DURATION;
 use crate::simulation::player_simulation::PLAYER_FLASH_DURATION;
 use crate::simulation::player_simulation::update_player_lerp_target;
 use crate::spawn::generate_spawn_position;
+use crate::spectate_controller::SpectateController;
 use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
@@ -62,24 +62,6 @@ fn get_zone_path(zone: &str, filename: &str) -> String {
     format!("zones/{}/{}", zone, filename)
 }
 
-pub struct SpectateController {
-    pub spectate_player_id: Option<PlayerId>,
-    pub last_spectate_freq: u16,
-}
-
-impl SpectateController {
-    pub fn new() -> Self {
-        Self {
-            spectate_player_id: None,
-            last_spectate_freq: 0xFFFF,
-        }
-    }
-
-    pub fn tick(&mut self, _input_state: &InputState) {
-        //
-    }
-}
-
 pub struct ShipController {
     pub ship: Ship,
 }
@@ -88,6 +70,11 @@ impl ShipController {
     pub fn new() -> Self {
         Self { ship: Ship::new() }
     }
+}
+
+enum MovementController {
+    Ship(ShipController),
+    Spectate(SpectateController),
 }
 
 pub struct Client {
@@ -107,15 +94,14 @@ pub struct Client {
     // This is the local tick for the last processed tick.
     local_tick: GameTick,
 
-    spectate_player_id: Option<PlayerId>,
-    last_spectate_freq: u16,
-
     radar: Radar,
 
     pub chat_controller: ChatController,
     pub statbox: Statbox,
 
     pub ship: Ship,
+
+    controller: MovementController,
 }
 
 impl Client {
@@ -139,18 +125,22 @@ impl Client {
             registration,
             simulation: Simulation::new(GameTick::now(0)),
             local_tick: GameTick::now(0),
-            spectate_player_id: None,
-            last_spectate_freq: 0xFFFF,
             radar: Radar::new(),
             chat_controller: ChatController::new(),
             statbox: Statbox::new(),
             ship: Ship::new(),
+
+            controller: MovementController::Spectate(SpectateController::new()),
         })
     }
 
     pub fn get_view_self(&self) -> Option<&Player> {
-        let id = if let Some(spectate_player_id) = self.spectate_player_id {
-            spectate_player_id
+        let id = if let MovementController::Spectate(spectate_controller) = &self.controller {
+            if let Some(spectate_player_id) = spectate_controller.spectate_player_id {
+                spectate_player_id
+            } else {
+                self.connection.player_id
+            }
         } else {
             self.connection.player_id
         };
@@ -159,15 +149,21 @@ impl Client {
     }
 
     pub fn get_freq(&self) -> u16 {
-        let Some(spectate_player_id) = self.spectate_player_id else {
-            return self.last_spectate_freq;
+        let player_id = if let MovementController::Spectate(spectate_controller) = &self.controller
+        {
+            let Some(spectate_player_id) = spectate_controller.spectate_player_id else {
+                return spectate_controller.last_spectate_freq;
+            };
+
+            spectate_player_id
+        } else {
+            self.connection.player_id
         };
 
-        if let Some(spectate_player) = self.simulation.player_manager.get_by_id(spectate_player_id)
-        {
-            spectate_player.frequency
+        if let Some(player) = self.simulation.player_manager.get_by_id(player_id) {
+            player.frequency
         } else {
-            self.last_spectate_freq
+            0xFFFF
         }
     }
 
@@ -229,57 +225,17 @@ impl Client {
         }
     }
 
-    pub fn spectate_player(&mut self, player_id: Option<PlayerId>) {
-        let Some(player_id) = player_id else {
-            if let Some(existing_spectate_player_id) = self.spectate_player_id {
-                if let Some(player) = self
-                    .simulation
-                    .player_manager
-                    .get_by_id(existing_spectate_player_id)
-                {
-                    self.last_spectate_freq = player.frequency;
-                }
-            }
-
-            self.spectate_player_id = None;
-            return;
-        };
-
-        if let Some(existing_id) = self.spectate_player_id {
-            if existing_id == player_id {
-                return;
-            }
-        }
-
-        if let Some(_) = self.simulation.player_manager.get_by_id(player_id) {
-            self.spectate_player_id = Some(player_id);
-
-            let spectate_request = SpectateMessage { player_id };
-
-            if let Err(e) = self.connection.send_reliable(&spectate_request) {
-                log::error!("{e}");
-            }
-        }
-    }
-
     fn render_players(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         let self_position = Position::new(
             PositionUnit(render_state.camera.position.x as i32 * 16000),
             PositionUnit(render_state.camera.position.y as i32 * 16000),
         );
 
-        let (self_view_id, self_indicator_flags) =
-            if let Some(spectate_id) = self.spectate_player_id {
-                (
-                    spectate_id,
-                    IndicatorFlag::SmallMap | IndicatorFlag::FullMap,
-                )
-            } else {
-                (
-                    self.simulation.player_manager.self_id,
-                    IndicatorFlag::FullMap,
-                )
-            };
+        let self_view_id = if let Some(player) = self.get_view_self() {
+            player.id
+        } else {
+            self.connection.player_id
+        };
 
         if let Some(player) = self.simulation.player_manager.get_by_id(self_view_id) {
             let color_kind = if player.flag_count > 0 {
@@ -288,11 +244,17 @@ impl Client {
                 ColorRenderableKind::RadarSelf
             };
 
+            let indicator_flag = if player.ship_kind == ShipKind::Spectator {
+                IndicatorFlag::FullMap
+            } else {
+                IndicatorFlag::SmallMap | IndicatorFlag::FullMap
+            };
+
             self.radar.add_indicator(
                 color_kind,
                 self_position,
                 self.connection.get_game_tick(),
-                self_indicator_flags,
+                indicator_flag,
             );
         }
 
@@ -349,8 +311,7 @@ impl Client {
             }
 
             // Player indicator continues to be on radar even while they are exploding, so add it before the enter delay check.
-            // Don't render our own indicator because we did it already.
-            if Some(player.id) != self.spectate_player_id {
+            if player.id != self_view_id {
                 let color_kind = if player.frequency == self.get_freq() {
                     ColorRenderableKind::RadarTeammate
                 } else {
@@ -1063,12 +1024,8 @@ impl Client {
 
         self.radar.render_full = input_state.is_down(InputAction::FullRadar);
 
-        if let Some(new_spectate_id) = self
-            .statbox
-            .handle_input(input_state, &self.simulation.player_manager)
-        {
-            self.spectate_player(Some(new_spectate_id));
-        }
+        self.statbox
+            .handle_input(input_state, &self.simulation.player_manager);
 
         for _ in 0..tick_count {
             self.connection.tick();
@@ -1076,59 +1033,19 @@ impl Client {
             self.map
                 .tick(&self.settings, self.connection.get_game_tick());
 
-            if let Some(me) = self.simulation.player_manager.get_self_mut() {
-                if let Some(me_position) = &mut me.position {
-                    let mut offset_x = 0;
-                    let mut offset_y = 0;
-
-                    // TODO: Move to spectate/ship controllers
-                    if input_state.is_down(InputAction::MoveLeft) {
-                        offset_x -= 1;
-                    }
-
-                    if input_state.is_down(InputAction::MoveRight) {
-                        offset_x += 1;
-                    }
-
-                    if input_state.is_down(InputAction::MoveForward) {
-                        offset_y -= 1;
-                    }
-
-                    if input_state.is_down(InputAction::MoveBackward) {
-                        offset_y += 1;
-                    }
-
-                    if input_state.is_modifier_down(crate::input::InputModifier::Shift) {
-                        offset_x *= 8000 * 2;
-                        offset_y *= 8000 * 2;
-                    } else {
-                        offset_x *= 8000;
-                        offset_y *= 8000;
-                    }
-
-                    if offset_x != 0 || offset_y != 0 {
-                        me_position.x.0 += offset_x;
-                        me_position.y.0 += offset_y;
-
-                        me_position.x.0 = me_position.x.0.clamp(0, MAX_POSITION);
-                        me_position.y.0 = me_position.y.0.clamp(0, MAX_POSITION);
-
-                        self.spectate_player(None);
-                    }
-                }
-            }
-
             self.simulation.tick(&self.map, &self.settings);
 
-            if let Some(spectate_id) = self.spectate_player_id {
-                if let Some(player) = self.simulation.player_manager.get_by_id(spectate_id) {
-                    if let Some(player_position) = player.position {
-                        self.simulation
-                            .player_manager
-                            .get_self_mut()
-                            .unwrap()
-                            .position = Some(player_position);
-                    }
+            match &mut self.controller {
+                MovementController::Spectate(spectate_controller) => {
+                    spectate_controller.tick(
+                        input_state,
+                        &mut self.simulation.player_manager,
+                        &mut self.connection,
+                        &self.statbox,
+                    );
+                }
+                MovementController::Ship(ship_controller) => {
+                    let _ = ship_controller;
                 }
             }
 
@@ -1483,7 +1400,8 @@ impl Client {
                     render_state.animation_renderer.clear();
                 }
 
-                // TODO: Test code for switching through views until input is handled.
+                self.statbox.reset();
+
                 self.statbox.set_view(
                     &self.simulation.player_manager,
                     crate::statbox::StatboxView::Names,
@@ -1560,9 +1478,6 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerEntering(entering) => {
-                // TODO: Remove. Just here for testing so we get position packets from anywhere.
-                let mut sent_spectate_request = false;
-
                 for entry in &entering.players {
                     let mut player = Player::new(
                         entry.player_id,
@@ -1582,6 +1497,11 @@ impl Client {
 
                     if entry.player_id == self.simulation.player_manager.self_id {
                         player.position = Some(Position::empty());
+
+                        if player.ship_kind == ShipKind::Spectator {
+                            self.controller =
+                                MovementController::Spectate(SpectateController::new());
+                        }
                     }
 
                     log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
@@ -1591,16 +1511,17 @@ impl Client {
                     if let Some(old_player) = self.simulation.player_manager.add_player(player) {
                         log::debug!("{} left arena", old_player.name);
                     }
-
-                    if !sent_spectate_request && entry.ship_kind != ShipKind::Spectator {
-                        self.spectate_player(Some(entry.player_id));
-
-                        log::debug!("Spectating target {}", entry.name);
-                        sent_spectate_request = true;
-                    }
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
+
+                if let MovementController::Spectate(spectate_controller) = &mut self.controller {
+                    spectate_controller.handle_player_entering(
+                        &mut self.simulation.player_manager,
+                        &mut self.connection,
+                        &self.statbox,
+                    );
+                }
             }
             GameServerMessage::PlayerLeaving(leaving) => {
                 if let Some(player) = self
@@ -1612,6 +1533,15 @@ impl Client {
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
+
+                if let MovementController::Spectate(spectate_controller) = &mut self.controller {
+                    spectate_controller.handle_player_leave(
+                        leaving,
+                        &mut self.simulation.player_manager,
+                        &mut self.connection,
+                        &self.statbox,
+                    );
+                }
             }
             GameServerMessage::SmallPosition(message) => {
                 if let Some(player) = self
@@ -2014,10 +1944,26 @@ impl Client {
                         );
 
                         player.position = Some(position);
+
+                        if player.ship_kind == ShipKind::Spectator {
+                            self.controller =
+                                MovementController::Spectate(SpectateController::new());
+                        } else {
+                            self.controller = MovementController::Ship(ShipController::new());
+                        }
                     }
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
+
+                if let MovementController::Spectate(spectate_controller) = &mut self.controller {
+                    spectate_controller.handle_ship_change(
+                        change,
+                        &mut self.simulation.player_manager,
+                        &mut self.connection,
+                        &self.statbox,
+                    );
+                }
             }
             GameServerMessage::PowerballPosition(message) => {
                 self.simulation.powerball_manager.on_ball_position_message(
