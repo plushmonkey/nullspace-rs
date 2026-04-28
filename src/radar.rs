@@ -98,6 +98,7 @@ pub struct Radar {
     sprite_entire: RadarSprite,
 
     dirty: bool,
+    pub render_full: bool,
 
     build_parameters: RadarBuildParameters,
 
@@ -113,6 +114,7 @@ impl Radar {
             sprite_entire: RadarSprite::new(),
 
             dirty: true,
+            render_full: false,
 
             build_parameters: RadarBuildParameters::empty(),
             view: RadarView::empty(),
@@ -211,7 +213,6 @@ impl Radar {
         mapzoom: u16,
         frequency: u16,
         powerball_mode: u8,
-        fullsize: bool,
     ) {
         if self.should_recreate(
             render_state.config.width,
@@ -232,7 +233,7 @@ impl Radar {
         let bottom_x = render_state.config.width.saturating_sub(CORNER_INSET);
         let bottom_y = render_state.config.height.saturating_sub(CORNER_INSET);
 
-        if fullsize {
+        if self.render_full {
             let size = &self.sprite_entire.renderable.size;
             let start_x = bottom_x.saturating_sub(size[0]);
             let start_y = bottom_y.saturating_sub(size[1]);

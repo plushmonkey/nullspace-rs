@@ -2,11 +2,14 @@ use crate::arena_settings::ArenaSettings;
 use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
+use crate::input::InputAction;
+use crate::input::InputState;
 use crate::map::ANIMATED_TILE_KIND_COUNT;
 use crate::map::DoorRng;
 use crate::map::Map;
 use crate::map::TILE_ID_FIRST_DOOR;
 use crate::map::TILE_ID_FLAG;
+use crate::math::MAX_POSITION;
 use crate::math::PixelUnit;
 use crate::math::PositionUnit;
 use crate::math::Rectangle;
@@ -30,13 +33,16 @@ use crate::render::layer::Layer;
 use crate::render::render_state::RenderState;
 use crate::render::text_renderer::TextAlignment;
 use crate::render::text_renderer::TextColor;
+use crate::rng::VieRng;
 use crate::select_box::SelectBox;
+use crate::ship::Ship;
 use crate::ship::ShipKind;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::game_simulation::SimulationEventKind;
 use crate::simulation::player_simulation::PLAYER_EXPLOSION_DURATION;
 use crate::simulation::player_simulation::PLAYER_FLASH_DURATION;
 use crate::simulation::player_simulation::update_player_lerp_target;
+use crate::spawn::generate_spawn_position;
 use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
@@ -54,6 +60,34 @@ fn build_zone_directory(zone: &str) -> Result<(), std::io::Error> {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_zone_path(zone: &str, filename: &str) -> String {
     format!("zones/{}/{}", zone, filename)
+}
+
+pub struct SpectateController {
+    pub spectate_player_id: Option<PlayerId>,
+    pub last_spectate_freq: u16,
+}
+
+impl SpectateController {
+    pub fn new() -> Self {
+        Self {
+            spectate_player_id: None,
+            last_spectate_freq: 0xFFFF,
+        }
+    }
+
+    pub fn tick(&mut self, _input_state: &InputState) {
+        //
+    }
+}
+
+pub struct ShipController {
+    pub ship: Ship,
+}
+
+impl ShipController {
+    pub fn new() -> Self {
+        Self { ship: Ship::new() }
+    }
 }
 
 pub struct Client {
@@ -77,11 +111,11 @@ pub struct Client {
     last_spectate_freq: u16,
 
     radar: Radar,
-    // TODO: Remove. This is just for testing until input is handled.
-    pub fullscreen_radar: bool,
 
     pub chat_controller: ChatController,
     pub statbox: Statbox,
+
+    pub ship: Ship,
 }
 
 impl Client {
@@ -108,9 +142,9 @@ impl Client {
             spectate_player_id: None,
             last_spectate_freq: 0xFFFF,
             radar: Radar::new(),
-            fullscreen_radar: false,
             chat_controller: ChatController::new(),
             statbox: Statbox::new(),
+            ship: Ship::new(),
         })
     }
 
@@ -144,13 +178,9 @@ impl Client {
 
         match self.connection.state {
             ConnectionState::Playing | ConnectionState::Disconnected => {
-                if let Some(spectate_player_id) = self.spectate_player_id {
-                    if let Some(player) =
-                        self.simulation.player_manager.get_by_id(spectate_player_id)
-                    {
-                        if let Some(player_position) = player.position {
-                            render_state.camera.position = player_position.into();
-                        }
+                if let Some(me) = self.simulation.player_manager.get_self() {
+                    if let Some(me_position) = me.position {
+                        render_state.camera.position = me_position.into();
                     }
                 }
 
@@ -169,7 +199,6 @@ impl Client {
                     self.settings.map_zoom_factor as u16,
                     self.get_freq(),
                     self.settings.powerball_mode,
-                    self.fullscreen_radar,
                 );
             }
             _ => {
@@ -1022,8 +1051,9 @@ impl Client {
     pub fn update(
         &mut self,
         render_state: Option<&mut RenderState>,
+        input_state: &mut InputState,
         dt: f32,
-    ) -> Result<(), ConnectionError> {
+    ) -> Result<i32, ConnectionError> {
         let mut render_state = render_state;
 
         self.receive_messages(&mut render_state)?;
@@ -1031,13 +1061,76 @@ impl Client {
         let local_now = GameTick::now(0);
         let tick_count = local_now.diff(&self.local_tick);
 
+        self.radar.render_full = input_state.is_down(InputAction::FullRadar);
+
+        if let Some(new_spectate_id) = self
+            .statbox
+            .handle_input(input_state, &self.simulation.player_manager)
+        {
+            self.spectate_player(Some(new_spectate_id));
+        }
+
         for _ in 0..tick_count {
             self.connection.tick();
 
             self.map
                 .tick(&self.settings, self.connection.get_game_tick());
 
+            if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                if let Some(me_position) = &mut me.position {
+                    let mut offset_x = 0;
+                    let mut offset_y = 0;
+
+                    // TODO: Move to spectate/ship controllers
+                    if input_state.is_down(InputAction::MoveLeft) {
+                        offset_x -= 1;
+                    }
+
+                    if input_state.is_down(InputAction::MoveRight) {
+                        offset_x += 1;
+                    }
+
+                    if input_state.is_down(InputAction::MoveForward) {
+                        offset_y -= 1;
+                    }
+
+                    if input_state.is_down(InputAction::MoveBackward) {
+                        offset_y += 1;
+                    }
+
+                    if input_state.is_modifier_down(crate::input::InputModifier::Shift) {
+                        offset_x *= 8000 * 2;
+                        offset_y *= 8000 * 2;
+                    } else {
+                        offset_x *= 8000;
+                        offset_y *= 8000;
+                    }
+
+                    if offset_x != 0 || offset_y != 0 {
+                        me_position.x.0 += offset_x;
+                        me_position.y.0 += offset_y;
+
+                        me_position.x.0 = me_position.x.0.clamp(0, MAX_POSITION);
+                        me_position.y.0 = me_position.y.0.clamp(0, MAX_POSITION);
+
+                        self.spectate_player(None);
+                    }
+                }
+            }
+
             self.simulation.tick(&self.map, &self.settings);
+
+            if let Some(spectate_id) = self.spectate_player_id {
+                if let Some(player) = self.simulation.player_manager.get_by_id(spectate_id) {
+                    if let Some(player_position) = player.position {
+                        self.simulation
+                            .player_manager
+                            .get_self_mut()
+                            .unwrap()
+                            .position = Some(player_position);
+                    }
+                }
+            }
 
             if let Some(render_state) = &mut render_state {
                 self.render_trails(render_state);
@@ -1140,37 +1233,41 @@ impl Client {
 
             match self.connection.state {
                 ConnectionState::Playing => {
+                    let position_sync_delay = if let ShipKind::Spectator = self.ship.kind {
+                        100
+                    } else {
+                        10
+                    };
+
                     if self
                         .connection
                         .get_game_tick()
                         .diff(&self.last_position_tick)
-                        > 100
+                        > position_sync_delay
                     {
-                        let (x_position, y_position) = match &render_state {
-                            Some(render_state) => {
-                                let x_position = render_state.camera.position.x as i32 * 16;
-                                let y_position = render_state.camera.position.y as i32 * 16;
+                        if let Some(me) = self.simulation.player_manager.get_self() {
+                            let (x_position, y_position) = if let Some(me_position) = me.position {
+                                (me_position.x.0 / 1000, me_position.y.0 / 1000)
+                            } else {
+                                (0, 0)
+                            };
 
-                                (x_position, y_position)
-                            }
-                            None => (0, 0),
-                        };
+                            let position = PositionMessage {
+                                direction: me.direction,
+                                timestamp: self.connection.get_game_tick(),
+                                x_position: x_position as u16,
+                                y_position: y_position as u16,
+                                x_velocity: (me.velocity.x.0 / 1000) as i16,
+                                y_velocity: (me.velocity.y.0 / 1000) as i16,
+                                togglables: me.status,
+                                bounty: me.bounty,
+                                energy: 0,
+                                weapon_info: 0,
+                            };
 
-                        let position = PositionMessage {
-                            direction: 0,
-                            timestamp: self.connection.get_game_tick(),
-                            x_position: x_position as u16,
-                            y_position: y_position as u16,
-                            x_velocity: 0,
-                            y_velocity: 0,
-                            togglables: 0,
-                            bounty: 0,
-                            energy: 0,
-                            weapon_info: 0,
-                        };
-
-                        self.connection.send(&position)?;
-                        self.last_position_tick = self.connection.get_game_tick();
+                            self.connection.send(&position)?;
+                            self.last_position_tick = self.connection.get_game_tick();
+                        }
 
                         // Make sure our player data will be considered synchronized by the simulation.
                         if let Some(player) = self
@@ -1198,7 +1295,16 @@ impl Client {
 
         self.local_tick = self.local_tick + tick_count;
 
-        Ok(())
+        if let Some(render_state) = &mut render_state {
+            if let Some(me) = self.simulation.player_manager.get_self() {
+                if let Some(me_position) = me.position {
+                    render_state.camera.position.x = (me_position.x.0 / 1000) as f32 / 16.0f32;
+                    render_state.camera.position.y = (me_position.y.0 / 1000) as f32 / 16.0f32;
+                }
+            }
+        }
+
+        Ok(tick_count)
     }
 
     fn receive_messages(
@@ -1474,24 +1580,23 @@ impl Client {
                     player.attach_parent = entry.attach_parent;
                     player.last_position_timestamp = self.connection.get_game_tick();
 
-                    log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
-
-                    if !sent_spectate_request && entry.ship_kind != ShipKind::Spectator {
-                        let spectate_request = SpectateMessage {
-                            player_id: entry.player_id,
-                        };
-
-                        self.connection.send_reliable(&spectate_request)?;
-                        self.spectate_player_id = Some(player.id);
-
-                        log::debug!("Spectating target {}", entry.name);
-                        sent_spectate_request = true;
+                    if entry.player_id == self.simulation.player_manager.self_id {
+                        player.position = Some(Position::empty());
                     }
+
+                    log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
 
                     // If there was someone already in this place, say that they left.
                     // This can happen when joining at the same exact time as other players.
                     if let Some(old_player) = self.simulation.player_manager.add_player(player) {
                         log::debug!("{} left arena", old_player.name);
+                    }
+
+                    if !sent_spectate_request && entry.ship_kind != ShipKind::Spectator {
+                        self.spectate_player(Some(entry.player_id));
+
+                        log::debug!("Spectating target {}", entry.name);
+                        sent_spectate_request = true;
                     }
                 }
 
@@ -1883,6 +1988,8 @@ impl Client {
                 self.statbox.rebuild(&self.simulation.player_manager);
             }
             GameServerMessage::PlayerTeamAndShipChange(change) => {
+                let player_count = self.simulation.player_manager.players.len();
+
                 if let Some(player) = self
                     .simulation
                     .player_manager
@@ -1891,6 +1998,23 @@ impl Client {
                     player.ship_kind = change.ship_kind;
                     player.frequency = change.frequency;
                     player.position = None;
+
+                    if player.id == self.connection.player_id {
+                        self.ship.kind = change.ship_kind;
+
+                        let rng = VieRng::new(GameTick::now(0).value() as i32);
+
+                        let position = generate_spawn_position(
+                            &self.settings,
+                            &self.map,
+                            self.ship.kind,
+                            change.frequency,
+                            rng,
+                            player_count,
+                        );
+
+                        player.position = Some(position);
+                    }
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);

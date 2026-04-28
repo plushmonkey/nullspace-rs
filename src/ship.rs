@@ -88,7 +88,7 @@ pub struct Ship {
     pub flag_remaining_ticks: u32,
     pub repel_effect_remaining_ticks: u32,
 
-    pub portal_position: Position,
+    pub portal_position: Option<Position>,
 
     pub multifire: bool,
     pub status: u8,
@@ -97,12 +97,46 @@ pub struct Ship {
 }
 
 impl Ship {
-    pub fn reset(
-        &mut self,
-        settings: &ArenaSettings,
-        current_tick: GameTick,
-        ship_kind: ShipKind,
-    ) {
+    pub fn new() -> Self {
+        Self {
+            kind: ShipKind::Spectator,
+            current_energy: 0,
+            max_energy: 0,
+            recharge: 0,
+            rotation: 0,
+            thrust: 0,
+            speed: 0,
+            guns: 0,
+            bombs: 0,
+            shrapnel: 0,
+            repels: 0,
+            bursts: 0,
+            decoys: 0,
+            thors: 0,
+            bricks: 0,
+            rockets: 0,
+            portals: 0,
+            next_bullet_tick: GameTick::empty(),
+            next_bomb_tick: GameTick::empty(),
+            next_repel_tick: GameTick::empty(),
+            rocket_end_tick: None,
+            shutdown_end_tick: None,
+            fake_antiwarp_end_tick: None,
+            emped_remaining_ticks: 0,
+            super_remaining_ticks: 0,
+            shield_remaining_ticks: 0,
+            portal_remaining_ticks: 0,
+            flag_remaining_ticks: 0,
+            repel_effect_remaining_ticks: 0,
+            portal_position: None,
+            multifire: false,
+            status: 0,
+            capability: 0,
+            bounty: 0,
+        }
+    }
+    
+    pub fn reset(&mut self, settings: &ArenaSettings, current_tick: GameTick, ship_kind: ShipKind) {
         self.kind = ship_kind;
         self.shrapnel = 0;
 

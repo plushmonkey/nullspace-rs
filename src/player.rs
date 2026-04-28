@@ -280,6 +280,14 @@ impl PlayerManager {
         self.players.iter_mut().find(|p| p.id == player_id)
     }
 
+    pub fn get_self(&self) -> Option<&Player> {
+        self.get_by_id(self.self_id)
+    }
+
+    pub fn get_self_mut(&mut self) -> Option<&mut Player> {
+        self.get_by_id_mut(self.self_id)
+    }
+
     pub fn get_frequency_count(&self, frequency: u16) -> usize {
         let mut count = 0;
 

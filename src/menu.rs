@@ -12,6 +12,7 @@ use crate::{
 };
 
 pub enum MenuAction {
+    MenuToggle,
     Quit,
     Help,
     StatBox,
@@ -52,6 +53,10 @@ impl Menu {
     }
 
     pub fn handle_key(&mut self, code: KeyCode) -> Option<MenuAction> {
+        if code == KeyCode::Escape {
+            return Some(MenuAction::MenuToggle);
+        }
+
         if !self.open {
             return None;
         }

@@ -1,6 +1,7 @@
 use smol_str::{StrExt, format_smolstr};
 
 use crate::{
+    input::{InputAction, InputModifier, InputState},
     player::{Player, PlayerId, PlayerManager},
     render::{
         game_sprites::{GameSpriteKind, GameSprites},
@@ -87,6 +88,45 @@ impl Statbox {
 
             select_box: None,
         }
+    }
+
+    // Handles input and returns an optional player id to spectate.
+    pub fn handle_input(
+        &mut self,
+        input_state: &InputState,
+        player_manager: &PlayerManager,
+    ) -> Option<PlayerId> {
+        if input_state.is_triggered(InputAction::StatboxCycle) {
+            self.next_view(player_manager);
+        }
+
+        if input_state.is_triggered(InputAction::StatboxUp) {
+            self.move_selected(
+                player_manager,
+                -1,
+                input_state.is_modifier_down(InputModifier::Shift),
+            );
+
+            if input_state.is_modifier_down(InputModifier::Control) {
+                let selected_player_id = self.get_selected_player_id();
+                return Some(selected_player_id);
+            }
+        }
+
+        if input_state.is_triggered(InputAction::StatboxDown) {
+            self.move_selected(
+                player_manager,
+                1,
+                input_state.is_modifier_down(InputModifier::Shift),
+            );
+
+            if input_state.is_modifier_down(InputModifier::Control) {
+                let selected_player_id = self.get_selected_player_id();
+                return Some(selected_player_id);
+            }
+        }
+
+        None
     }
 
     pub fn display_select_box(&mut self, select_box: Box<SelectBox>) {

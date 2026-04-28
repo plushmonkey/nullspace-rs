@@ -17,6 +17,7 @@ use winit::platform::web::EventLoopExtWebSys;
 
 use crate::{
     client::Client,
+    input::{InputMapping, InputState},
     menu::MenuAction,
     net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
 };
@@ -34,6 +35,7 @@ pub mod chat;
 pub mod checksum;
 pub mod client;
 pub mod clock;
+pub mod input;
 pub mod map;
 pub mod math;
 pub mod menu;
@@ -53,16 +55,6 @@ pub mod weapon;
 
 #[cfg(target_arch = "wasm32")]
 pub mod web_util;
-
-#[derive(Default, Copy, Clone)]
-struct Input {
-    pub left: bool,
-    pub right: bool,
-    pub down: bool,
-    pub up: bool,
-    pub shift: bool,
-    pub control: bool,
-}
 
 struct Timer {
     #[cfg(not(target_arch = "wasm32"))]
@@ -144,11 +136,12 @@ impl ApplicationLoadingState {
 }
 
 struct ApplicationPlayingState {
-    input: Input,
     timer: Timer, // Used for delta time calculations for client update.
     client: Client,
     sprites: GameSprites,
     menu: Menu,
+    input_mapping: InputMapping,
+    input_state: InputState,
 }
 
 impl ApplicationPlayingState {
@@ -202,57 +195,35 @@ impl ApplicationPlayingState {
         )
         .unwrap();
 
+        let mut input_mapping = InputMapping::new();
+
+        input_mapping.register_defaults();
+
         Self {
-            input: Input::default(),
             timer: Timer::new(),
             client,
             sprites,
             menu: Menu::new(),
+            input_mapping,
+            input_state: InputState::new(),
         }
     }
 
     pub fn update(&mut self, render_state: &mut RenderState) {
-        const CAMERA_SPEED: f32 = 30.0f32;
-
         let dt = self.timer.elapsed();
-
-        let mut offset = glam::Vec2::ZERO;
-
-        if self.input.down {
-            offset.y += 1.0f32;
-            self.client.spectate_player(None);
-        }
-        if self.input.up {
-            offset.y -= 1.0f32;
-            self.client.spectate_player(None);
-        }
-        if self.input.right {
-            offset.x += 1.0f32;
-            self.client.spectate_player(None);
-        }
-        if self.input.left {
-            offset.x -= 1.0f32;
-            self.client.spectate_player(None);
-        }
-
-        let speed = if self.input.shift {
-            CAMERA_SPEED * 3.0f32
-        } else {
-            CAMERA_SPEED
-        };
-
-        render_state.camera.position += offset * speed * dt;
-
-        render_state.camera.position.x = render_state.camera.position.x.clamp(0.0f32, 1024.0f32);
-        render_state.camera.position.y = render_state.camera.position.y.clamp(0.0f32, 1024.0f32);
 
         render_state
             .animation_renderer
             .update(self.client.connection.get_game_tick());
 
-        if let Err(e) = self.client.update(Some(render_state), dt) {
+        if let Err(e) = self
+            .client
+            .update(Some(render_state), &mut self.input_state, dt)
+        {
             log::error!("{e}");
-        }
+        };
+
+        self.input_state.clear_triggered();
 
         self.sprites
             .colors
@@ -277,35 +248,52 @@ impl ApplicationPlayingState {
         is_pressed: bool,
     ) {
         match code {
-            KeyCode::ArrowLeft => {
-                self.input.left = is_pressed;
-            }
-            KeyCode::ArrowRight => {
-                self.input.right = is_pressed;
-            }
-            KeyCode::ArrowDown => {
-                self.input.down = is_pressed;
-            }
-            KeyCode::ArrowUp => {
-                self.input.up = is_pressed;
-            }
             KeyCode::ShiftLeft | KeyCode::ShiftRight => {
-                self.input.shift = is_pressed;
+                if is_pressed {
+                    self.input_state
+                        .set_modifier_triggered(input::InputModifier::Shift);
+                }
+
+                self.input_state
+                    .set_modifier_down(input::InputModifier::Shift, is_pressed);
             }
             KeyCode::AltLeft | KeyCode::AltRight => {
-                self.client.fullscreen_radar = is_pressed;
+                if is_pressed {
+                    self.input_state
+                        .set_modifier_triggered(input::InputModifier::Alt);
+                }
+
+                self.input_state
+                    .set_modifier_down(input::InputModifier::Alt, is_pressed);
             }
             KeyCode::ControlLeft | KeyCode::ControlRight => {
-                // This is technically wrong because you could hold one down and toggle another off.
-                // But it's so unusual that it doesn't matter.
-                self.input.control = is_pressed;
+                if is_pressed {
+                    self.input_state
+                        .set_modifier_triggered(input::InputModifier::Control);
+                }
+
+                self.input_state
+                    .set_modifier_down(input::InputModifier::Control, is_pressed);
             }
             _ => {}
+        }
+
+        if let Some(action) = self.input_mapping.get_action(code, &self.input_state) {
+            if is_pressed {
+                self.input_state.set_triggered(action);
+            }
+
+            self.input_state.set_down(action, is_pressed);
         }
 
         if is_pressed {
             if let Some(action) = self.menu.handle_key(code) {
                 match action {
+                    MenuAction::MenuToggle => {
+                        if !self.client.statbox.cancel_select_box() {
+                            self.menu.toggle();
+                        }
+                    }
                     MenuAction::Quit => {
                         event_loop.exit();
                     }
@@ -324,46 +312,13 @@ impl ApplicationPlayingState {
             }
         }
 
-        match (code, is_pressed) {
-            (KeyCode::Escape, true) => {
-                if !self.client.statbox.cancel_select_box() {
-                    self.menu.toggle();
-                }
-            }
-            (KeyCode::F2, true) => {
-                self.client
-                    .statbox
-                    .next_view(&self.client.simulation.player_manager);
-            }
-            (KeyCode::PageUp, true) => {
-                self.client.statbox.move_selected(
-                    &self.client.simulation.player_manager,
-                    -1,
-                    self.input.shift,
-                );
-
-                if self.input.control {
-                    let selected_player_id = self.client.statbox.get_selected_player_id();
-                    self.client.spectate_player(Some(selected_player_id));
-                }
-            }
-            (KeyCode::PageDown, true) => {
-                self.client.statbox.move_selected(
-                    &self.client.simulation.player_manager,
-                    1,
-                    self.input.shift,
-                );
-
-                if self.input.control {
-                    let selected_player_id = self.client.statbox.get_selected_player_id();
-                    self.client.spectate_player(Some(selected_player_id));
-                }
-            }
-            (KeyCode::ControlLeft, true) | (KeyCode::ControlRight, true) => {
-                let selected_player_id = self.client.statbox.get_selected_player_id();
-                self.client.spectate_player(Some(selected_player_id));
-            }
-            _ => {}
+        // TODO: Handle in spectator controller
+        if self
+            .input_state
+            .is_modifier_triggered(input::InputModifier::Control)
+        {
+            let selected_player_id = self.client.statbox.get_selected_player_id();
+            self.client.spectate_player(Some(selected_player_id));
         }
     }
 
@@ -399,11 +354,11 @@ impl ApplicationPlayingState {
             }
         }
 
-        if self
-            .client
-            .chat_controller
-            .handle_key(code, self.input.control)
-        {
+        if self.client.chat_controller.handle_key(
+            code,
+            self.input_state
+                .is_modifier_down(input::InputModifier::Control),
+        ) {
             self.client
                 .chat_controller
                 .send_input(&mut self.client.connection);
