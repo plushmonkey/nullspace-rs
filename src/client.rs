@@ -1019,26 +1019,28 @@ impl Client {
             self.map
                 .tick(&self.settings, self.connection.get_game_tick());
 
-            match &mut self.controller {
-                MovementController::Spectate(spectate_controller) => {
-                    spectate_controller.tick(
-                        input_state,
-                        &mut self.simulation.player_manager,
-                        &mut self.connection,
-                        &self.statbox,
-                    );
-                }
-                MovementController::Ship(ship_controller) => {
-                    ship_controller.tick(
-                        input_state,
-                        &mut self.simulation.player_manager,
-                        &self.settings,
-                        self.connection.get_game_tick(),
-                    );
+            if let ConnectionState::Playing = self.connection.state {
+                match &mut self.controller {
+                    MovementController::Spectate(spectate_controller) => {
+                        spectate_controller.tick(
+                            input_state,
+                            &mut self.simulation.player_manager,
+                            &mut self.connection,
+                            &self.statbox,
+                        );
+                    }
+                    MovementController::Ship(ship_controller) => {
+                        ship_controller.tick(
+                            input_state,
+                            &mut self.simulation.player_manager,
+                            &self.settings,
+                            self.connection.get_game_tick(),
+                        );
 
-                    if let Some(me) = self.simulation.player_manager.get_self_mut() {
-                        me.status = ship_controller.ship.status;
-                        me.bounty = ship_controller.ship.bounty;
+                        if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                            me.status = ship_controller.ship.status;
+                            me.bounty = ship_controller.ship.bounty;
+                        }
                     }
                 }
             }
@@ -1216,11 +1218,13 @@ impl Client {
 
         self.local_tick = self.local_tick + tick_count;
 
-        if let Some(render_state) = &mut render_state {
-            if let Some(me) = self.simulation.player_manager.get_self() {
-                if let Some(me_position) = me.position {
-                    render_state.camera.position.x = (me_position.x.0 / 1000) as f32 / 16.0f32;
-                    render_state.camera.position.y = (me_position.y.0 / 1000) as f32 / 16.0f32;
+        if let ConnectionState::Playing = self.connection.state {
+            if let Some(render_state) = &mut render_state {
+                if let Some(me) = self.simulation.player_manager.get_self() {
+                    if let Some(me_position) = me.position {
+                        render_state.camera.position.x = (me_position.x.0 / 1000) as f32 / 16.0f32;
+                        render_state.camera.position.y = (me_position.y.0 / 1000) as f32 / 16.0f32;
+                    }
                 }
             }
         }
