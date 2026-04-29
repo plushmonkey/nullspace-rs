@@ -191,15 +191,15 @@ pub fn apply_prize_id(
             if negative {
                 ship.max_energy = ship
                     .max_energy
-                    .saturating_sub(ship_settings.upgrade_energy as u32);
-                if ship.max_energy < ship_settings.initial_energy as u32 {
-                    ship.max_energy = ship_settings.initial_energy as u32;
+                    .saturating_sub(ship_settings.upgrade_energy as u32 * 1000);
+                if ship.max_energy < ship_settings.initial_energy as u32 * 1000 {
+                    ship.max_energy = ship_settings.initial_energy as u32 * 1000;
                 }
             } else {
-                ship.max_energy = ship.max_energy + (ship_settings.upgrade_energy as u32);
+                ship.max_energy = ship.max_energy + (ship_settings.upgrade_energy as u32 * 1000);
 
-                if ship.max_energy > ship_settings.maximum_energy as u32 {
-                    ship.max_energy = ship_settings.maximum_energy as u32;
+                if ship.max_energy > ship_settings.maximum_energy as u32 * 1000 {
+                    ship.max_energy = ship_settings.maximum_energy as u32 * 1000;
                 }
             }
         }

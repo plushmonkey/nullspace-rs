@@ -34,8 +34,8 @@ use crate::render::text_renderer::TextAlignment;
 use crate::render::text_renderer::TextColor;
 use crate::rng::VieRng;
 use crate::select_box::SelectBox;
-use crate::ship::Ship;
 use crate::ship::ShipKind;
+use crate::ship_controller::ShipController;
 use crate::simulation::game_simulation::Simulation;
 use crate::simulation::game_simulation::SimulationEventKind;
 use crate::simulation::player_simulation::PLAYER_EXPLOSION_DURATION;
@@ -60,16 +60,6 @@ fn build_zone_directory(zone: &str) -> Result<(), std::io::Error> {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_zone_path(zone: &str, filename: &str) -> String {
     format!("zones/{}/{}", zone, filename)
-}
-
-pub struct ShipController {
-    pub ship: Ship,
-}
-
-impl ShipController {
-    pub fn new() -> Self {
-        Self { ship: Ship::new() }
-    }
 }
 
 enum MovementController {
@@ -99,8 +89,6 @@ pub struct Client {
     pub chat_controller: ChatController,
     pub statbox: Statbox,
 
-    pub ship: Ship,
-
     controller: MovementController,
 }
 
@@ -128,8 +116,6 @@ impl Client {
             radar: Radar::new(),
             chat_controller: ChatController::new(),
             statbox: Statbox::new(),
-            ship: Ship::new(),
-
             controller: MovementController::Spectate(SpectateController::new()),
         })
     }
@@ -1033,8 +1019,6 @@ impl Client {
             self.map
                 .tick(&self.settings, self.connection.get_game_tick());
 
-            self.simulation.tick(&self.map, &self.settings);
-
             match &mut self.controller {
                 MovementController::Spectate(spectate_controller) => {
                     spectate_controller.tick(
@@ -1045,9 +1029,21 @@ impl Client {
                     );
                 }
                 MovementController::Ship(ship_controller) => {
-                    let _ = ship_controller;
+                    ship_controller.tick(
+                        input_state,
+                        &mut self.simulation.player_manager,
+                        &self.settings,
+                        self.connection.get_game_tick(),
+                    );
+
+                    if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                        me.status = ship_controller.ship.status;
+                        me.bounty = ship_controller.ship.bounty;
+                    }
                 }
             }
+
+            self.simulation.tick(&self.map, &self.settings);
 
             if let Some(render_state) = &mut render_state {
                 self.render_trails(render_state);
@@ -1150,10 +1146,13 @@ impl Client {
 
             match self.connection.state {
                 ConnectionState::Playing => {
-                    let position_sync_delay = if let ShipKind::Spectator = self.ship.kind {
-                        100
-                    } else {
-                        10
+                    let (position_sync_delay, energy, status) = match &self.controller {
+                        MovementController::Spectate(_) => (300, 0, 0),
+                        MovementController::Ship(ship_controller) => (
+                            10,
+                            ship_controller.ship.current_energy / 1000,
+                            ship_controller.ship.status,
+                        ),
                     };
 
                     if self
@@ -1174,13 +1173,18 @@ impl Client {
                                 timestamp: self.connection.get_game_tick(),
                                 x_position: x_position as u16,
                                 y_position: y_position as u16,
-                                x_velocity: (me.velocity.x.0 / 1000) as i16,
-                                y_velocity: (me.velocity.y.0 / 1000) as i16,
-                                togglables: me.status,
+                                x_velocity: (me.velocity.x.0) as i16,
+                                y_velocity: (me.velocity.y.0) as i16,
+                                togglables: status,
                                 bounty: me.bounty,
-                                energy: 0,
+                                energy: energy as u16,
                                 weapon_info: 0,
                             };
+
+                            if let MovementController::Ship(ship_controller) = &mut self.controller
+                            {
+                                ship_controller.ship.status &= !StatusFlags::Flash;
+                            }
 
                             self.connection.send(&position)?;
                             self.last_position_tick = self.connection.get_game_tick();
@@ -1925,31 +1929,45 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(change.player_id)
                 {
+                    let previous_position = if let Some(position) = player.position {
+                        position
+                    } else {
+                        Position::from_tile(0, 0)
+                    };
+
                     player.ship_kind = change.ship_kind;
                     player.frequency = change.frequency;
                     player.position = None;
+                    player.velocity.clear();
 
                     if player.id == self.connection.player_id {
-                        self.ship.kind = change.ship_kind;
-
-                        let rng = VieRng::new(GameTick::now(0).value() as i32);
-
-                        let position = generate_spawn_position(
-                            &self.settings,
-                            &self.map,
-                            self.ship.kind,
-                            change.frequency,
-                            rng,
-                            player_count,
-                        );
-
-                        player.position = Some(position);
-
                         if player.ship_kind == ShipKind::Spectator {
+                            player.position = Some(previous_position);
                             self.controller =
                                 MovementController::Spectate(SpectateController::new());
                         } else {
-                            self.controller = MovementController::Ship(ShipController::new());
+                            let rng = VieRng::new(GameTick::now(0).value() as i32);
+
+                            let position = generate_spawn_position(
+                                &self.settings,
+                                &self.map,
+                                player.ship_kind,
+                                change.frequency,
+                                rng,
+                                player_count,
+                            );
+
+                            player.position = Some(position);
+
+                            let mut ship_controller = ShipController::new();
+
+                            ship_controller.reset_ship(
+                                &self.settings,
+                                self.connection.get_game_tick(),
+                                player.ship_kind,
+                            );
+
+                            self.controller = MovementController::Ship(ship_controller);
                         }
                     }
                 }

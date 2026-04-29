@@ -362,8 +362,17 @@ impl RenderState {
         let y_start = 8 * 16;
         let y_end = y_start + 16;
 
-        self.map_renderer.door_spriteset =
-            SpriteSet::new_from_slice(self, &tileset.image, x_start, y_start, x_end, y_end, 8, 1);
+        self.map_renderer.door_spriteset = SpriteSet::new_from_slice(
+            self,
+            &tileset.image,
+            x_start,
+            y_start,
+            x_end,
+            y_end,
+            8,
+            1,
+            false,
+        );
 
         self.camera.position = glam::Vec2::new(0.0f32, 0.0f32);
     }

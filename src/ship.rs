@@ -1,5 +1,6 @@
 use crate::{
-    arena_settings::ArenaSettings, clock::GameTick, math::Position, prize::apply_prize_id,
+    arena_settings::ArenaSettings, clock::GameTick, math::Position, player::StatusFlags,
+    prize::apply_prize_id,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -53,6 +54,7 @@ pub struct Ship {
     pub kind: ShipKind,
 
     pub current_energy: u32,
+    pub current_orientation: i32,
 
     pub max_energy: u32,
     pub recharge: u32,
@@ -101,6 +103,7 @@ impl Ship {
         Self {
             kind: ShipKind::Spectator,
             current_energy: 0,
+            current_orientation: 0,
             max_energy: 0,
             recharge: 0,
             rotation: 0,
@@ -135,7 +138,33 @@ impl Ship {
             bounty: 0,
         }
     }
-    
+
+    pub fn is_using_rocket(&mut self, current_tick: GameTick) -> bool {
+        if let Some(end_tick) = &self.rocket_end_tick {
+            if current_tick >= *end_tick {
+                self.rocket_end_tick = None;
+                return false;
+            }
+
+            return true;
+        }
+
+        false
+    }
+
+    pub fn is_engine_shutdown(&mut self, current_tick: GameTick) -> bool {
+        if let Some(end_tick) = &self.shutdown_end_tick {
+            if current_tick >= *end_tick {
+                self.shutdown_end_tick = None;
+                return false;
+            }
+
+            return true;
+        }
+
+        false
+    }
+
     pub fn reset(&mut self, settings: &ArenaSettings, current_tick: GameTick, ship_kind: ShipKind) {
         self.kind = ship_kind;
         self.shrapnel = 0;
@@ -159,6 +188,8 @@ impl Ship {
         if let ShipKind::Spectator = ship_kind {
             return;
         }
+
+        self.status = StatusFlags::Flash;
 
         let ship_settings = settings.get_ship_settings(ship_kind);
         let bomb_delay = ship_settings.bomb_fire_delay as i32;
@@ -259,11 +290,14 @@ impl Ship {
         self.current_energy = self.max_energy;
 
         if settings.prize_weights.calculate_total_weight() > 0 {
-            if let Err(e) = apply_prize_id(settings, self, current_tick, 0) {
-                println!("ship reset prize error: {}", e);
+            for _ in 0..ship_settings.initial_bounty {
+                if let Err(e) = apply_prize_id(settings, self, current_tick, 0) {
+                    println!("ship reset prize error: {}", e);
+                }
             }
         }
 
         self.current_energy = self.max_energy;
+        self.bounty = ship_settings.initial_bounty;
     }
 }

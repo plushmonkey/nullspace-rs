@@ -48,6 +48,7 @@ pub mod render;
 pub mod rng;
 pub mod select_box;
 pub mod ship;
+pub mod ship_controller;
 pub mod simulation;
 pub mod spawn;
 pub mod spectate_controller;
@@ -304,7 +305,11 @@ impl ApplicationPlayingState {
                             .send_public(&mut self.client.connection, "?arena");
                     }
                     MenuAction::ShipRequest(ship_kind) => {
-                        log::debug!("MenuAction::ShipRequest({:?})", ship_kind);
+                        let ship_request =
+                            crate::net::packet::c2s::RequestShipMessage { ship_kind };
+                        if let Err(e) = self.client.connection.send_reliable(&ship_request) {
+                            log::error!("{e}");
+                        }
                     }
                     _ => {}
                 }

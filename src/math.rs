@@ -143,6 +143,19 @@ impl Velocity {
         self.x = PositionUnit(0);
         self.y = PositionUnit(0);
     }
+
+    pub fn truncate(&mut self, length: i32) {
+        let current_length_sq =
+            self.x.0 as i64 * self.x.0 as i64 + self.y.0 as i64 * self.y.0 as i64;
+
+        if current_length_sq > length as i64 * length as i64 {
+            let new_vec =
+                glam::Vec2::new(self.x.0 as f32, self.y.0 as f32).normalize() * length as f32;
+
+            self.x.0 = new_vec.x as i32;
+            self.y.0 = new_vec.y as i32;
+        }
+    }
 }
 
 pub fn radians(degrees: f32) -> f32 {

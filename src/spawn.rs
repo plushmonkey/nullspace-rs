@@ -1,10 +1,4 @@
-use crate::{
-    arena_settings::ArenaSettings,
-    map::Map,
-    math::{Position, PositionUnit},
-    rng::VieRng,
-    ship::ShipKind,
-};
+use crate::{arena_settings::ArenaSettings, map::Map, math::Position, rng::VieRng, ship::ShipKind};
 
 pub fn generate_spawn_position(
     settings: &ArenaSettings,
@@ -30,7 +24,7 @@ pub fn generate_spawn_position(
     let mut result;
 
     if spawn_count == 0 {
-        result = Position::new(PositionUnit(512), PositionUnit(512));
+        result = Position::from_tile(512, 512);
 
         for _ in 0..100 {
             let x;
@@ -76,7 +70,7 @@ pub fn generate_spawn_position(
             }
 
             if map.can_fit(x as u16, y as u16, ship_radius, frequency) {
-                result = Position::new(PositionUnit(x as i32), PositionUnit(y as i32));
+                result = Position::from_tile(x as i32, y as i32);
                 break;
             }
         }
@@ -95,11 +89,11 @@ pub fn generate_spawn_position(
 
         if y_center == 0 {
             y_center = 512;
-        } else {
+        } else if y_center < 0 {
             y_center += 1024;
         }
 
-        result = Position::new(PositionUnit(x_center as i32), PositionUnit(y_center as i32));
+        result = Position::from_tile(x_center as i32, y_center as i32);
 
         if radius > 0 {
             for _ in 0..100 {
@@ -113,7 +107,7 @@ pub fn generate_spawn_position(
                 let y = y_center as i32 + y_offset;
 
                 if map.can_fit(x as u16, y as u16, ship_radius, frequency) {
-                    result = Position::new(PositionUnit(x), PositionUnit(y));
+                    result = Position::from_tile(x, y);
                     break;
                 }
             }

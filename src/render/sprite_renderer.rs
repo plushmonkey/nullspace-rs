@@ -64,7 +64,7 @@ pub struct SpriteRenderer {
     bind_group_layout: wgpu::BindGroupLayout,
 
     sampler: wgpu::Sampler,
-    nearest_sampler: wgpu::Sampler,
+    linear_sampler: wgpu::Sampler,
 
     sprite_sheets: Vec<SpriteSheet>,
 
@@ -95,7 +95,7 @@ impl SpriteRenderer {
         });
 
         let sampler = Texture::create_sampler(device);
-        let nearest_sampler = Texture::create_nearest_sampler(device);
+        let linear_sampler = Texture::create_linear_sampler(device);
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -181,7 +181,7 @@ impl SpriteRenderer {
 
             bind_group_layout,
             sampler,
-            nearest_sampler,
+            linear_sampler,
             sprite_sheets: vec![],
             push_buffers: vec![],
         }
@@ -339,10 +339,10 @@ impl SpriteRenderer {
         &mut self,
         device: &wgpu::Device,
         texture: &Texture,
-        nearest_sampler: bool,
+        linear_sampler: bool,
     ) -> SheetIndex {
-        let sampler = if nearest_sampler {
-            &self.nearest_sampler
+        let sampler = if linear_sampler {
+            &self.linear_sampler
         } else {
             &self.sampler
         };

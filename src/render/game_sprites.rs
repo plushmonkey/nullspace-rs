@@ -28,11 +28,22 @@ impl SpriteSet {
         img: &image::RgbaImage,
         cols: u32,
         rows: u32,
+        linear_sampler: bool,
     ) -> Self {
         let width = img.width();
         let height = img.height();
 
-        Self::new_from_slice(render_state, img, 0, 0, width, height, cols, rows)
+        Self::new_from_slice(
+            render_state,
+            img,
+            0,
+            0,
+            width,
+            height,
+            cols,
+            rows,
+            linear_sampler,
+        )
     }
 
     pub fn new_from_slice(
@@ -44,6 +55,7 @@ impl SpriteSet {
         y_end: u32,
         cols: u32,
         rows: u32,
+        linear_sampler: bool,
     ) -> Self {
         use image::EncodableLayout;
 
@@ -62,12 +74,10 @@ impl SpriteSet {
 
         RenderState::buffer_texture(&render_state.queue, &texture, &img.as_bytes());
 
-        let nearest_sampler = renderable_width == 1 || renderable_height == 1;
-
         let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
             &render_state.device,
             &texture,
-            nearest_sampler,
+            linear_sampler,
         );
         let sheet = render_state.sprite_renderer.get_sheet(sheet_index).unwrap();
 
@@ -92,7 +102,7 @@ impl SpriteSet {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GameSpriteKind {
     Ships,
     Bullets,
@@ -213,7 +223,9 @@ impl GameSpriteLoader {
             let index = kind as usize;
             let (cols, rows) = GAME_SPRITE_SHEET_DEFINITIONS[index];
 
-            sprites.sprites[index] = SpriteSet::new(render_state, &img, cols, rows);
+            let linear_sampler = kind == GameSpriteKind::Ships;
+
+            sprites.sprites[index] = SpriteSet::new(render_state, &img, cols, rows, linear_sampler);
         }
 
         let (colors_width, colors_height, colors_sheet_index) =

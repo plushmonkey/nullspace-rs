@@ -73,13 +73,13 @@ impl Texture {
         })
     }
 
-    pub fn create_nearest_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    pub fn create_linear_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             lod_max_clamp: 0.0,
             ..Default::default()
