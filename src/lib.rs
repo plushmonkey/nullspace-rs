@@ -17,7 +17,7 @@ use winit::platform::web::EventLoopExtWebSys;
 
 use crate::{
     client::Client,
-    input::{InputMapping, InputState},
+    input::{InputMapping, InputState, is_input_keycode},
     menu::MenuAction,
     net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
 };
@@ -144,6 +144,7 @@ struct ApplicationPlayingState {
     menu: Menu,
     input_mapping: InputMapping,
     input_state: InputState,
+    action_input: bool,
 }
 
 impl ApplicationPlayingState {
@@ -208,6 +209,7 @@ impl ApplicationPlayingState {
             menu: Menu::new(),
             input_mapping,
             input_state: InputState::new(),
+            action_input: false,
         }
     }
 
@@ -233,6 +235,7 @@ impl ApplicationPlayingState {
 
         self.menu.handled = false;
         self.client.chat_controller.full_history = self.menu.is_open();
+        self.action_input = false;
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
@@ -281,11 +284,14 @@ impl ApplicationPlayingState {
         }
 
         if let Some(action) = self.input_mapping.get_action(code, &self.input_state) {
-            if is_pressed {
-                self.input_state.set_triggered(action);
-            }
+            if self.client.chat_controller.input.is_empty() || !is_input_keycode(code) {
+                if is_pressed {
+                    self.input_state.set_triggered(action);
+                }
 
-            self.input_state.set_down(action, is_pressed);
+                self.input_state.set_down(action, is_pressed);
+                self.action_input = true;
+            }
         }
 
         if is_pressed {
@@ -331,7 +337,7 @@ impl ApplicationPlayingState {
             self.menu.toggle();
         }
 
-        if self.menu.handled {
+        if self.menu.handled || self.action_input {
             return;
         }
 

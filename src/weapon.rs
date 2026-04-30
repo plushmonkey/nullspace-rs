@@ -245,6 +245,59 @@ impl WeaponKind {
 
         Some(kind)
     }
+
+    pub fn pack(&self) -> u16 {
+        match self {
+            WeaponKind::None => 0,
+            WeaponKind::Bullet(weapon) => {
+                let kind = 1 as u16;
+                let level = weapon.level as u16;
+                let alternate = weapon.multi as u16;
+
+                kind | (level << 5) | (alternate << 15)
+            }
+            WeaponKind::BouncingBullet(weapon) => {
+                let kind = 2 as u16;
+                let level = weapon.level as u16;
+                let alternate = weapon.multi as u16;
+
+                kind | (level << 5) | (alternate << 15)
+            }
+            WeaponKind::Bomb(bomb) => {
+                let kind = 3 as u16;
+                let level = bomb.level as u16;
+                let alternate = bomb.mine as u16;
+                let shrapbouncing = bomb.shrapnel_bouncing as u16;
+                let shraplevel = bomb.shrapnel_level as u16;
+                let shrap = bomb.shrapnel_count as u16;
+
+                kind | (level << 5)
+                    | (shrapbouncing << 7)
+                    | (shraplevel << 8)
+                    | (shrap << 10)
+                    | (alternate << 15)
+            }
+            WeaponKind::ProximityBomb(bomb) => {
+                let kind = 4 as u16;
+                let level = bomb.level as u16;
+                let alternate = bomb.mine as u16;
+                let shrapbouncing = bomb.shrapnel_bouncing as u16;
+                let shraplevel = bomb.shrapnel_level as u16;
+                let shrap = bomb.shrapnel_count as u16;
+
+                kind | (level << 5)
+                    | (shrapbouncing << 7)
+                    | (shraplevel << 8)
+                    | (shrap << 10)
+                    | (alternate << 15)
+            }
+            WeaponKind::Repel => 5,
+            WeaponKind::Decoy(_) => 6,
+            WeaponKind::Burst(_) => 7,
+            WeaponKind::Thor(_) => 8,
+            _ => 0,
+        }
+    }
 }
 
 pub struct Weapon {

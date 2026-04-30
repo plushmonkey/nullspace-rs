@@ -147,6 +147,26 @@ fn is_valid_multiprize_id(random_prize: i32) -> bool {
     !invalid_prize
 }
 
+pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: GameTick, count: i32) {
+    let mut rng = VieRng::new(tick.value() as i32);
+
+    let mut applied = 0;
+
+    for _ in 0..9999 {
+        let random_prize = generate_prize_id(settings, rng.next() as i32, false);
+
+        if is_valid_multiprize_id(random_prize) {
+            if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize) {
+                applied += 1;
+            }
+        }
+
+        if applied >= count {
+            break;
+        }
+    }
+}
+
 pub fn apply_prize_id(
     settings: &ArenaSettings,
     ship: &mut Ship,

@@ -1,6 +1,6 @@
 use crate::{
     arena_settings::ArenaSettings, clock::GameTick, math::Position, player::StatusFlags,
-    prize::apply_prize_id,
+    prize::apply_random_prizes, weapon::WeaponKind,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -96,6 +96,8 @@ pub struct Ship {
     pub status: u8,
     pub capability: ShipCapabilityFlags,
     pub bounty: u16,
+
+    pub weapon: Option<WeaponKind>,
 }
 
 impl Ship {
@@ -136,6 +138,7 @@ impl Ship {
             status: 0,
             capability: 0,
             bounty: 0,
+            weapon: None,
         }
     }
 
@@ -163,6 +166,10 @@ impl Ship {
         }
 
         false
+    }
+
+    pub fn is_max_energy(&self) -> bool {
+        self.current_energy >= self.max_energy
     }
 
     pub fn reset(&mut self, settings: &ArenaSettings, current_tick: GameTick, ship_kind: ShipKind) {
@@ -290,11 +297,12 @@ impl Ship {
         self.current_energy = self.max_energy;
 
         if settings.prize_weights.calculate_total_weight() > 0 {
-            for _ in 0..ship_settings.initial_bounty {
-                if let Err(e) = apply_prize_id(settings, self, current_tick, 0) {
-                    println!("ship reset prize error: {}", e);
-                }
-            }
+            apply_random_prizes(
+                settings,
+                self,
+                current_tick,
+                ship_settings.initial_bounty as i32,
+            );
         }
 
         self.current_energy = self.max_energy;

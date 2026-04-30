@@ -22,6 +22,7 @@ use crate::net::packet::s2c::*;
 use crate::player::*;
 use crate::powerball::PowerballState;
 use crate::powerball::is_team_goal;
+use crate::prize::apply_prize_id;
 use crate::radar::IndicatorFlag;
 use crate::radar::Radar;
 use crate::render::colors::ColorRenderableKind;
@@ -1030,11 +1031,15 @@ impl Client {
                         );
                     }
                     MovementController::Ship(ship_controller) => {
+                        let current_tick = self.connection.get_game_tick();
+
                         ship_controller.tick(
                             input_state,
+                            &mut self.connection,
                             &mut self.simulation.player_manager,
+                            &self.map,
                             &self.settings,
-                            self.connection.get_game_tick(),
+                            current_tick,
                         );
 
                         if let Some(me) = self.simulation.player_manager.get_self_mut() {
@@ -1148,31 +1153,74 @@ impl Client {
 
             match self.connection.state {
                 ConnectionState::Playing => {
-                    let (position_sync_delay, energy, status) = match &self.controller {
-                        MovementController::Spectate(_) => (300, 0, 0),
-                        MovementController::Ship(ship_controller) => (
-                            10,
-                            ship_controller.ship.current_energy / 1000,
-                            ship_controller.ship.status,
-                        ),
+                    let (position_sync_delay, energy, status, weapon_kind) =
+                        match &mut self.controller {
+                            MovementController::Spectate(_) => (300, 0, 0, WeaponKind::None),
+                            MovementController::Ship(ship_controller) => {
+                                let weapon_kind =
+                                    if let Some(weapon_kind) = ship_controller.ship.weapon {
+                                        weapon_kind
+                                    } else {
+                                        WeaponKind::None
+                                    };
+
+                                (
+                                    10,
+                                    ship_controller.ship.current_energy / 1000,
+                                    ship_controller.ship.status,
+                                    weapon_kind,
+                                )
+                            }
+                        };
+
+                    let weapon_info = match weapon_kind {
+                        WeaponKind::None => 0,
+                        _ => weapon_kind.pack(),
                     };
 
-                    if self
-                        .connection
-                        .get_game_tick()
-                        .diff(&self.last_position_tick)
-                        > position_sync_delay
-                    {
+                    let current_tick = self.connection.get_game_tick();
+
+                    let position_delay_elapsed =
+                        current_tick.diff(&self.last_position_tick) >= position_sync_delay;
+
+                    // We only send the position packets on the sync tick boundaries to minimize the chance of timestamp overlap.
+                    let tick_multiple_of_delay =
+                        current_tick.value() % position_sync_delay as u32 == 0;
+
+                    if (position_delay_elapsed && tick_multiple_of_delay) || weapon_info != 0 {
                         if let Some(me) = self.simulation.player_manager.get_self() {
+                            // Spawn the weapons that we are firing.
+                            if weapon_info != 0 {
+                                if let Some(position) = me.position {
+                                    self.simulation.weapon_manager.spawn_weapons(
+                                        me,
+                                        position,
+                                        me.velocity,
+                                        me.direction,
+                                        weapon_kind,
+                                        &self.settings,
+                                        self.connection.get_game_tick(),
+                                    );
+                                }
+                            }
+
                             let (x_position, y_position) = if let Some(me_position) = me.position {
                                 (me_position.x.0 / 1000, me_position.y.0 / 1000)
                             } else {
                                 (0, 0)
                             };
 
+                            let mut timestamp = self.connection.get_game_tick();
+
+                            // If we are trying to send a weapon packet very close to the last sent packet,
+                            // adjust the timestamp forward to reduce chance that Continuum's poor position handling doesn't overlap.
+                            if timestamp.diff(&self.last_position_tick) <= 2 {
+                                timestamp = timestamp + 2;
+                            }
+
                             let position = PositionMessage {
                                 direction: me.direction,
-                                timestamp: self.connection.get_game_tick(),
+                                timestamp,
                                 x_position: x_position as u16,
                                 y_position: y_position as u16,
                                 x_velocity: (me.velocity.x.0) as i16,
@@ -1180,7 +1228,7 @@ impl Client {
                                 togglables: status,
                                 bounty: me.bounty,
                                 energy: energy as u16,
-                                weapon_info: 0,
+                                weapon_info,
                             };
 
                             if let MovementController::Ship(ship_controller) = &mut self.controller
@@ -1985,6 +2033,25 @@ impl Client {
                         &mut self.connection,
                         &self.statbox,
                     );
+                }
+            }
+            GameServerMessage::CollectedPrize(message) => {
+                log::info!(
+                    "Got CollectedPrize for id {} x{}",
+                    message.prize_id,
+                    message.count
+                );
+                if let MovementController::Ship(ship_controller) = &mut self.controller {
+                    for _ in 0..message.count {
+                        if let Err(e) = apply_prize_id(
+                            &self.settings,
+                            &mut ship_controller.ship,
+                            self.connection.get_game_tick(),
+                            message.prize_id as i32,
+                        ) {
+                            log::error!("{e}");
+                        }
+                    }
                 }
             }
             GameServerMessage::PowerballPosition(message) => {

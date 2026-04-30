@@ -39,7 +39,7 @@ pub enum InputModifier {
     Alt,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct InputModifierSet {
     states: u8,
 }
@@ -238,6 +238,17 @@ impl InputMapping {
             InputModifierSet::with(InputModifier::Control),
             InputAction::Repel,
         );
+        self.register_modifier_action(
+            KeyCode::ControlLeft,
+            InputModifierSet::with(InputModifier::Shift),
+            InputAction::Repel,
+        );
+        self.register_modifier_action(
+            KeyCode::ControlRight,
+            InputModifierSet::with(InputModifier::Shift),
+            InputAction::Repel,
+        );
+        self.register_action(KeyCode::Backquote, InputAction::Repel);
 
         self.register_modifier_action(
             KeyCode::Delete,
@@ -285,7 +296,7 @@ impl InputMapping {
         let current_modifiers = input_state.get_modifier_down_set();
 
         let mut best_action = None;
-        let mut best_action_modifier_count = 0;
+        let mut best_action_modifier_count: usize = 0;
 
         // Prioritize actions that have the best overlap with modifiers.
         for (action, modifier_set) in &key_set.actions {
@@ -294,6 +305,10 @@ impl InputMapping {
             if best_action.is_none() || modifier_count > best_action_modifier_count {
                 best_action = Some(action);
                 best_action_modifier_count = modifier_count;
+            }
+
+            if *modifier_set == current_modifiers {
+                return Some(*action);
             }
         }
 
@@ -319,5 +334,81 @@ impl InputMapping {
 
             self.mapping.insert(code, key_set);
         }
+    }
+}
+
+pub fn is_input_keycode(code: KeyCode) -> bool {
+    match code {
+        KeyCode::Backquote => true,
+        KeyCode::Backslash => true,
+        KeyCode::BracketLeft => true,
+        KeyCode::BracketRight => true,
+        KeyCode::Comma => true,
+        KeyCode::Digit0 => true,
+        KeyCode::Digit1 => true,
+        KeyCode::Digit2 => true,
+        KeyCode::Digit3 => true,
+        KeyCode::Digit4 => true,
+        KeyCode::Digit5 => true,
+        KeyCode::Digit6 => true,
+        KeyCode::Digit7 => true,
+        KeyCode::Digit8 => true,
+        KeyCode::Digit9 => true,
+        KeyCode::Equal => true,
+        KeyCode::IntlBackslash => true,
+        KeyCode::KeyA => true,
+        KeyCode::KeyB => true,
+        KeyCode::KeyC => true,
+        KeyCode::KeyD => true,
+        KeyCode::KeyE => true,
+        KeyCode::KeyF => true,
+        KeyCode::KeyG => true,
+        KeyCode::KeyH => true,
+        KeyCode::KeyI => true,
+        KeyCode::KeyJ => true,
+        KeyCode::KeyK => true,
+        KeyCode::KeyL => true,
+        KeyCode::KeyM => true,
+        KeyCode::KeyN => true,
+        KeyCode::KeyO => true,
+        KeyCode::KeyP => true,
+        KeyCode::KeyQ => true,
+        KeyCode::KeyR => true,
+        KeyCode::KeyS => true,
+        KeyCode::KeyT => true,
+        KeyCode::KeyU => true,
+        KeyCode::KeyV => true,
+        KeyCode::KeyW => true,
+        KeyCode::KeyX => true,
+        KeyCode::KeyY => true,
+        KeyCode::KeyZ => true,
+        KeyCode::Minus => true,
+        KeyCode::Period => true,
+        KeyCode::Quote => true,
+        KeyCode::Semicolon => true,
+        KeyCode::Slash => true,
+        KeyCode::Enter => true,
+        KeyCode::Space => true,
+        KeyCode::Numpad0 => true,
+        KeyCode::Numpad1 => true,
+        KeyCode::Numpad2 => true,
+        KeyCode::Numpad3 => true,
+        KeyCode::Numpad4 => true,
+        KeyCode::Numpad5 => true,
+        KeyCode::Numpad6 => true,
+        KeyCode::Numpad7 => true,
+        KeyCode::Numpad8 => true,
+        KeyCode::Numpad9 => true,
+        KeyCode::NumpadBackspace => true,
+        KeyCode::NumpadComma => true,
+        KeyCode::NumpadDivide => true,
+        KeyCode::NumpadEnter => true,
+        KeyCode::NumpadEqual => true,
+        KeyCode::NumpadHash => true,
+        KeyCode::NumpadParenLeft => true,
+        KeyCode::NumpadParenRight => true,
+        KeyCode::NumpadStar => true,
+        KeyCode::NumpadSubtract => true,
+        _ => false,
     }
 }
