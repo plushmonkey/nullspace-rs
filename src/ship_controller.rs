@@ -64,6 +64,12 @@ impl ShipController {
             current_tick,
             afterburners_enabled,
         );
+
+        let me = player_manager
+            .get_self_mut()
+            .expect("Ship controller player must exist");
+        me.status = self.ship.status;
+        me.bounty = self.ship.bounty;
     }
 
     fn tick_effects(&mut self, current_tick: GameTick) {

@@ -240,6 +240,8 @@ impl Connection {
         }
 
         let buf = packet.data();
+        log::trace!("Send {:?}", &packet.data[..packet.size]);
+
         let mut encrypted = Packet::empty();
 
         self.crypt.encrypt(buf, &mut encrypted.data[..buf.len()]);
@@ -334,7 +336,7 @@ impl Connection {
 
         // If we received a packet and it got processed into a complete message, return it.
         if let Some(packet) = packet {
-            log::trace!("{:?}", &packet.data[..packet.size]);
+            log::trace!("Recv {:?}", &packet.data[..packet.size]);
 
             let result = ServerMessage::parse(&packet.data[..packet.size])?;
 
