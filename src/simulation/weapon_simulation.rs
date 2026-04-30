@@ -6,7 +6,7 @@ use crate::{
         PixelUnit, Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction,
         radians, rotate_vec2,
     },
-    player::{Player, PlayerManager},
+    player::{Player, PlayerId, PlayerManager},
     rng::VieRng,
     ship::ShipKind,
     simulation::game_simulation::{SimulationEvent, SimulationEventKind, WeaponExplosionEvent},
@@ -17,7 +17,7 @@ use crate::{
 enum WeaponSimulateResult {
     Continue,
     WallExplosion,
-    PlayerExplosion,
+    PlayerExplosion(PlayerId),
     TimedOut,
 }
 
@@ -296,28 +296,38 @@ impl WeaponManager {
                 self.weapons[weapon_index].last_update_tick =
                     self.weapons[weapon_index].last_update_tick + 1;
 
+                let hit_player: Option<PlayerId> = match &sim_result {
+                    WeaponSimulateResult::PlayerExplosion(player_id) => Some(*player_id),
+                    _ => None,
+                };
+
                 // Handle explosions by spawning shrapnel and generating explosion events so they can be handled outside of the sim.
-                if sim_result == WeaponSimulateResult::PlayerExplosion
-                    || sim_result == WeaponSimulateResult::WallExplosion
-                {
-                    self.handle_weapon_explosion(settings, weapon_index);
+                match &sim_result {
+                    WeaponSimulateResult::PlayerExplosion(_)
+                    | WeaponSimulateResult::WallExplosion => {
+                        self.handle_weapon_explosion(settings, weapon_index);
 
-                    let weapon = &self.weapons[weapon_index];
+                        let weapon = &self.weapons[weapon_index];
 
-                    let event = SimulationEvent {
-                        kind: SimulationEventKind::WeaponExplosion(WeaponExplosionEvent {
-                            position: weapon.position,
-                            frequency: weapon.frequency,
-                            kind: weapon.kind.clone(),
-                        }),
-                        tick: weapon.last_update_tick,
-                    };
+                        let event = SimulationEvent {
+                            kind: SimulationEventKind::WeaponExplosion(WeaponExplosionEvent {
+                                position: weapon.position,
+                                frequency: weapon.frequency,
+                                kind: weapon.kind.clone(),
+                                remaining_ticks: weapon.remaining_ticks,
+                                shooter: weapon.player_id,
+                                hit_player,
+                            }),
+                            tick: weapon.last_update_tick,
+                        };
 
-                    events.push(event);
+                        events.push(event);
+                    }
+                    _ => {}
                 }
 
                 // Only player explosions cause the linked bullets to all explode.
-                if sim_result == WeaponSimulateResult::PlayerExplosion {
+                if let WeaponSimulateResult::PlayerExplosion(_) = sim_result {
                     if let WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) =
                         &self.weapons[weapon_index].kind
                     {
@@ -352,7 +362,7 @@ impl WeaponManager {
                         match &self.link_removal.iter().find(|link| link.0 == *link_id) {
                             Some((_, sim_result)) => {
                                 match sim_result {
-                                    WeaponSimulateResult::PlayerExplosion
+                                    WeaponSimulateResult::PlayerExplosion(_)
                                     | WeaponSimulateResult::WallExplosion => {
                                         self.handle_weapon_explosion(settings, weapon_index);
 
@@ -364,6 +374,9 @@ impl WeaponManager {
                                                     frequency: weapon.frequency,
                                                     position: weapon.position,
                                                     kind: weapon.kind.clone(),
+                                                    remaining_ticks: weapon.remaining_ticks,
+                                                    shooter: weapon.player_id,
+                                                    hit_player: None, // We ignore the hit player because we don't want both events to apply damage.
                                                 },
                                             ),
                                             tick: weapon.last_update_tick,
@@ -433,15 +446,15 @@ impl WeaponManager {
                     let Some(hit_player) = player_manager.get_by_id(active_prox.hit_player_id)
                     else {
                         // The player that activated the prox sensor left the arena.
-                        return WeaponSimulateResult::PlayerExplosion;
+                        return WeaponSimulateResult::WallExplosion;
                     };
 
                     if hit_player.ship_kind == ShipKind::Spectator {
-                        return WeaponSimulateResult::PlayerExplosion;
+                        return WeaponSimulateResult::WallExplosion;
                     }
 
                     let Some(hit_player_position) = hit_player.position else {
-                        return WeaponSimulateResult::PlayerExplosion;
+                        return WeaponSimulateResult::WallExplosion;
                     };
 
                     let highest = ProximityBombData::calculate_highest_delta(
@@ -452,7 +465,7 @@ impl WeaponManager {
                     if highest > active_prox.highest_offset
                         || current_tick >= active_prox.sensor_end_tick
                     {
-                        return WeaponSimulateResult::PlayerExplosion;
+                        return WeaponSimulateResult::PlayerExplosion(hit_player.id);
                     } else {
                         active_prox.highest_offset = highest;
                     }
@@ -520,9 +533,6 @@ impl WeaponManager {
             if collider.contains(player_position) {
                 match &mut weapon.kind {
                     WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
-                        // We don't perform more collisions after activating sensor, so this bomb should not have active prox.
-                        assert!(bomb.active_prox.is_none());
-
                         let highest_offset = ProximityBombData::calculate_highest_delta(
                             weapon.position,
                             player_position,
@@ -542,7 +552,7 @@ impl WeaponManager {
                         });
                     }
                     _ => {
-                        return WeaponSimulateResult::PlayerExplosion;
+                        return WeaponSimulateResult::PlayerExplosion(player.id);
                     }
                 }
             }

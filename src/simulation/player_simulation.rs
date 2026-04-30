@@ -1,6 +1,6 @@
 use crate::{
     arena_settings::ArenaSettings,
-    map::Map,
+    map::{Map, TILE_ID_SAFE},
     math::{PixelUnit, Position, PositionUnit, Velocity},
     player::{Player, StatusFlags},
     ship::ShipKind,
@@ -103,6 +103,12 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
 
     if player.lerp_remaining_ticks > 0 {
         player.lerp_remaining_ticks -= 1;
+    }
+
+    if map.get_tile_from_position(&player_position) == TILE_ID_SAFE {
+        player.status |= StatusFlags::Safety;
+    } else {
+        player.status &= !StatusFlags::Safety;
     }
 
     player.position = Some(player_position);

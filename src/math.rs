@@ -85,6 +85,13 @@ impl Position {
     pub fn delta_pixels(&self, other: &Position) -> (i32, i32) {
         ((self.x.0 - other.x.0) / 1000, (self.y.0 - other.y.0) / 1000)
     }
+
+    pub fn max_axis_distance(&self, other: &Position) -> i32 {
+        let dx = (self.x.0 - other.x.0).abs();
+        let dy = (self.y.0 - other.y.0).abs();
+
+        if dx > dy { dx / 1000 } else { dy / 1000 }
+    }
 }
 
 impl Add<Position> for Position {

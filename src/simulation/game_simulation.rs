@@ -3,7 +3,7 @@ use crate::{
     clock::GameTick,
     map::Map,
     math::Position,
-    player::PlayerManager,
+    player::{PlayerId, PlayerManager},
     powerball::{PowerballManager, PowerballState},
     ship::ShipKind,
     simulation::{
@@ -17,6 +17,11 @@ pub struct WeaponExplosionEvent {
     pub position: Position,
     pub frequency: u16,
     pub kind: WeaponKind,
+    // How many ticks were remaining in the weapon that exploded.
+    // This is needed for inactive shrapnel detection.
+    pub remaining_ticks: u32,
+    pub shooter: PlayerId,
+    pub hit_player: Option<PlayerId>,
 }
 
 pub enum SimulationEventKind {

@@ -7,6 +7,9 @@ use crate::{
     player::{PlayerId, PlayerManager, StatusFlags},
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
+    simulation::{
+        game_simulation::WeaponExplosionEvent, player_simulation::PLAYER_EXPLOSION_DURATION,
+    },
     spawn::generate_spawn_position,
     weapon::{BombWeapon, BulletWeapon, BurstWeapon, DecoyWeapon, WeaponKind},
 };
@@ -31,9 +34,39 @@ impl ShipController {
         settings: &ArenaSettings,
         current_tick: GameTick,
     ) {
+        let player_count = player_manager.players.len();
+
         let me = player_manager
             .get_self_mut()
             .expect("Ship controller player must exist");
+
+        if me.enter_delay > 0 {
+            // Clear velocity after explosion.
+            if me.enter_delay < settings.enter_delay as u16 {
+                me.velocity.clear();
+            }
+            return;
+        }
+
+        if me.position.is_none() {
+            let rng = VieRng::new(current_tick.value() as i32);
+
+            me.position = Some(generate_spawn_position(
+                settings,
+                map,
+                me.ship_kind,
+                me.frequency,
+                rng,
+                player_count,
+            ));
+
+            me.status |= StatusFlags::Flash;
+            me.velocity.clear();
+
+            self.reset_ship(settings, current_tick, me.ship_kind);
+            return;
+        }
+
         let ship_settings = settings.get_ship_settings(me.ship_kind);
 
         self.tick_effects(current_tick);
@@ -605,10 +638,202 @@ impl ShipController {
             return;
         }
 
+        energy_cost *= 1000;
+
         if self.ship.current_energy < energy_cost as u32 {
             return;
         }
 
+        self.ship.current_energy -= energy_cost as u32;
         self.ship.weapon = Some(weapon_kind);
+    }
+
+    pub fn apply_damage(
+        &mut self,
+        player_manager: &mut PlayerManager,
+        connection: &mut Connection,
+        settings: &ArenaSettings,
+        event: &WeaponExplosionEvent,
+    ) {
+        if self.ship.current_energy == 0 {
+            return;
+        }
+
+        let hit_me = if let Some(hit_player_id) = event.hit_player {
+            hit_player_id == player_manager.self_id
+        } else {
+            false
+        };
+
+        let Some(me) = player_manager.get_self() else {
+            return;
+        };
+
+        let Some(me_position) = me.position else {
+            return;
+        };
+
+        if me.status & StatusFlags::Safety != 0 {
+            return;
+        }
+
+        let mut damage = match &event.kind {
+            WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
+                if hit_me {
+                    settings.bullet_damage_level
+                        + settings.bullet_damage_upgrade * bullet.level as i32
+                } else {
+                    0
+                }
+            }
+            WeaponKind::Shrapnel(shrapnel) => {
+                if hit_me {
+                    let alive_time = settings.bullet_alive_time - event.remaining_ticks as i32;
+                    if alive_time <= 25 {
+                        settings.inactive_shrap_damage * shrapnel.level as i32
+                    } else {
+                        let damage = settings.bullet_damage_level
+                            + settings.bullet_damage_upgrade * shrapnel.level as i32;
+
+                        ((damage as i64 * settings.shrapnel_damage_percent as i64) / 1000) as i32
+                    }
+                } else {
+                    0
+                }
+            }
+            WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                let mut full_damage = settings.bomb_damage_level;
+                let level = if let WeaponKind::Thor(_) = event.kind {
+                    3
+                } else {
+                    bomb.level
+                };
+
+                if bomb.emp {
+                    full_damage =
+                        ((full_damage as i64 * settings.ebomb_damage_percent as i64) / 1000) as i32;
+                }
+
+                if bomb.remaining_bounces > 0 {
+                    full_damage = ((full_damage as i64
+                        * settings.bouncing_bomb_damage_percent as i64)
+                        / 1000) as i32;
+                }
+
+                let explode_pixels = settings.bomb_explode_pixels as i32
+                    + settings.bomb_explode_pixels as i32 * level as i32;
+
+                let distance = me_position.max_axis_distance(&event.position);
+
+                if distance < explode_pixels {
+                    let mut damage = (explode_pixels - distance) * (full_damage / explode_pixels);
+
+                    if event.shooter != me.id {
+                        if let Some(shooter) = player_manager.get_by_id(event.shooter) {
+                            if let Some(shooter_position) = shooter.position {
+                                let shooter_distance =
+                                    shooter_position.max_axis_distance(&event.position);
+
+                                if shooter_distance < explode_pixels {
+                                    let damage_reduction = (explode_pixels - shooter_distance)
+                                        * (full_damage / explode_pixels)
+                                        / 2;
+
+                                    damage -= damage_reduction;
+                                    if damage < 0 {
+                                        damage = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if damage > 0 && bomb.emp && event.shooter != me.id {
+                        let emp_ticks = (settings.ebomb_shutdown_time as i64 * damage as i64)
+                            / full_damage as i64;
+
+                        if emp_ticks > 0 {
+                            self.ship.emped_remaining_ticks = emp_ticks as u32;
+                        }
+                    }
+
+                    damage as i32
+                } else {
+                    0
+                }
+            }
+            WeaponKind::Burst(_) => settings.burst_damage_level,
+            _ => 0,
+        };
+
+        if self.ship.shield_remaining_ticks > 0 {
+            let reduction = (damage as i64 * self.ship.shield_remaining_ticks as i64)
+                / settings.get_ship_settings(me.ship_kind).shield_time as i64;
+            damage -= reduction as i32;
+        }
+
+        if !settings.exact_damage && damage > 0 {
+            match &event.kind {
+                WeaponKind::Bullet(_) | WeaponKind::BouncingBullet(_) | WeaponKind::Burst(_) => {
+                    let mut rng = VieRng::new(GameTick::now(0).value() as i32);
+
+                    let r = rng.next() % (damage as u32 * damage as u32 + 1);
+
+                    damage = f32::sqrt(r as f32) as i32;
+                }
+                _ => {}
+            }
+        }
+
+        if me.flag_count > 0 || (me.carrying_ball && settings.powerball_flag_upgrades) {
+            damage = ((damage as i64 * settings.flagger_damage_percent as i64) / 1000) as i32;
+        }
+
+        if damage > 0 {
+            // TODO: Watchdamage sending
+
+            let apply_damage = if damage as u32 > self.ship.current_energy {
+                match &event.kind {
+                    WeaponKind::Bomb(_) | WeaponKind::ProximityBomb(_) | WeaponKind::Thor(_) => {
+                        if event.shooter == me.id {
+                            self.ship.current_energy = 1000;
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                    _ => true,
+                }
+            } else {
+                true
+            };
+
+            if apply_damage {
+                self.ship.current_energy = self.ship.current_energy.saturating_sub(damage as u32);
+
+                log::info!(
+                    "Took damage {}. New energy: {}",
+                    damage,
+                    self.ship.current_energy
+                );
+
+                if self.ship.current_energy == 0 {
+                    if let Some(me) = player_manager.get_self_mut() {
+                        me.enter_delay =
+                            settings.enter_delay as u16 + PLAYER_EXPLOSION_DURATION as u16;
+
+                        let death = crate::net::packet::c2s::DeathMessage {
+                            killer_id: event.shooter,
+                            bounty: me.bounty,
+                        };
+
+                        log::info!("Sending death packet");
+                        if let Err(e) = connection.send_reliable(&death) {
+                            log::error!("{e}");
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -215,6 +215,21 @@ impl Client {
 
             self.simulation.tick(&self.map, &self.settings);
 
+            if let MovementController::Ship(ship_controller) = &mut self.controller {
+                for event in &self.simulation.events {
+                    match &event.kind {
+                        SimulationEventKind::WeaponExplosion(explosion_event) => {
+                            ship_controller.apply_damage(
+                                &mut self.simulation.player_manager,
+                                &mut self.connection,
+                                &self.settings,
+                                explosion_event,
+                            );
+                        }
+                    }
+                }
+            }
+
             if let Some(render_state) = &mut render_state {
                 self.render_trails(render_state);
 
@@ -1351,6 +1366,23 @@ impl Client {
                     if let Some(me_position) = me.position {
                         render_state.camera.position = me_position.into();
                     }
+                }
+
+                if let MovementController::Ship(ship_controller) = &self.controller {
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!(
+                            "{} / {}",
+                            ship_controller.ship.current_energy / 1000,
+                            ship_controller.ship.max_energy / 1000
+                        ),
+                        render_state.config.width as i32 - 2,
+                        0,
+                        Layer::TopMost,
+                        TextColor::Pink,
+                        TextAlignment::Right,
+                    );
                 }
 
                 render_state.render_map = true;
