@@ -298,6 +298,15 @@ impl WeaponKind {
             _ => 0,
         }
     }
+
+    pub fn is_bomb(&self, include_mines: bool) -> bool {
+        match self {
+            WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                include_mines || !bomb.mine
+            }
+            _ => false,
+        }
+    }
 }
 
 pub struct Weapon {

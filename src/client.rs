@@ -170,14 +170,23 @@ impl Client {
         self.receive_messages(&mut render_state)?;
 
         let local_now = GameTick::now(0);
-        let tick_count = local_now.diff(&self.local_tick);
+
+        // If we have a stable connection with the map downloaded, start using the actual game tick to perform tick updates.
+        // This is preferred over local ticks in case of timer drift.
+        let tick_count = if let ConnectionState::Playing = self.connection.state {
+            self.connection
+                .get_current_server_tick()
+                .diff(&self.connection.get_game_tick())
+        } else {
+            local_now.diff(&self.local_tick)
+        };
 
         self.radar.render_full = input_state.is_down(InputAction::FullRadar);
 
-        self.statbox
-            .handle_input(input_state, &self.simulation.player_manager);
-
         for _ in 0..tick_count {
+            self.statbox
+                .handle_input(input_state, &self.simulation.player_manager);
+
             // Tentative outbound position packet. This will be preempted by a weapon packet for the new tick if a weapon is fired.
             // We generate our previous tick packet so our non-weapon packets and weapon packets will have a reduced chance of
             // aligning due to network jitter.
@@ -187,6 +196,9 @@ impl Client {
 
             self.map
                 .tick(&self.settings, self.connection.get_game_tick());
+
+            // Simulation must be updated before spectate controller so the positions are updated for the player we're spectating.
+            self.simulation.tick(&self.map, &self.settings);
 
             if let ConnectionState::Playing = self.connection.state {
                 match &mut self.controller {
@@ -212,8 +224,6 @@ impl Client {
                     }
                 }
             }
-
-            self.simulation.tick(&self.map, &self.settings);
 
             if let MovementController::Ship(ship_controller) = &mut self.controller {
                 for event in &self.simulation.events {
@@ -264,6 +274,8 @@ impl Client {
                     }
                 }
             }
+
+            input_state.clear_triggered();
         }
 
         if let Some(position_message) = self.outbound_position_queue.next(local_now) {
@@ -355,9 +367,16 @@ impl Client {
             if let Some(me) = self.simulation.player_manager.get_self() {
                 if weapon_info != 0 {
                     if let Some(position) = me.position {
+                        let spawn_x = position.x.0 / 1000;
+                        let spawn_y = position.y.0 / 1000;
+
+                        // Round to pixel because that's all the network supports, so other clients will spawn there as well.
+                        let spawn_position =
+                            Position::from_pixels(PixelUnit(spawn_x), PixelUnit(spawn_y));
+
                         self.simulation.weapon_manager.spawn_weapons(
                             me,
-                            position,
+                            spawn_position,
                             me.velocity,
                             me.direction,
                             weapon_kind,
@@ -373,7 +392,7 @@ impl Client {
                         let (x_position, y_position) = if let Some(me_position) = me.position {
                             (me_position.x.0 / 1000, me_position.y.0 / 1000)
                         } else {
-                            (0, 0)
+                            (0xFFFF, 0xFFFF)
                         };
 
                         let position = PositionMessage {

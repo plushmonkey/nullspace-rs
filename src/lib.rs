@@ -227,8 +227,6 @@ impl ApplicationPlayingState {
             log::error!("{e}");
         };
 
-        self.input_state.clear_triggered();
-
         self.sprites
             .colors
             .tick(self.client.connection.get_game_tick());
@@ -257,6 +255,11 @@ impl ApplicationPlayingState {
                 if is_pressed {
                     self.input_state
                         .set_modifier_triggered(input::InputModifier::Shift);
+                } else {
+                    self.input_mapping.clear_actions_with_modifier(
+                        input::InputModifier::Shift,
+                        &mut self.input_state,
+                    );
                 }
 
                 self.input_state
@@ -266,6 +269,11 @@ impl ApplicationPlayingState {
                 if is_pressed {
                     self.input_state
                         .set_modifier_triggered(input::InputModifier::Alt);
+                } else {
+                    self.input_mapping.clear_actions_with_modifier(
+                        input::InputModifier::Alt,
+                        &mut self.input_state,
+                    );
                 }
 
                 self.input_state
@@ -275,6 +283,11 @@ impl ApplicationPlayingState {
                 if is_pressed {
                     self.input_state
                         .set_modifier_triggered(input::InputModifier::Control);
+                } else {
+                    self.input_mapping.clear_actions_with_modifier(
+                        input::InputModifier::Control,
+                        &mut self.input_state,
+                    );
                 }
 
                 self.input_state

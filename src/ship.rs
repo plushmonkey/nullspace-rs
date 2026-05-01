@@ -199,11 +199,10 @@ impl Ship {
         self.status = StatusFlags::Flash;
 
         let ship_settings = settings.get_ship_settings(ship_kind);
-        let bomb_delay = ship_settings.bomb_fire_delay as i32;
 
-        self.next_bomb_tick = current_tick + bomb_delay;
-        self.next_bullet_tick = current_tick + bomb_delay;
-        self.next_repel_tick = current_tick + bomb_delay;
+        self.next_bomb_tick = current_tick;
+        self.next_bullet_tick = current_tick;
+        self.next_repel_tick = current_tick;
 
         self.max_energy = ship_settings.initial_energy as u32 * 1000;
         self.recharge = ship_settings.initial_recharge as u32;

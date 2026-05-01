@@ -315,6 +315,20 @@ impl InputMapping {
         best_action.copied()
     }
 
+    pub fn clear_actions_with_modifier(
+        &self,
+        modifier: InputModifier,
+        input_state: &mut InputState,
+    ) {
+        for (_, v) in &self.mapping {
+            for (action, modifier_set) in &v.actions {
+                if modifier_set.is_set(modifier) {
+                    input_state.set_down(*action, false);
+                }
+            }
+        }
+    }
+
     pub fn register_action(&mut self, code: KeyCode, action: InputAction) {
         self.register_modifier_action(code, InputModifierSet::empty(), action);
     }

@@ -394,7 +394,9 @@ impl ShipController {
             && self.ship.decoys > 0
         {
             weapon_kind = WeaponKind::Decoy(DecoyWeapon {
-                initial_rotation: 0,
+                // NOTE: Self decoys and other Continuum clients do not sync decoy rotations.
+                // No need to try to fix this since two Continuum clients do not have the same rotation.
+                initial_rotation: me.direction,
             });
 
             if !in_safe {
@@ -644,6 +646,16 @@ impl ShipController {
             return;
         }
 
+        if weapon_kind.is_bomb(false) {
+            if let Some(me) = player_manager.get_self_mut() {
+                let heading = me.get_heading();
+                let thrust = ship_settings.bomb_thrust;
+
+                me.velocity.x.0 = me.velocity.x.0 - (heading.x * thrust as f32) as i32;
+                me.velocity.y.0 = me.velocity.y.0 - (heading.y * thrust as f32) as i32;
+            }
+        }
+
         self.ship.current_energy -= energy_cost as u32;
         self.ship.weapon = Some(weapon_kind);
     }
@@ -811,12 +823,6 @@ impl ShipController {
             if apply_damage {
                 self.ship.current_energy = self.ship.current_energy.saturating_sub(damage as u32);
 
-                log::info!(
-                    "Took damage {}. New energy: {}",
-                    damage,
-                    self.ship.current_energy
-                );
-
                 if self.ship.current_energy == 0 {
                     if let Some(me) = player_manager.get_self_mut() {
                         me.enter_delay =
@@ -827,7 +833,6 @@ impl ShipController {
                             bounty: me.bounty,
                         };
 
-                        log::info!("Sending death packet");
                         if let Err(e) = connection.send_reliable(&death) {
                             log::error!("{e}");
                         }

@@ -210,6 +210,11 @@ impl Connection {
         self.current_tick
     }
 
+    // This calculates the actual game tick on the server at the moment of calling.
+    pub fn get_current_server_tick(&self) -> GameTick {
+        GameTick::now(self.tick_diff)
+    }
+
     // This gets the local timestamp for processed ticks by basing it off of the server tick.
     // This is not the immediate local tick. Get that from GameTick::now(0)
     pub fn get_local_tick(&self) -> GameTick {
