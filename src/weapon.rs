@@ -1,7 +1,7 @@
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
-    math::{Position, Velocity},
+    math::{PixelUnit, Position, Velocity},
     player::{Player, PlayerId},
     ship::ShipKind,
 };
@@ -54,6 +54,11 @@ impl BombWeapon {
         frequency: u16,
     ) {
         let mut velocity = velocity;
+
+        let x_pixels = position.x.0 / 1000;
+        let y_pixels = position.y.0 / 1000;
+
+        let position = Position::from_pixels(PixelUnit(x_pixels), PixelUnit(y_pixels));
 
         velocity.x.0 += (heading.x * speed as f32) as i32;
         velocity.y.0 += (heading.y * speed as f32) as i32;

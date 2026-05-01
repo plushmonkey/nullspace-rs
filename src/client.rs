@@ -248,12 +248,14 @@ impl Client {
                     PositionUnit(render_state.camera.position.y as i32 * 16000),
                 );
 
-                self.radar.update(
-                    render_state.config.width,
-                    self.settings.map_zoom_factor as u16,
-                    self_position,
-                    self.connection.get_game_tick(),
-                );
+                if let ConnectionState::Playing = self.connection.state {
+                    self.radar.update(
+                        render_state.config.width,
+                        self.settings.map_zoom_factor as u16,
+                        self_position,
+                        self.connection.get_game_tick(),
+                    );
+                }
 
                 self.render_explosions(render_state);
             }
@@ -307,7 +309,7 @@ impl Client {
         let (x_position, y_position) = if let Some(me_position) = me.position {
             (me_position.x.0 / 1000, me_position.y.0 / 1000)
         } else {
-            (0, 0)
+            (0xFFFF, 0xFFFF)
         };
 
         let energy = if let MovementController::Ship(ship_controller) = &self.controller {

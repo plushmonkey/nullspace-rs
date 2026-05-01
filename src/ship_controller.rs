@@ -550,7 +550,7 @@ impl ShipController {
                 shrapnel_level: 0,
                 shrapnel_bouncing: false,
                 mine: true,
-                emp: false,
+                emp: ship_settings.emp_bomb,
                 remaining_bounces: 0,
                 rng_seed: 0,
                 active_prox: None,
@@ -561,6 +561,16 @@ impl ShipController {
                 bomb_weapon.shrapnel_level = self.ship.guns - 1;
                 bomb_weapon.shrapnel_bouncing =
                     self.ship.capability & ShipCapabilityFlag::BouncingBullets != 0;
+            }
+
+            if let Some(me) = player_manager.get_self() {
+                bomb_weapon.initialize_rng_seed(
+                    me_position,
+                    me.velocity,
+                    me.get_heading(),
+                    0,
+                    me.frequency,
+                );
             }
 
             if self.ship.capability & ShipCapabilityFlag::Proximity != 0 {
@@ -601,8 +611,8 @@ impl ShipController {
                 shrapnel_level: 0,
                 shrapnel_bouncing: false,
                 mine: false,
-                emp: false,
-                remaining_bounces: 0,
+                emp: ship_settings.emp_bomb,
+                remaining_bounces: ship_settings.bomb_bounce_count as u32,
                 rng_seed: 0,
                 active_prox: None,
             };
@@ -646,14 +656,21 @@ impl ShipController {
             return;
         }
 
-        if weapon_kind.is_bomb(false) {
-            if let Some(me) = player_manager.get_self_mut() {
-                let heading = me.get_heading();
-                let thrust = ship_settings.bomb_thrust;
-
-                me.velocity.x.0 = me.velocity.x.0 - (heading.x * thrust as f32) as i32;
-                me.velocity.y.0 = me.velocity.y.0 - (heading.y * thrust as f32) as i32;
+        match &mut weapon_kind {
+            WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
+                if !bomb.mine {
+                    if let Some(me) = player_manager.get_self() {
+                        bomb.initialize_rng_seed(
+                            me_position,
+                            me.velocity,
+                            me.get_heading(),
+                            ship_settings.bomb_speed as u32,
+                            me.frequency,
+                        );
+                    }
+                }
             }
+            _ => {}
         }
 
         self.ship.current_energy -= energy_cost as u32;
