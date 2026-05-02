@@ -40,6 +40,8 @@ pub struct Simulation {
     pub tick: GameTick,
     pub events: Vec<SimulationEvent>,
     pub powerball_paused: bool,
+
+    child_players: Vec<(PlayerId, PlayerId)>,
 }
 
 impl Simulation {
@@ -51,6 +53,7 @@ impl Simulation {
             tick,
             events: vec![],
             powerball_paused: true,
+            child_players: vec![],
         }
     }
 
@@ -61,7 +64,34 @@ impl Simulation {
 
         for player in &mut self.player_manager.players {
             player_simulation::integrate_player(map, settings, player);
+            // If we have a parent, store us and the parent so we can sync after everyone has been simulated.
+            if player.attach_parent.valid() {
+                self.child_players.push((player.id, player.attach_parent));
+            }
         }
+
+        // Synchronize players to their attach parent.
+        for (player_id, parent_id) in &self.child_players {
+            if let Some(parent) = self.player_manager.get_by_id(*parent_id) {
+                if !parent.is_synchronized(self.tick) {
+                    continue;
+                }
+
+                if let Some(parent_position) = parent.position {
+                    let parent_velocity = parent.velocity;
+                    let parent_lerp_velocity = parent.lerp_velocity;
+                    let parent_lerp_ticks = parent.lerp_remaining_ticks;
+
+                    if let Some(player) = self.player_manager.get_by_id_mut(*player_id) {
+                        player.position = Some(parent_position);
+                        player.velocity = parent_velocity;
+                        player.lerp_velocity = parent_lerp_velocity;
+                        player.lerp_remaining_ticks = parent_lerp_ticks;
+                    }
+                }
+            }
+        }
+        self.child_players.clear();
 
         self.weapon_manager.simulate(
             map,

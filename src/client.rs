@@ -1,4 +1,6 @@
 use crate::arena_settings::ArenaSettings;
+use crate::attach::AttachKind;
+use crate::attach::can_attach_to;
 use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
@@ -221,6 +223,10 @@ impl Client {
                             &self.settings,
                             current_tick,
                         );
+
+                        if input_state.is_triggered(InputAction::Attach) {
+                            self.attach();
+                        }
                     }
                 }
             }
@@ -298,6 +304,63 @@ impl Client {
         }
 
         Ok(tick_count)
+    }
+
+    fn attach(&mut self) {
+        let MovementController::Ship(ship_controller) = &mut self.controller else {
+            return;
+        };
+
+        let self_id = self.simulation.player_manager.self_id;
+        let target_id = self.statbox.get_selected_player_id();
+
+        match can_attach_to(
+            &self.simulation.player_manager,
+            ship_controller,
+            &self.settings,
+            target_id,
+        ) {
+            Ok(kind) => match kind {
+                AttachKind::DetachChildren => {
+                    let request = crate::net::packet::c2s::DetachAllRequestMessage {};
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+
+                    self.simulation.player_manager.detach_all_children(self_id);
+                }
+                AttachKind::DetachSelf => {
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: PlayerId::invalid(),
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+
+                    self.simulation.player_manager.detach_player(self_id);
+                }
+                AttachKind::Attach(target_id) => {
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: target_id,
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+
+                    self.simulation
+                        .player_manager
+                        .attach_player(self_id, target_id);
+
+                    ship_controller.ship.current_energy /= 3;
+                }
+            },
+            Err(e) => {
+                log::info!("AttachError: {}", e.get_notification_string());
+            }
+        }
     }
 
     // Generates a non-weapon position packet.
@@ -724,6 +787,19 @@ impl Client {
                     }
                 }
 
+                // Add children after adding all players above so their parent will exist.
+                for entry in &entering.players {
+                    if entry.attach_parent.valid() {
+                        if let Some(parent) = self
+                            .simulation
+                            .player_manager
+                            .get_by_id_mut(entry.attach_parent)
+                        {
+                            parent.children.push(entry.player_id);
+                        }
+                    }
+                }
+
                 self.statbox.rebuild(&self.simulation.player_manager);
 
                 if let MovementController::Spectate(spectate_controller) = &mut self.controller {
@@ -735,6 +811,10 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerLeaving(leaving) => {
+                self.simulation
+                    .player_manager
+                    .detach_all_children(leaving.player_id);
+
                 if let Some(player) = self
                     .simulation
                     .player_manager
@@ -752,6 +832,43 @@ impl Client {
                         &mut self.connection,
                         &self.statbox,
                     );
+                }
+            }
+            GameServerMessage::TurretLinkCreate(message) => {
+                message.requester_id;
+
+                if message.destination_id.is_none() {
+                    // If there was no destination id provided in the packet, we must detach ourself and send the packet.
+                    self.simulation
+                        .player_manager
+                        .detach_player(self.simulation.player_manager.self_id);
+
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: PlayerId::invalid(),
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+                } else {
+                    self.simulation
+                        .player_manager
+                        .attach_player(message.requester_id, message.destination_id.unwrap())
+                }
+            }
+            GameServerMessage::TurretLinkDestroy(message) => {
+                if self
+                    .simulation
+                    .player_manager
+                    .detach_all_children(message.player_id)
+                {
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: PlayerId::invalid(),
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
                 }
             }
             GameServerMessage::SmallPosition(message) => {
@@ -1100,6 +1217,10 @@ impl Client {
                     killed.enter_delay = self.settings.enter_delay as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
                     killed.losses = killed.losses.wrapping_add(1);
+
+                    self.simulation
+                        .player_manager
+                        .detach_all_children(message.killed_id);
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
@@ -1124,6 +1245,20 @@ impl Client {
                     .get_by_id_mut(change.player_id)
                 {
                     player.frequency = change.frequency;
+                }
+
+                if self
+                    .simulation
+                    .player_manager
+                    .detach_all_children(change.player_id)
+                {
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: PlayerId::invalid(),
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
                 }
 
                 self.statbox.rebuild(&self.simulation.player_manager);
@@ -1176,6 +1311,20 @@ impl Client {
 
                             self.controller = MovementController::Ship(ship_controller);
                         }
+                    }
+                }
+
+                if self
+                    .simulation
+                    .player_manager
+                    .detach_all_children(change.player_id)
+                {
+                    let request = crate::net::packet::c2s::AttachRequestMessage {
+                        player_id: PlayerId::invalid(),
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
                     }
                 }
 
@@ -1489,6 +1638,10 @@ impl Client {
                 continue;
             }
 
+            if player.attach_parent.valid() {
+                continue;
+            }
+
             let Some(player_position) = player.position else {
                 continue;
             };
@@ -1583,10 +1736,27 @@ impl Client {
                     &format!("{}({})", player.name, player.bounty),
                     name_x,
                     name_y,
-                    Layer::Ships,
+                    Layer::AfterShips,
                     name_color,
                     TextAlignment::Left,
                 );
+
+                let mut child_y = name_y + render_state.text_renderer.character_height;
+
+                for child_id in &player.children {
+                    if let Some(child) = self.simulation.player_manager.get_by_id(*child_id) {
+                        render_state.draw_world_text(
+                            &format!("{}({})", child.name, child.bounty),
+                            name_x,
+                            child_y,
+                            Layer::AfterShips,
+                            name_color,
+                            TextAlignment::Left,
+                        );
+                    }
+
+                    child_y += render_state.text_renderer.character_height;
+                }
 
                 if let Some(energy) = player.energy {
                     let energy_x = x_pixels - (renderable.size[0] as i32) / 2;

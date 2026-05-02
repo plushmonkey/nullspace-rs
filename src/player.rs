@@ -73,6 +73,10 @@ impl PlayerId {
         PlayerId { value }
     }
 
+    pub fn valid(&self) -> bool {
+        self.value != 0xFFFF
+    }
+
     pub fn invalid() -> PlayerId {
         PlayerId::new(0xFFFF)
     }
@@ -107,6 +111,8 @@ pub struct Player {
     pub ping: u8,
 
     pub attach_parent: PlayerId,
+    pub children: Vec<PlayerId>,
+
     pub flag_count: u16,
 
     pub last_position_timestamp: GameTick,
@@ -159,6 +165,8 @@ impl Player {
             ping: 0,
 
             attach_parent: PlayerId::invalid(),
+            children: vec![],
+
             flag_count: 0,
 
             last_position_timestamp: GameTick::empty(),
@@ -298,5 +306,53 @@ impl PlayerManager {
         }
 
         count
+    }
+
+    pub fn attach_player(&mut self, requester_id: PlayerId, parent_id: PlayerId) {
+        self.detach_player(requester_id);
+
+        if let Some(requester) = self.get_by_id_mut(requester_id) {
+            requester.attach_parent = parent_id;
+
+            if let Some(parent) = self.get_by_id_mut(parent_id) {
+                parent.children.push(requester_id);
+            }
+        }
+    }
+
+    // The provided player will have no parent and the parent will remove this player from its children.
+    pub fn detach_player(&mut self, player_id: PlayerId) {
+        let Some(player) = self.get_by_id_mut(player_id) else {
+            return;
+        };
+
+        let parent_id = player.attach_parent;
+        player.attach_parent = PlayerId::invalid();
+
+        if let Some(parent) = self.get_by_id_mut(parent_id) {
+            if let Some(index) = parent.children.iter().position(|id| *id == player_id) {
+                parent.children.swap_remove(index);
+            }
+        }
+    }
+
+    // Returns true if self was a child.
+    pub fn detach_all_children(&mut self, parent_id: PlayerId) -> bool {
+        let mut self_was_child = false;
+
+        for player in &mut self.players {
+            if player.attach_parent == parent_id {
+                player.attach_parent = PlayerId::invalid();
+                if player.id == self.self_id {
+                    self_was_child = true;
+                }
+            }
+        }
+
+        if let Some(player) = self.get_by_id_mut(parent_id) {
+            player.children.clear();
+        }
+
+        self_was_child
     }
 }

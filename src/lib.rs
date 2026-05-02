@@ -31,6 +31,7 @@ use crate::{
 };
 
 pub mod arena_settings;
+pub mod attach;
 pub mod chat;
 pub mod checksum;
 pub mod client;

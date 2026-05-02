@@ -4,7 +4,7 @@ use crate::{
     input::{InputAction, InputState},
     map::{Map, TILE_ID_SAFE},
     net::connection::Connection,
-    player::{PlayerId, PlayerManager, StatusFlags},
+    player::{PlayerManager, StatusFlags},
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
     simulation::{
@@ -179,7 +179,7 @@ impl ShipController {
         let afterburners_enabled = input_state.is_down(InputAction::Afterburner)
             && self.ship.current_energy > afterburners_cost;
 
-        if me.attach_parent == PlayerId::invalid() {
+        if !me.attach_parent.valid() {
             let mut thrust = if afterburners_enabled {
                 ship_settings.maximum_thrust as u32
             } else {
@@ -219,8 +219,6 @@ impl ShipController {
                 me.velocity.x.0 = me.velocity.x.0 - (heading.x * thrust as f32) as i32;
                 me.velocity.y.0 = me.velocity.y.0 - (heading.y * thrust as f32) as i32;
             }
-        } else {
-            // TODO: Sync with parent
         }
 
         let mut speed = if afterburners_enabled {
