@@ -1583,7 +1583,13 @@ impl Client {
                 }
 
                 if let MovementController::Ship(ship_controller) = &self.controller {
-                    ship_controller.render(&self.simulation.player_manager, render_state, sprites);
+                    ship_controller.render(
+                        &self.simulation.player_manager,
+                        render_state,
+                        sprites,
+                        &self.settings,
+                        self.connection.get_game_tick(),
+                    );
                 }
 
                 render_state.render_map = true;

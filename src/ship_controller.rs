@@ -1,5 +1,3 @@
-use smol_str::format_smolstr;
-
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
@@ -11,7 +9,6 @@ use crate::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::RenderState,
-        text_renderer::{TextAlignment, TextColor},
     },
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
@@ -870,23 +867,167 @@ impl ShipController {
         player_manager: &PlayerManager,
         render_state: &mut RenderState,
         sprites: &GameSprites,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
     ) {
-        render_state.text_renderer.draw(
-            &mut render_state.sprite_renderer,
-            &render_state.ui_camera,
-            &format_smolstr!(
-                "{} / {}",
-                self.ship.current_energy / 1000,
-                self.ship.max_energy / 1000
-            ),
-            render_state.config.width as i32 - 2,
-            0,
-            Layer::TopMost,
-            TextColor::Pink,
-            TextAlignment::Right,
-        );
+        self.render_energy(render_state, sprites);
+        self.render_energybar(render_state, sprites, settings, current_tick);
 
         self.render_attach_turret(player_manager, render_state, sprites);
+    }
+
+    fn render_energy(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+        if let Some(font_sprites) = sprites.get_set(GameSpriteKind::EnergyFont) {
+            let mut energy = self.ship.current_energy / 1000;
+            let mut x_pixels = render_state.config.width as i32;
+            let y_pixels = 0;
+
+            loop {
+                let digit = energy % 10;
+                let renderable = &font_sprites.renderables[digit as usize];
+
+                x_pixels -= renderable.size[0] as i32;
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Gauges,
+                );
+
+                energy /= 10;
+
+                if energy == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn render_energybar(
+        &self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
+    ) {
+        let energybar_z = Layer::Gauges.z() + 0.9f32;
+        let config_max_z = Layer::Gauges.z();
+        let ship_max_z = Layer::Gauges.z() + 0.1f32;
+
+        if let Some(energybar_sprites) = sprites.get_set(GameSpriteKind::HealthBar) {
+            let renderable = &energybar_sprites.renderables[0];
+
+            let x_pixels = (render_state.config.width / 2) as i32;
+            let y_pixels = (renderable.size[1] / 2) as i32;
+
+            render_state.sprite_renderer.draw_centered_with_z(
+                &render_state.ui_camera,
+                renderable,
+                x_pixels,
+                y_pixels,
+                energybar_z,
+            );
+        }
+
+        if let Some(gradient_sprites) = sprites.get_set(GameSpriteKind::Gradient) {
+            // Render the bar that indicates the max energy set in ship settings.
+            {
+                let mut config_max_energy_renderable = gradient_sprites.renderables[5];
+
+                config_max_energy_renderable.size[0] =
+                    (render_state.config.width as f32 * 0.35f32) as u32;
+                config_max_energy_renderable.size[1] = 2;
+
+                let x_pixels = (render_state.config.width / 2) as i32;
+                let y_pixels = 10;
+
+                render_state.sprite_renderer.draw_centered_with_z(
+                    &render_state.ui_camera,
+                    &config_max_energy_renderable,
+                    x_pixels,
+                    y_pixels,
+                    config_max_z,
+                );
+            }
+
+            let config_max_energy =
+                settings.get_ship_settings(self.ship.kind).maximum_energy as u32;
+            let upgrade_percent = (self.ship.max_energy / 1000) as f32 / config_max_energy as f32;
+
+            // Render the bar that indicates our ship's max energy compared to the max in settings.
+            {
+                let mut ship_max_energy_renderable = gradient_sprites.renderables[0];
+
+                ship_max_energy_renderable.size[0] =
+                    (render_state.config.width as f32 * 0.35f32 * upgrade_percent) as u32;
+                ship_max_energy_renderable.size[1] = 2;
+
+                let x_pixels = (render_state.config.width / 2) as i32;
+                let y_pixels = 10;
+
+                render_state.sprite_renderer.draw_centered_with_z(
+                    &render_state.ui_camera,
+                    &ship_max_energy_renderable,
+                    x_pixels,
+                    y_pixels,
+                    ship_max_z,
+                );
+            }
+
+            // Render the current energy bar.
+            {
+                let energy_percent =
+                    self.ship.current_energy as f32 / self.ship.max_energy.max(1) as f32;
+
+                let animation_index = Self::get_animation_index(current_tick, 14, 14 * 10);
+
+                let start_index = if energy_percent < 0.25f32 {
+                    14 * 2
+                } else if energy_percent < 0.5f32 {
+                    14
+                } else {
+                    0
+                };
+
+                let full_energy_width =
+                    (render_state.config.width as f32 * 0.35f32 * upgrade_percent) as u32;
+
+                let mut renderable = gradient_sprites.renderables[start_index + animation_index];
+                renderable.size[0] = (energy_percent * full_energy_width as f32) as u32;
+                renderable.size[1] = 6;
+
+                // Set uv so it doesn't interpolate and doesn't bleed along edges.
+                if let Some(sheet) = render_state
+                    .sprite_renderer
+                    .get_sheet(gradient_sprites.sheet_index)
+                {
+                    renderable.uv_size[0] = 0.0f32;
+                    renderable.uv_size[1] = 0.0f32;
+                    renderable.uv_start[0] += 1.0f32 / (sheet.width as f32 * 2.0f32);
+                    renderable.uv_start[1] += 1.0f32 / (sheet.height as f32 * 2.0f32);
+                }
+
+                let x_pixels = (render_state.config.width / 2) as i32;
+                let y_pixels = 16;
+
+                render_state.sprite_renderer.draw_centered(
+                    &render_state.ui_camera,
+                    &renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::Gauges,
+                );
+            }
+        }
+    }
+
+    fn get_animation_index(current_tick: GameTick, frames: usize, duration: usize) -> usize {
+        let ticks_per_frame = duration / frames;
+        let ticks = current_tick.value() as usize;
+
+        (ticks / ticks_per_frame) % frames
     }
 
     fn render_attach_turret(

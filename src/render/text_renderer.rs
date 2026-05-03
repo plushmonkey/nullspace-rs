@@ -155,7 +155,7 @@ impl TextRenderer {
                     renderable,
                     current_x as f32,
                     current_y as f32,
-                    layer,
+                    layer.z(),
                 );
 
                 current_x += self.character_width;

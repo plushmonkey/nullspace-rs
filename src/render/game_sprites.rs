@@ -128,6 +128,8 @@ pub enum GameSpriteKind {
     Spectate,
     Brick,
     Turret,
+    HealthBar,
+    EnergyFont,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -159,6 +161,8 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (11, 1),     // Spectate
     (10, 2),     // Brick
     (8, 5),      // Turret
+    (2, 1),      // HealthBar
+    (10, 1),     // EnergyFont
     (5, 2),      // Repel
 ];
 
@@ -292,6 +296,8 @@ impl GameSpriteLoader {
             (GameSpriteKind::Spectate, "graphics/spectate.bm2"),
             (GameSpriteKind::Brick, "graphics/wall.bm2"),
             (GameSpriteKind::Turret, "graphics/turret.bm2"),
+            (GameSpriteKind::HealthBar, "graphics/hlthbar.bm2"),
+            (GameSpriteKind::EnergyFont, "graphics/engyfont.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

@@ -114,7 +114,7 @@ impl Colors {
             &renderable,
             x_pixels,
             y_pixels,
-            layer,
+            layer.z(),
         );
     }
 

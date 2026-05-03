@@ -16,8 +16,8 @@ pub struct SheetIndex(pub u32);
 
 pub struct SpriteSheet {
     bind_group: wgpu::BindGroup,
-    width: u32,
-    height: u32,
+    pub width: u32,
+    pub height: u32,
 
     // Each sheet has an index so we can reuse bind_groups during render by comparing the index.
     sheet_index: SheetIndex,
@@ -194,7 +194,7 @@ impl SpriteRenderer {
         renderable: &SpriteRenderable,
         x_pixels: f32,
         y_pixels: f32,
-        layer: Layer,
+        z: f32,
     ) {
         let x = x_pixels * scale;
         let y = y_pixels * scale;
@@ -202,8 +202,8 @@ impl SpriteRenderer {
         let width = (renderable.size[0] as f32) * scale;
         let height = (renderable.size[1] as f32) * scale;
 
-        let position = transform * glam::Vec4::new(x, y, layer.z(), 1.0f32);
-        let position_br = transform * glam::Vec4::new(x + width, y + height, layer.z(), 1.0f32);
+        let position = transform * glam::Vec4::new(x, y, z, 1.0f32);
+        let position_br = transform * glam::Vec4::new(x + width, y + height, z, 1.0f32);
 
         let position = glam::Vec3::new(position.x, position.y, position.z);
         let position_br = glam::Vec3::new(position_br.x, position_br.y, position_br.z);
@@ -276,7 +276,25 @@ impl SpriteRenderer {
         let x_pixels = x_pixels as f32 - width / 2.0f32;
         let y_pixels = y_pixels as f32 - height / 2.0f32;
 
-        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer);
+        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, layer.z());
+    }
+
+    pub fn draw_centered_with_z(
+        &mut self,
+        camera: &Camera,
+        renderable: &SpriteRenderable,
+        x_pixels: i32,
+        y_pixels: i32,
+        z: f32,
+    ) {
+        let mvp = camera.projection() * camera.view();
+
+        let (width, height) = (renderable.size[0] as f32, renderable.size[1] as f32);
+
+        let x_pixels = x_pixels as f32 - width / 2.0f32;
+        let y_pixels = y_pixels as f32 - height / 2.0f32;
+
+        self.draw_with_transform(mvp, camera.scale, renderable, x_pixels, y_pixels, z);
     }
 
     pub fn draw(
@@ -295,7 +313,27 @@ impl SpriteRenderer {
             renderable,
             x_pixels as f32,
             y_pixels as f32,
-            layer,
+            layer.z(),
+        );
+    }
+
+    pub fn draw_with_z(
+        &mut self,
+        camera: &Camera,
+        renderable: &SpriteRenderable,
+        x_pixels: i32,
+        y_pixels: i32,
+        z: f32,
+    ) {
+        let mvp = camera.projection() * camera.view();
+
+        self.draw_with_transform(
+            mvp,
+            camera.scale,
+            renderable,
+            x_pixels as f32,
+            y_pixels as f32,
+            z,
         );
     }
 
