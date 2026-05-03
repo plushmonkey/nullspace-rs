@@ -346,6 +346,7 @@ impl Radar {
             ColorRenderableKind::RadarSelfFlagCarry
             | ColorRenderableKind::RadarTeammateFlagCarry
             | ColorRenderableKind::RadarEnemyFlagCarry => (3, 3),
+            ColorRenderableKind::RadarPortal => (1, 1),
             _ => (2, 2),
         };
 

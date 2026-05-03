@@ -1,3 +1,5 @@
+use smol_str::format_smolstr;
+
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
@@ -6,9 +8,11 @@ use crate::{
     net::connection::Connection,
     player::{PlayerManager, StatusFlags},
     render::{
-        game_sprites::{GameSpriteKind, GameSprites},
+        game_sprites::{GameSpriteKind, GameSprites, SpriteSet},
         layer::Layer,
         render_state::RenderState,
+        sprite_renderer::SpriteRenderable,
+        text_renderer::{TextAlignment, TextColor},
     },
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
@@ -82,16 +86,40 @@ impl ShipController {
         self.ship.current_energy =
             (self.ship.current_energy + self.ship.recharge).min(self.ship.max_energy);
 
-        self.tick_status(StatusFlags::XRadar, ship_settings.xradar_energy as u32);
-        self.tick_status(StatusFlags::Stealth, ship_settings.stealth_energy as u32);
-        self.tick_status(StatusFlags::Cloak, ship_settings.cloak_energy as u32);
-        self.tick_status(StatusFlags::Antiwarp, ship_settings.antiwarp_energy as u32);
-
         if input_state.is_triggered(InputAction::Multifire)
             && self.ship.capability & ShipCapabilityFlag::Multifire != 0
         {
             self.ship.multifire = !self.ship.multifire;
         }
+
+        if input_state.is_triggered(InputAction::Stealth)
+            && self.ship.capability & ShipCapabilityFlag::Stealth != 0
+        {
+            self.ship.status ^= StatusFlags::Stealth;
+        }
+
+        if input_state.is_triggered(InputAction::Cloak)
+            && self.ship.capability & ShipCapabilityFlag::Cloak != 0
+        {
+            self.ship.status ^= StatusFlags::Cloak;
+        }
+
+        if input_state.is_triggered(InputAction::XRadar)
+            && self.ship.capability & ShipCapabilityFlag::XRadar != 0
+        {
+            self.ship.status ^= StatusFlags::XRadar;
+        }
+
+        if input_state.is_triggered(InputAction::Antiwarp)
+            && self.ship.capability & ShipCapabilityFlag::Antiwarp != 0
+        {
+            self.ship.status ^= StatusFlags::Antiwarp;
+        }
+
+        self.tick_status(StatusFlags::XRadar, ship_settings.xradar_energy as u32);
+        self.tick_status(StatusFlags::Stealth, ship_settings.stealth_energy as u32);
+        self.tick_status(StatusFlags::Cloak, ship_settings.cloak_energy as u32);
+        self.tick_status(StatusFlags::Antiwarp, ship_settings.antiwarp_energy as u32);
 
         self.fire_weapons(
             input_state,
@@ -129,6 +157,10 @@ impl ShipController {
 
         if self.ship.portal_remaining_ticks > 0 {
             self.ship.portal_remaining_ticks -= 1;
+
+            if self.ship.portal_remaining_ticks == 0 {
+                self.ship.portal_position = None;
+            }
         }
 
         if self.ship.flag_remaining_ticks > 0 {
@@ -454,6 +486,9 @@ impl ShipController {
 
             let (new_position, use_energy) =
                 if let Some(portal_position) = self.ship.portal_position {
+                    self.ship.portal_position = None;
+                    self.ship.portal_remaining_ticks = 0;
+
                     (portal_position, false)
                 } else {
                     let rng = VieRng::new(current_tick.value() as i32);
@@ -873,7 +908,302 @@ impl ShipController {
         self.render_energy(render_state, sprites);
         self.render_energybar(render_state, sprites, settings, current_tick);
 
+        self.render_icons(render_state, sprites);
+
         self.render_attach_turret(player_manager, render_state, sprites);
+
+        if let Some(portal_position) = self.ship.portal_position {
+            let (x_pixels, y_pixels) = portal_position.to_pixels();
+
+            if let Some(warp_point_sprites) = sprites.get_set(GameSpriteKind::WarpPoint) {
+                let animation_index = Self::get_animation_index(current_tick, 10, 10 * 10);
+                let renderable = &warp_point_sprites.renderables[animation_index];
+
+                render_state.sprite_renderer.draw_centered(
+                    &render_state.camera,
+                    renderable,
+                    x_pixels,
+                    y_pixels,
+                    Layer::AfterBackground,
+                );
+
+                let ui_x = render_state.config.width - renderable.size[0];
+                let ui_y = 100;
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    &warp_point_sprites.renderables[animation_index],
+                    ui_x as i32,
+                    ui_y,
+                    Layer::Gauges,
+                );
+
+                let remaining_time = self.ship.portal_remaining_ticks as f32 / 100.0f32;
+                let text_y =
+                    ui_y + renderable.size[1] as i32 - render_state.text_renderer.character_height;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    &format_smolstr!("{:.1}", remaining_time),
+                    ui_x as i32,
+                    text_y,
+                    Layer::Gauges,
+                    TextColor::Yellow,
+                    TextAlignment::Right,
+                );
+            }
+        }
+    }
+
+    fn render_icons(&self, render_state: &mut RenderState, sprites: &GameSprites) {
+        let y = (render_state.config.height / 2) as i32 - 26 * 2;
+
+        if let Some(icon_sprites) = sprites.get_set(GameSpriteKind::Icons) {
+            let icon_width = icon_sprites.renderables[0].size[0];
+            let icon_height = icon_sprites.renderables[0].size[1] as i32;
+
+            let right_side_x = (render_state.config.width - icon_width) as i32;
+
+            if let Some(gun_index) = self.get_gun_renderable_index() {
+                let renderable = &icon_sprites.renderables[gun_index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    right_side_x,
+                    y,
+                    Layer::Gauges,
+                );
+            }
+
+            if let Some(bomb_index) = self.get_bomb_renderable_index() {
+                let renderable = &icon_sprites.renderables[bomb_index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    right_side_x,
+                    y + icon_height,
+                    Layer::Gauges,
+                );
+            }
+
+            self.render_status_indicator(
+                render_state,
+                icon_sprites,
+                StatusFlags::Stealth,
+                32,
+                right_side_x,
+                y + icon_height * 2,
+            );
+            self.render_status_indicator(
+                render_state,
+                icon_sprites,
+                StatusFlags::Cloak,
+                34,
+                right_side_x,
+                y + icon_height * 3,
+            );
+            self.render_status_indicator(
+                render_state,
+                icon_sprites,
+                StatusFlags::XRadar,
+                36,
+                right_side_x,
+                y + icon_height * 4,
+            );
+            self.render_status_indicator(
+                render_state,
+                icon_sprites,
+                StatusFlags::Antiwarp,
+                38,
+                right_side_x,
+                y + icon_height * 5,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[30],
+                self.ship.bursts,
+                0,
+                y,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[31],
+                self.ship.repels,
+                0,
+                y + icon_height,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[40],
+                self.ship.decoys,
+                0,
+                y + icon_height * 2,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[41],
+                self.ship.thors,
+                0,
+                y + icon_height * 3,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[42],
+                self.ship.bricks,
+                0,
+                y + icon_height * 4,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[43],
+                self.ship.rockets,
+                0,
+                y + icon_height * 5,
+            );
+
+            self.render_item_indicator(
+                render_state,
+                sprites,
+                &icon_sprites.renderables[46],
+                self.ship.portals,
+                0,
+                y + icon_height * 6,
+            );
+        }
+    }
+
+    fn render_item_indicator(
+        &self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        renderable: &SpriteRenderable,
+        count: u8,
+        x: i32,
+        y: i32,
+    ) {
+        let width = renderable.size[0] as i32;
+
+        if count == 0 {
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                renderable,
+                x - (width - 4),
+                y,
+                Layer::Gauges,
+            );
+        } else {
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                renderable,
+                x,
+                y,
+                Layer::Gauges,
+            );
+
+            if count > 1 {
+                if let Some(font_sprites) = sprites.get_set(GameSpriteKind::IconFont) {
+                    let index = (count as usize).min(10);
+
+                    let digit_renderable = &font_sprites.renderables[index];
+                    render_state.sprite_renderer.draw(
+                        &render_state.ui_camera,
+                        digit_renderable,
+                        x + width - 3,
+                        y + 6,
+                        Layer::Gauges,
+                    );
+                }
+            }
+        }
+    }
+
+    fn render_status_indicator(
+        &self,
+        render_state: &mut RenderState,
+        icon_sprites: &SpriteSet,
+        status: u8,
+        on_index: usize,
+        x: i32,
+        y: i32,
+    ) {
+        let width = icon_sprites.renderables[0].size[0] as i32;
+
+        let (index, x_offset) = if self.ship.status & status != 0 {
+            (on_index, 0)
+        } else if self.ship.capability & status != 0 {
+            (on_index + 1, 0)
+        } else {
+            (on_index + 1, width - 4)
+        };
+
+        let renderable = &icon_sprites.renderables[index];
+
+        render_state.sprite_renderer.draw(
+            &render_state.ui_camera,
+            renderable,
+            x + x_offset,
+            y,
+            Layer::Gauges,
+        );
+    }
+
+    fn get_gun_renderable_index(&self) -> Option<usize> {
+        if self.ship.guns == 0 {
+            return None;
+        }
+
+        let mut index = 0;
+
+        if self.ship.capability & ShipCapabilityFlag::Multifire != 0 {
+            if self.ship.multifire {
+                index = 3;
+            } else {
+                index = 6;
+            }
+        }
+
+        if self.ship.capability & ShipCapabilityFlag::BouncingBullets != 0 {
+            index += 9;
+        }
+
+        Some(index + self.ship.guns as usize - 1)
+    }
+
+    fn get_bomb_renderable_index(&self) -> Option<usize> {
+        if self.ship.bombs == 0 {
+            return None;
+        }
+
+        let mut index = 18;
+
+        if self.ship.capability & ShipCapabilityFlag::Proximity != 0 && self.ship.shrapnel == 0 {
+            index += 3;
+        } else if self.ship.capability & ShipCapabilityFlag::Proximity != 0
+            && self.ship.shrapnel > 0
+        {
+            index += 9;
+        } else if self.ship.capability & ShipCapabilityFlag::Proximity == 0
+            && self.ship.shrapnel > 0
+        {
+            index += 6;
+        }
+
+        Some(index + self.ship.bombs as usize - 1)
     }
 
     fn render_energy(&self, render_state: &mut RenderState, sprites: &GameSprites) {
