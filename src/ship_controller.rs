@@ -42,6 +42,7 @@ impl ShipController {
         map: &Map,
         settings: &ArenaSettings,
         current_tick: GameTick,
+        render_state: &mut Option<&mut RenderState>,
     ) {
         let player_count = player_manager.players.len();
 
@@ -83,8 +84,10 @@ impl ShipController {
         let afterburners_enabled =
             self.perform_acceleration(input_state, player_manager, settings, current_tick);
 
-        self.ship.current_energy =
-            (self.ship.current_energy + self.ship.recharge).min(self.ship.max_energy);
+        if self.ship.emped_remaining_ticks == 0 {
+            self.ship.current_energy =
+                (self.ship.current_energy + self.ship.recharge).min(self.ship.max_energy);
+        }
 
         if input_state.is_triggered(InputAction::Multifire)
             && self.ship.capability & ShipCapabilityFlag::Multifire != 0
@@ -136,6 +139,10 @@ impl ShipController {
             .expect("Ship controller player must exist");
         me.status = self.ship.status;
         me.bounty = self.ship.bounty;
+
+        if self.ship.emped_remaining_ticks > 0 {
+            Self::render_emp_trail(player_manager, render_state, current_tick);
+        }
     }
 
     fn tick_effects(&mut self, current_tick: GameTick) {
@@ -1387,6 +1394,38 @@ impl ShipController {
                     }
                 }
             }
+        }
+    }
+
+    fn render_emp_trail(
+        player_manager: &PlayerManager,
+        render_state: &mut Option<&mut RenderState>,
+        current_tick: GameTick,
+    ) {
+        let Some(me) = player_manager.get_self() else {
+            return;
+        };
+        let Some(me_position) = me.position else {
+            return;
+        };
+
+        let Some(render_state) = render_state else {
+            return;
+        };
+
+        let (x_pixels, y_pixels) = me_position.to_pixels();
+
+        if current_tick.value() % 15 == 0 {
+            render_state.animation_renderer.add(
+                GameSpriteKind::Spark,
+                current_tick,
+                0,
+                10,
+                50,
+                x_pixels,
+                y_pixels,
+                Layer::AfterBackground,
+            );
         }
     }
 }

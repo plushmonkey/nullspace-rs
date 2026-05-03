@@ -222,6 +222,7 @@ impl Client {
                             &self.map,
                             &self.settings,
                             current_tick,
+                            &mut render_state,
                         );
 
                         if input_state.is_triggered(InputAction::Attach) {

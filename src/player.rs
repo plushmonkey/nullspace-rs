@@ -241,13 +241,25 @@ impl Player {
 pub struct PlayerManager {
     pub players: Vec<Player>,
     pub self_id: PlayerId,
+
+    // Fast lookup for player index from PlayerId.
+    player_mapping: Vec<u16>,
 }
 
 impl PlayerManager {
+    const INVALID_PLAYER_INDEX: u16 = 0xFFFF;
+
     pub fn new() -> Self {
+        let mut player_mapping = vec![];
+
+        for _ in 0..65535 {
+            player_mapping.push(Self::INVALID_PLAYER_INDEX);
+        }
+
         Self {
             players: vec![],
             self_id: PlayerId::invalid(),
+            player_mapping,
         }
     }
 
@@ -256,17 +268,31 @@ impl PlayerManager {
     pub fn add_player(&mut self, player: Player) -> Option<Player> {
         let existed = self.remove_player(player.id);
 
+        self.player_mapping[player.id.value as usize] = self.players.len() as u16;
         self.players.push(player);
 
         existed
     }
 
     pub fn remove_player(&mut self, player_id: PlayerId) -> Option<Player> {
-        if let Some(idx) = self.players.iter().position(|p| p.id == player_id) {
-            Some(self.players.swap_remove(idx))
-        } else {
-            None
+        if !player_id.valid() {
+            log::error!("Trying to remove invalid PlayerId");
+            return None;
         }
+
+        let index = self.player_mapping[player_id.value as usize];
+        if index == Self::INVALID_PLAYER_INDEX {
+            return None;
+        }
+
+        // swap_remove will swap the last player into this removed player's spot, so we need to update the mapping to match.
+        let swap_player_id = self.players[self.players.len() - 1].id;
+        self.player_mapping[swap_player_id.value as usize] = index;
+
+        self.player_mapping[player_id.value as usize] = Self::INVALID_PLAYER_INDEX;
+        let result = self.players.swap_remove(index as usize);
+
+        Some(result)
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<&Player> {
@@ -278,11 +304,31 @@ impl PlayerManager {
     }
 
     pub fn get_by_id(&self, player_id: PlayerId) -> Option<&Player> {
-        self.players.iter().find(|p| p.id == player_id)
+        if !player_id.valid() {
+            return None;
+        }
+
+        let index = self.player_mapping[player_id.value as usize];
+
+        if index == Self::INVALID_PLAYER_INDEX {
+            return None;
+        }
+
+        Some(&self.players[index as usize])
     }
 
     pub fn get_by_id_mut(&mut self, player_id: PlayerId) -> Option<&mut Player> {
-        self.players.iter_mut().find(|p| p.id == player_id)
+        if !player_id.valid() {
+            return None;
+        }
+
+        let index = self.player_mapping[player_id.value as usize];
+
+        if index == Self::INVALID_PLAYER_INDEX {
+            return None;
+        }
+
+        Some(&mut self.players[index as usize])
     }
 
     pub fn get_self(&self) -> Option<&Player> {
