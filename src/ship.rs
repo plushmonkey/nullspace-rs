@@ -168,6 +168,10 @@ impl Ship {
         false
     }
 
+    pub fn get_direction(&self) -> u8 {
+        (self.current_orientation / 1000) as u8 % 40
+    }
+
     pub fn is_max_energy(&self) -> bool {
         self.current_energy >= self.max_energy
     }

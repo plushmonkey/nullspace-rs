@@ -1,3 +1,5 @@
+use smol_str::format_smolstr;
+
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
@@ -5,6 +7,12 @@ use crate::{
     map::{Map, TILE_ID_SAFE},
     net::connection::Connection,
     player::{PlayerManager, StatusFlags},
+    render::{
+        game_sprites::{GameSpriteKind, GameSprites},
+        layer::Layer,
+        render_state::RenderState,
+        text_renderer::{TextAlignment, TextColor},
+    },
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
     simulation::{
@@ -282,7 +290,7 @@ impl ShipController {
         }
 
         if let Some(me) = player_manager.get_self_mut() {
-            me.direction = (self.ship.current_orientation / 1000) as u8 % 40;
+            me.direction = self.ship.get_direction();
         }
     }
 
@@ -850,6 +858,60 @@ impl ShipController {
 
                         if let Err(e) = connection.send_reliable(&death) {
                             log::error!("{e}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn render(
+        &self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+    ) {
+        render_state.text_renderer.draw(
+            &mut render_state.sprite_renderer,
+            &render_state.ui_camera,
+            &format_smolstr!(
+                "{} / {}",
+                self.ship.current_energy / 1000,
+                self.ship.max_energy / 1000
+            ),
+            render_state.config.width as i32 - 2,
+            0,
+            Layer::TopMost,
+            TextColor::Pink,
+            TextAlignment::Right,
+        );
+
+        self.render_attach_turret(player_manager, render_state, sprites);
+    }
+
+    fn render_attach_turret(
+        &self,
+        player_manager: &PlayerManager,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+    ) {
+        if let Some(me) = player_manager.get_self() {
+            if me.attach_parent.valid() {
+                if let Some(parent) = player_manager.get_by_id(me.attach_parent) {
+                    if let Some(parent_position) = parent.position {
+                        let (x_pixels, y_pixels) = parent_position.to_pixels();
+
+                        if let Some(turret_sprites) = sprites.get_set(GameSpriteKind::Turret) {
+                            let renderable =
+                                &turret_sprites.renderables[self.ship.get_direction() as usize];
+
+                            render_state.sprite_renderer.draw_centered(
+                                &render_state.camera,
+                                renderable,
+                                x_pixels,
+                                y_pixels,
+                                Layer::AfterShips,
+                            );
                         }
                     }
                 }

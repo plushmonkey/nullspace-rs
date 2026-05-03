@@ -315,7 +315,7 @@ impl ChatController {
             // TODO: This should be handled elsewhere so we can check energy.
             // TODO: Only one command can be handled per input, so we could just return out of the handle key function.
 
-            let Ok(msg) = std::str::from_utf8(&self.input) else {
+            let Ok(msg) = std::str::from_utf8(&self.input[1..]) else {
                 return true;
             };
 

@@ -158,6 +158,8 @@ pub struct Connection {
     pub weapons_recv: u32,
     pub packets_sent: u32,
     pub packets_recv: u32,
+
+    pub send_extra_position_info: bool,
 }
 
 impl Connection {
@@ -179,6 +181,7 @@ impl Connection {
             weapons_recv: 0,
             packets_sent: 0,
             packets_recv: 0,
+            send_extra_position_info: false,
         };
 
         let encrypt_request = EncryptionRequestMessage::new(client_key);
@@ -470,6 +473,12 @@ impl Connection {
                         self.weapons_recv = self.weapons_recv.wrapping_add(1);
                     }
                 }
+                GameServerMessage::SpectateData(message) => match message {
+                    SpectateDataMessage::ExtraPositionInfo(extra_info) => {
+                        self.send_extra_position_info = *extra_info;
+                    }
+                    _ => {}
+                },
                 _ => {}
             },
         }

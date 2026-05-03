@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::checksum::weapon_checksum;
 use crate::clock::GameTick;
+use crate::net::packet::bi::ExtraPositionData;
 use crate::net::packet::s2c::ChatKind;
 use crate::net::packet::{Packet, Serialize};
 use crate::player::PlayerId;
@@ -128,6 +129,7 @@ pub struct PositionMessage {
     pub bounty: u16,
     pub energy: u16,
     pub weapon_info: u16,
+    pub extra_info: Option<ExtraPositionData>,
 }
 
 impl Serialize for PositionMessage {
@@ -147,6 +149,14 @@ impl Serialize for PositionMessage {
             .concat_u16(self.weapon_info);
 
         packet.data[10] = weapon_checksum(&packet.data[..packet.size]);
+
+        if let Some(extra_data) = &self.extra_info {
+            packet = packet
+                .concat_u16(extra_data.energy)
+                .concat_u16(extra_data.s2c_latency)
+                .concat_u16(extra_data.flag_timer)
+                .concat_u32(extra_data.items.pack());
+        }
 
         packet
     }

@@ -363,6 +363,35 @@ impl Client {
         }
     }
 
+    fn get_extra_position_data(&self) -> Option<ExtraPositionData> {
+        if let MovementController::Ship(ship_controller) = &self.controller {
+            if self.settings.extra_position_data || self.connection.send_extra_position_info {
+                let items = ItemSet {
+                    shield_active: ship_controller.ship.shield_remaining_ticks > 0,
+                    super_active: ship_controller.ship.super_remaining_ticks > 0,
+                    bursts: ship_controller.ship.bursts,
+                    repels: ship_controller.ship.repels,
+                    thors: ship_controller.ship.thors,
+                    bricks: ship_controller.ship.bricks,
+                    decoys: ship_controller.ship.decoys,
+                    rockets: ship_controller.ship.rockets,
+                    portals: ship_controller.ship.portals,
+                };
+
+                let data = ExtraPositionData {
+                    energy: (ship_controller.ship.current_energy / 1000) as u16,
+                    s2c_latency: 0,
+                    flag_timer: 0,
+                    items: items,
+                };
+
+                return Some(data);
+            }
+        }
+
+        None
+    }
+
     // Generates a non-weapon position packet.
     fn generate_position_message(&self) -> Option<PositionMessage> {
         let Some(me) = self.simulation.player_manager.get_self() else {
@@ -394,6 +423,7 @@ impl Client {
             bounty: me.bounty,
             energy: energy as u16,
             weapon_info: 0,
+            extra_info: self.get_extra_position_data(),
         };
 
         Some(position)
@@ -471,6 +501,7 @@ impl Client {
                             bounty: me.bounty,
                             energy: energy as u16,
                             weapon_info,
+                            extra_info: self.get_extra_position_data(),
                         };
 
                         position
@@ -944,7 +975,8 @@ impl Client {
                         player.last_position_timestamp = message_timestamp;
 
                         if let Some(extra) = &message.extra {
-                            player.energy = Some(extra.energy as u32);
+                            player.extra_position_data = Some(*extra);
+                            player.last_extra_data_timestamp = Some(message_timestamp);
                         }
                     } else {
                         Self::validate_packet_timestamp(
@@ -1037,7 +1069,8 @@ impl Client {
                         player.last_position_timestamp = message_timestamp;
 
                         if let Some(extra) = &message.extra {
-                            player.energy = Some(extra.energy as u32);
+                            player.extra_position_data = Some(*extra);
+                            player.last_extra_data_timestamp = Some(message_timestamp);
                         }
                     } else {
                         if Self::validate_packet_timestamp(
@@ -1288,6 +1321,17 @@ impl Client {
                             self.controller =
                                 MovementController::Spectate(SpectateController::new());
                         } else {
+                            // Clear our spectate target before we get in a ship.
+                            if let MovementController::Spectate(_) = &self.controller {
+                                let spectate_request = SpectateMessage {
+                                    player_id: PlayerId::invalid(),
+                                };
+
+                                if let Err(e) = self.connection.send_reliable(&spectate_request) {
+                                    log::error!("{e}");
+                                }
+                            }
+
                             let rng = VieRng::new(GameTick::now(0).value() as i32);
 
                             let position = generate_spawn_position(
@@ -1539,20 +1583,7 @@ impl Client {
                 }
 
                 if let MovementController::Ship(ship_controller) = &self.controller {
-                    render_state.text_renderer.draw(
-                        &mut render_state.sprite_renderer,
-                        &render_state.ui_camera,
-                        &format_smolstr!(
-                            "{} / {}",
-                            ship_controller.ship.current_energy / 1000,
-                            ship_controller.ship.max_energy / 1000
-                        ),
-                        render_state.config.width as i32 - 2,
-                        0,
-                        Layer::TopMost,
-                        TextColor::Pink,
-                        TextAlignment::Right,
-                    );
+                    ship_controller.render(&self.simulation.player_manager, render_state, sprites);
                 }
 
                 render_state.render_map = true;
@@ -1724,41 +1755,10 @@ impl Client {
                 );
 
                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
-                let name_y = y_pixels + (renderable.size[1] as i32) / 2;
+                let mut name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                let name_color = if player.frequency == self.get_freq() {
-                    TextColor::Yellow
-                } else {
-                    TextColor::Blue
-                };
-
-                render_state.draw_world_text(
-                    &format!("{}({})", player.name, player.bounty),
-                    name_x,
-                    name_y,
-                    Layer::AfterShips,
-                    name_color,
-                    TextAlignment::Left,
-                );
-
-                let mut child_y = name_y + render_state.text_renderer.character_height;
-
-                for child_id in &player.children {
-                    if let Some(child) = self.simulation.player_manager.get_by_id(*child_id) {
-                        render_state.draw_world_text(
-                            &format!("{}({})", child.name, child.bounty),
-                            name_x,
-                            child_y,
-                            Layer::AfterShips,
-                            name_color,
-                            TextAlignment::Left,
-                        );
-                    }
-
-                    child_y += render_state.text_renderer.character_height;
-                }
-
-                if let Some(energy) = player.energy {
+                if let Some(extra_data) = &player.extra_position_data {
+                    let energy = extra_data.energy as u32;
                     let energy_x = x_pixels - (renderable.size[0] as i32) / 2;
                     let energy_y = y_pixels + (renderable.size[1] as i32) / 2;
 
@@ -1783,6 +1783,92 @@ impl Client {
                         energy_color,
                         TextAlignment::Right,
                     );
+                } else if player.id == self.simulation.player_manager.self_id {
+                    if let MovementController::Ship(ship_controller) = &self.controller {
+                        let half_energy = ship_controller.ship.max_energy / 2;
+
+                        if ship_controller.ship.current_energy <= half_energy {
+                            let quarter_energy = ship_controller.ship.max_energy / 4;
+                            let energy = ship_controller.ship.current_energy / 1000;
+                            let energy_color =
+                                if ship_controller.ship.current_energy <= quarter_energy {
+                                    TextColor::DarkRed
+                                } else {
+                                    TextColor::Yellow
+                                };
+
+                            render_state.draw_world_text(
+                                &format_smolstr!("{}", energy),
+                                name_x,
+                                name_y,
+                                Layer::Ships,
+                                energy_color,
+                                TextAlignment::Left,
+                            );
+
+                            name_y += render_state.text_renderer.character_height;
+                        }
+                    }
+                }
+
+                let name_color = if player.frequency == self.get_freq() {
+                    TextColor::Yellow
+                } else {
+                    TextColor::Blue
+                };
+
+                render_state.draw_world_text(
+                    &format!("{}({})", player.name, player.bounty),
+                    name_x,
+                    name_y,
+                    Layer::AfterShips,
+                    name_color,
+                    TextAlignment::Left,
+                );
+
+                let mut child_y = name_y + render_state.text_renderer.character_height;
+
+                for child_id in &player.children {
+                    if let Some(child) = self.simulation.player_manager.get_by_id(*child_id) {
+                        if child.id == self.simulation.player_manager.self_id {
+                            if let MovementController::Ship(ship_controller) = &self.controller {
+                                let half_energy = ship_controller.ship.max_energy / 2;
+
+                                if ship_controller.ship.current_energy <= half_energy {
+                                    let quarter_energy = ship_controller.ship.max_energy / 4;
+                                    let energy = ship_controller.ship.current_energy / 1000;
+                                    let energy_color =
+                                        if ship_controller.ship.current_energy <= quarter_energy {
+                                            TextColor::DarkRed
+                                        } else {
+                                            TextColor::Yellow
+                                        };
+
+                                    render_state.draw_world_text(
+                                        &format_smolstr!("{}", energy),
+                                        name_x,
+                                        child_y,
+                                        Layer::Ships,
+                                        energy_color,
+                                        TextAlignment::Left,
+                                    );
+
+                                    child_y += render_state.text_renderer.character_height;
+                                }
+                            }
+                        }
+
+                        render_state.draw_world_text(
+                            &format!("{}({})", child.name, child.bounty),
+                            name_x,
+                            child_y,
+                            Layer::AfterShips,
+                            name_color,
+                            TextAlignment::Left,
+                        );
+                    }
+
+                    child_y += render_state.text_renderer.character_height;
                 }
             }
         }

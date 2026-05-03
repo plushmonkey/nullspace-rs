@@ -130,55 +130,6 @@ pub struct PlayerLeavingMessage {
     pub player_id: PlayerId,
 }
 
-pub struct ItemSet {
-    pub shield_active: bool,
-    pub super_active: bool,
-    pub bursts: u8,
-    pub repels: u8,
-    pub thors: u8,
-    pub bricks: u8,
-    pub decoys: u8,
-    pub rockets: u8,
-    pub portals: u8,
-}
-
-impl ItemSet {
-    pub fn empty() -> ItemSet {
-        ItemSet {
-            shield_active: false,
-            super_active: false,
-            bursts: 0,
-            repels: 0,
-            thors: 0,
-            bricks: 0,
-            decoys: 0,
-            rockets: 0,
-            portals: 0,
-        }
-    }
-
-    pub fn parse(data: u32) -> ItemSet {
-        ItemSet {
-            shield_active: (data & 1) != 0,
-            super_active: ((data >> 1) & 1) != 0,
-            bursts: ((data >> 2) & 0x0F) as u8,
-            repels: ((data >> 6) & 0x0F) as u8,
-            thors: ((data >> 10) & 0x0F) as u8,
-            bricks: ((data >> 14) & 0x0F) as u8,
-            decoys: ((data >> 18) & 0x0F) as u8,
-            rockets: ((data >> 22) & 0x0F) as u8,
-            portals: ((data >> 26) & 0x0F) as u8,
-        }
-    }
-}
-
-pub struct ExtraPositionData {
-    pub energy: u16,
-    pub s2c_lag: u16,
-    pub timer: u16,
-    pub items: ItemSet,
-}
-
 // 0x05
 pub struct LargePositionMessage {
     pub direction: u8,
@@ -770,8 +721,8 @@ impl ServerMessage {
                 let mut extra = None;
                 if packet.len() > 21 {
                     let mut energy = 0;
-                    let mut s2c_lag = 0;
-                    let mut timer = 0;
+                    let mut s2c_latency = 0;
+                    let mut flag_timer = 0;
                     let mut items = ItemSet::empty();
 
                     if packet.len() >= 23 {
@@ -779,11 +730,11 @@ impl ServerMessage {
                     }
 
                     if packet.len() >= 25 {
-                        s2c_lag = u16::from_le_bytes(packet[23..25].try_into().unwrap());
+                        s2c_latency = u16::from_le_bytes(packet[23..25].try_into().unwrap());
                     }
 
                     if packet.len() >= 27 {
-                        timer = u16::from_le_bytes(packet[25..27].try_into().unwrap());
+                        flag_timer = u16::from_le_bytes(packet[25..27].try_into().unwrap());
                     }
 
                     if packet.len() >= 31 {
@@ -793,8 +744,8 @@ impl ServerMessage {
 
                     extra = Some(ExtraPositionData {
                         energy,
-                        s2c_lag,
-                        timer,
+                        s2c_latency,
+                        flag_timer,
                         items,
                     });
                 }
@@ -1368,8 +1319,8 @@ impl ServerMessage {
 
                 if packet.len() > 16 {
                     let mut energy = 0;
-                    let mut s2c_lag = 0;
-                    let mut timer = 0;
+                    let mut s2c_latency = 0;
+                    let mut flag_timer = 0;
                     let mut items = ItemSet::empty();
 
                     if packet.len() >= 18 {
@@ -1377,11 +1328,11 @@ impl ServerMessage {
                     }
 
                     if packet.len() >= 20 {
-                        s2c_lag = u16::from_le_bytes(packet[18..20].try_into().unwrap());
+                        s2c_latency = u16::from_le_bytes(packet[18..20].try_into().unwrap());
                     }
 
                     if packet.len() >= 22 {
-                        timer = u16::from_le_bytes(packet[20..22].try_into().unwrap());
+                        flag_timer = u16::from_le_bytes(packet[20..22].try_into().unwrap());
                     }
 
                     if packet.len() >= 26 {
@@ -1391,8 +1342,8 @@ impl ServerMessage {
 
                     extra = Some(ExtraPositionData {
                         energy,
-                        s2c_lag,
-                        timer,
+                        s2c_latency,
+                        flag_timer,
                         items,
                     });
                 }

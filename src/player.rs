@@ -1,6 +1,7 @@
 use crate::{
     clock::GameTick,
     math::{Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction},
+    net::packet::bi::ExtraPositionData,
     ship::ShipKind,
 };
 
@@ -118,10 +119,8 @@ pub struct Player {
     pub last_position_timestamp: GameTick,
     pub enter_delay: u16,
 
-    pub energy: Option<u32>,
-    pub s2c_latency: Option<u16>,
-    pub flag_timer: Option<u16>,
-    pub items: Option<PlayerItemSet>,
+    pub last_extra_data_timestamp: Option<GameTick>,
+    pub extra_position_data: Option<ExtraPositionData>,
 
     pub flag_points: i32,
     pub kill_points: i32,
@@ -172,10 +171,8 @@ impl Player {
             last_position_timestamp: GameTick::empty(),
             enter_delay: 0,
 
-            energy: None,
-            s2c_latency: None,
-            flag_timer: None,
-            items: None,
+            last_extra_data_timestamp: None,
+            extra_position_data: None,
 
             flag_points,
             kill_points,

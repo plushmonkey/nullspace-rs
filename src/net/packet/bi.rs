@@ -137,3 +137,68 @@ impl Serialize for ClusterMessage {
             .concat_bytes(&self.data.data[..self.data.size])
     }
 }
+
+#[derive(Copy, Clone)]
+pub struct ItemSet {
+    pub shield_active: bool,
+    pub super_active: bool,
+    pub bursts: u8,
+    pub repels: u8,
+    pub thors: u8,
+    pub bricks: u8,
+    pub decoys: u8,
+    pub rockets: u8,
+    pub portals: u8,
+}
+
+impl ItemSet {
+    pub fn empty() -> ItemSet {
+        ItemSet {
+            shield_active: false,
+            super_active: false,
+            bursts: 0,
+            repels: 0,
+            thors: 0,
+            bricks: 0,
+            decoys: 0,
+            rockets: 0,
+            portals: 0,
+        }
+    }
+
+    pub fn parse(data: u32) -> ItemSet {
+        ItemSet {
+            shield_active: (data & 1) != 0,
+            super_active: ((data >> 1) & 1) != 0,
+            bursts: ((data >> 2) & 0x0F) as u8,
+            repels: ((data >> 6) & 0x0F) as u8,
+            thors: ((data >> 10) & 0x0F) as u8,
+            bricks: ((data >> 14) & 0x0F) as u8,
+            decoys: ((data >> 18) & 0x0F) as u8,
+            rockets: ((data >> 22) & 0x0F) as u8,
+            portals: ((data >> 26) & 0x0F) as u8,
+        }
+    }
+
+    pub fn pack(&self) -> u32 {
+        let portals = (self.portals as u32 & 0x0F) << 26;
+        let rockets = (self.rockets as u32 & 0x0F) << 22;
+        let decoys = (self.decoys as u32 & 0x0F) << 18;
+        let bricks = (self.bricks as u32 & 0x0F) << 14;
+        let thors = (self.thors as u32 & 0x0F) << 10;
+        let repels = (self.repels as u32 & 0x0F) << 6;
+        let bursts = (self.bursts as u32 & 0x0F) << 2;
+        let super_active = (self.super_active as u32) << 1;
+        let shield_active = (self.shield_active as u32) << 0;
+
+        portals | rockets | decoys | bricks | thors | repels | bursts | super_active | shield_active
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct ExtraPositionData {
+    pub energy: u16,
+    pub s2c_latency: u16,
+    pub flag_timer: u16,
+    pub items: ItemSet,
+}

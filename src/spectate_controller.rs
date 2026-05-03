@@ -109,6 +109,16 @@ impl SpectateController {
                 }
             }
 
+            self.freecam = true;
+
+            let spectate_request = SpectateMessage {
+                player_id: PlayerId::invalid(),
+            };
+
+            if let Err(e) = connection.send_reliable(&spectate_request) {
+                log::error!("{e}");
+            }
+
             self.spectate_player_id = None;
             return;
         };

@@ -64,9 +64,20 @@ impl Simulation {
 
         for player in &mut self.player_manager.players {
             player_simulation::integrate_player(map, settings, player);
+
             // If we have a parent, store us and the parent so we can sync after everyone has been simulated.
             if player.attach_parent.valid() {
                 self.child_players.push((player.id, player.attach_parent));
+            }
+
+            // Time out extra data so we don't continue displaying energy while it's not being sent.
+            if let Some(last_extra_tick) = player.last_extra_data_timestamp {
+                const EXTRA_DATA_TIMEOUT: i32 = 350;
+
+                if self.tick.diff(&last_extra_tick) > EXTRA_DATA_TIMEOUT {
+                    player.last_extra_data_timestamp = None;
+                    player.extra_position_data = None;
+                }
             }
         }
 
