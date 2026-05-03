@@ -57,9 +57,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let uv: vec2<f32> = modf(in.world_position + vec2<f32>(2.0, 2.0)).fract;
   let sample: vec4<f32> = textureSample(t_diffuse, s_diffuse, uv, tile_id - 1);
 
-  if sample.r == 0.0 && sample.g == 0.0 && sample.b == 0.0 {
-    discard;
-  }
-  
   return sample;
 }

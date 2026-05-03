@@ -7,6 +7,7 @@ use crate::{
     map::{Map, TILE_ID_SAFE},
     net::connection::Connection,
     player::{PlayerManager, StatusFlags},
+    radar::Radar,
     render::{
         game_sprites::{GameSpriteKind, GameSprites, SpriteSet},
         layer::Layer,
@@ -40,6 +41,7 @@ impl ShipController {
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
         map: &Map,
+        radar: &Radar,
         settings: &ArenaSettings,
         current_tick: GameTick,
         render_state: &mut Option<&mut RenderState>,
@@ -79,10 +81,9 @@ impl ShipController {
 
         let ship_settings = settings.get_ship_settings(me.ship_kind);
 
-        self.tick_effects(current_tick);
+        self.tick_effects();
         self.perform_rotation(input_state, player_manager);
-        let afterburners_enabled =
-            self.perform_acceleration(input_state, player_manager, settings, current_tick);
+        let afterburners_enabled = self.perform_acceleration(input_state, player_manager, settings);
 
         if self.ship.emped_remaining_ticks == 0 {
             self.ship.current_energy =
@@ -129,6 +130,7 @@ impl ShipController {
             connection,
             player_manager,
             map,
+            radar,
             settings,
             current_tick,
             afterburners_enabled,
@@ -145,7 +147,7 @@ impl ShipController {
         }
     }
 
-    fn tick_effects(&mut self, current_tick: GameTick) {
+    fn tick_effects(&mut self) {
         if self.ship.repel_effect_remaining_ticks > 0 {
             self.ship.repel_effect_remaining_ticks -= 1;
         }
@@ -174,22 +176,16 @@ impl ShipController {
             self.ship.flag_remaining_ticks -= 1;
         }
 
-        if let Some(fake_antiwarp_end_tick) = self.ship.fake_antiwarp_end_tick {
-            if current_tick >= fake_antiwarp_end_tick {
-                self.ship.fake_antiwarp_end_tick = None;
-            }
+        if self.ship.fake_antiwarp_remaining_ticks > 0 {
+            self.ship.fake_antiwarp_remaining_ticks -= 1;
         }
 
-        if let Some(rocket_end_tick) = self.ship.rocket_end_tick {
-            if current_tick >= rocket_end_tick {
-                self.ship.rocket_end_tick = None;
-            }
+        if self.ship.rocket_remaining_ticks > 0 {
+            self.ship.rocket_remaining_ticks -= 1;
         }
 
-        if let Some(shutdown_end_tick) = self.ship.shutdown_end_tick {
-            if current_tick >= shutdown_end_tick {
-                self.ship.shutdown_end_tick = None;
-            }
+        if self.ship.shutdown_remaining_ticks > 0 {
+            self.ship.shutdown_remaining_ticks -= 1;
         }
     }
 
@@ -208,15 +204,14 @@ impl ShipController {
         input_state: &InputState,
         player_manager: &mut PlayerManager,
         settings: &ArenaSettings,
-        current_tick: GameTick,
     ) -> bool {
         let me = player_manager
             .get_self_mut()
             .expect("Ship controller player must exist");
         let ship_settings = settings.get_ship_settings(me.ship_kind);
 
-        let rocket_enabled = self.ship.is_using_rocket(current_tick);
-        let engine_shutdown = self.ship.is_engine_shutdown(current_tick);
+        let rocket_enabled = self.ship.rocket_remaining_ticks > 0;
+        let engine_shutdown = self.ship.shutdown_remaining_ticks > 0;
 
         let afterburners_cost = ship_settings.afterburner_energy as u32 * 1000;
 
@@ -339,12 +334,68 @@ impl ShipController {
         self.ship.reset(settings, current_tick, ship_kind);
     }
 
+    pub fn is_antiwarped(
+        &self,
+        player_manager: &PlayerManager,
+        radar: &Radar,
+        antiwarp_pixels: u32,
+    ) -> bool {
+        let antiwarp_pixels = antiwarp_pixels as i32;
+
+        if self.ship.fake_antiwarp_remaining_ticks > 0 {
+            return true;
+        }
+
+        let Some(me) = player_manager.get_self() else {
+            return false;
+        };
+
+        let Some(me_position) = me.position else {
+            return false;
+        };
+
+        for player in &player_manager.players {
+            if player.ship_kind == ShipKind::Spectator {
+                continue;
+            }
+
+            if player.frequency == me.frequency {
+                continue;
+            }
+
+            if player.enter_delay > 0 {
+                continue;
+            }
+
+            if player.status & StatusFlags::Antiwarp == 0 {
+                continue;
+            }
+
+            let Some(player_position) = player.position else {
+                continue;
+            };
+
+            if !radar.in_view(player_position) {
+                continue;
+            }
+
+            let (dx, dy) = me_position.delta_pixels(&player_position);
+
+            if dx.abs() < antiwarp_pixels || dy.abs() < antiwarp_pixels {
+                return true;
+            }
+        }
+
+        false
+    }
+
     pub fn fire_weapons(
         &mut self,
         input_state: &InputState,
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
         map: &Map,
+        radar: &Radar,
         settings: &ArenaSettings,
         current_tick: GameTick,
         afterburners_enabled: bool,
@@ -359,6 +410,9 @@ impl ShipController {
         let Some(me_position) = me.position else {
             return;
         };
+
+        let me_ship_kind = me.ship_kind;
+        let me_frequency = me.frequency;
 
         let in_safe = map.get_tile_from_position(&me_position) == TILE_ID_SAFE;
         let can_fast_shoot = !afterburners_enabled || !ship_settings.disable_fast_shooting;
@@ -472,59 +526,63 @@ impl ShipController {
 
         if input_state.is_triggered(InputAction::Rocket)
             && current_tick > self.ship.next_bomb_tick
-            && self.ship.rocket_end_tick.is_none()
+            && self.ship.rocket_remaining_ticks == 0
             && self.ship.rockets > 0
         {
             self.ship.rockets -= 1;
 
-            self.ship.rocket_end_tick = Some(current_tick + ship_settings.rocket_time as i32);
+            self.ship.rocket_remaining_ticks = ship_settings.rocket_time as u32;
         }
 
         if input_state.is_triggered(InputAction::Portal) && self.ship.portals > 0 {
-            // TODO: Check antiwarp
-
-            self.ship.portal_position = Some(me_position);
-            self.ship.portals -= 1;
-            self.ship.portal_remaining_ticks = settings.warp_point_delay as u32;
+            if self.is_antiwarped(player_manager, radar, settings.antiwarp_pixels as u32) {
+                // TODO: Notification
+            } else {
+                self.ship.portal_position = Some(me_position);
+                self.ship.portals -= 1;
+                self.ship.portal_remaining_ticks = settings.warp_point_delay as u32;
+            }
         }
 
         if input_state.is_triggered(InputAction::Warp) {
-            // TODO: Check antiwarp
+            if self.is_antiwarped(player_manager, radar, settings.antiwarp_pixels as u32) {
+                // TODO: Notification
+            } else {
+                let (new_position, use_energy) =
+                    if let Some(portal_position) = self.ship.portal_position {
+                        self.ship.portal_position = None;
+                        self.ship.portal_remaining_ticks = 0;
 
-            let (new_position, use_energy) =
-                if let Some(portal_position) = self.ship.portal_position {
-                    self.ship.portal_position = None;
-                    self.ship.portal_remaining_ticks = 0;
+                        (portal_position, false)
+                    } else {
+                        let rng = VieRng::new(current_tick.value() as i32);
 
-                    (portal_position, false)
-                } else {
-                    let rng = VieRng::new(current_tick.value() as i32);
+                        let new_position = generate_spawn_position(
+                            settings,
+                            map,
+                            me_ship_kind,
+                            me_frequency,
+                            rng,
+                            player_manager.players.len(),
+                        );
 
-                    let new_position = generate_spawn_position(
-                        settings,
-                        map,
-                        me.ship_kind,
-                        me.frequency,
-                        rng,
-                        player_manager.players.len(),
-                    );
+                        (new_position, true)
+                    };
 
-                    (new_position, true)
-                };
+                if let Some(me) = player_manager.get_self_mut() {
+                    if !use_energy || self.ship.is_max_energy() {
+                        me.position = Some(new_position);
 
-            if let Some(me) = player_manager.get_self_mut() {
-                if !use_energy || self.ship.is_max_energy() {
-                    me.position = Some(new_position);
+                        self.ship.status |= StatusFlags::Flash;
+                        self.ship.next_bomb_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                    }
 
-                    self.ship.status |= StatusFlags::Flash;
-                    self.ship.next_bomb_tick = current_tick + Self::REPEL_DELAY_TICKS;
-                }
-
-                if use_energy {
-                    self.ship.current_energy = 1000;
-                    me.velocity.clear();
-                    self.ship.fake_antiwarp_end_tick =
-                        Some(current_tick + settings.antiwarp_settle_delay as i32);
+                    if use_energy {
+                        self.ship.current_energy = 1000;
+                        me.velocity.clear();
+                        self.ship.fake_antiwarp_remaining_ticks =
+                            settings.antiwarp_settle_delay as u32;
+                    }
                 }
             }
         }
@@ -692,6 +750,14 @@ impl ShipController {
         }
 
         if let WeaponKind::None = weapon_kind {
+            return;
+        }
+
+        if in_safe {
+            let me = player_manager
+                .get_self_mut()
+                .expect("Ship controller player must exist");
+            me.velocity.clear();
             return;
         }
 

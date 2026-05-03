@@ -79,10 +79,9 @@ pub struct Ship {
     pub next_bomb_tick: GameTick,
     pub next_repel_tick: GameTick,
 
-    pub rocket_end_tick: Option<GameTick>,
-    pub shutdown_end_tick: Option<GameTick>,
-    pub fake_antiwarp_end_tick: Option<GameTick>,
-
+    pub rocket_remaining_ticks: u32,
+    pub shutdown_remaining_ticks: u32,
+    pub fake_antiwarp_remaining_ticks: u32,
     pub emped_remaining_ticks: u32,
     pub super_remaining_ticks: u32,
     pub shield_remaining_ticks: u32,
@@ -124,9 +123,9 @@ impl Ship {
             next_bullet_tick: GameTick::empty(),
             next_bomb_tick: GameTick::empty(),
             next_repel_tick: GameTick::empty(),
-            rocket_end_tick: None,
-            shutdown_end_tick: None,
-            fake_antiwarp_end_tick: None,
+            rocket_remaining_ticks: 0,
+            shutdown_remaining_ticks: 0,
+            fake_antiwarp_remaining_ticks: 0,
             emped_remaining_ticks: 0,
             super_remaining_ticks: 0,
             shield_remaining_ticks: 0,
@@ -142,32 +141,6 @@ impl Ship {
         }
     }
 
-    pub fn is_using_rocket(&mut self, current_tick: GameTick) -> bool {
-        if let Some(end_tick) = &self.rocket_end_tick {
-            if current_tick >= *end_tick {
-                self.rocket_end_tick = None;
-                return false;
-            }
-
-            return true;
-        }
-
-        false
-    }
-
-    pub fn is_engine_shutdown(&mut self, current_tick: GameTick) -> bool {
-        if let Some(end_tick) = &self.shutdown_end_tick {
-            if current_tick >= *end_tick {
-                self.shutdown_end_tick = None;
-                return false;
-            }
-
-            return true;
-        }
-
-        false
-    }
-
     pub fn get_direction(&self) -> u8 {
         (self.current_orientation / 1000) as u8 % 40
     }
@@ -180,10 +153,9 @@ impl Ship {
         self.kind = ship_kind;
         self.shrapnel = 0;
 
-        self.rocket_end_tick = None;
-        self.shutdown_end_tick = None;
-        self.fake_antiwarp_end_tick = None;
-
+        self.rocket_remaining_ticks = 0;
+        self.shutdown_remaining_ticks = 0;
+        self.fake_antiwarp_remaining_ticks = 0;
         self.emped_remaining_ticks = 0;
         self.super_remaining_ticks = 0;
         self.shield_remaining_ticks = 0;

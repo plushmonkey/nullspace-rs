@@ -355,7 +355,9 @@ pub fn apply_prize_id(
                 shutdown_ticks *= 3;
             }
 
-            ship.shutdown_end_tick = Some(tick + shutdown_ticks);
+            if shutdown_ticks as u32 > ship.shutdown_remaining_ticks {
+                ship.shutdown_remaining_ticks = shutdown_ticks as u32;
+            }
         }
         Prize::Multifire => {
             if negative {

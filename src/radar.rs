@@ -127,6 +127,12 @@ impl Radar {
         self.dirty = true;
     }
 
+    pub fn in_view(&self, position: Position) -> bool {
+        let view_rect = Rectangle::new(self.view.world_min, self.view.world_max);
+
+        view_rect.contains(position)
+    }
+
     pub fn update(
         &mut self,
         surface_width: u32,

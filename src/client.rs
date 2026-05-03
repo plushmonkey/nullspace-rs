@@ -220,6 +220,7 @@ impl Client {
                             &mut self.connection,
                             &mut self.simulation.player_manager,
                             &self.map,
+                            &self.radar,
                             &self.settings,
                             current_tick,
                             &mut render_state,
@@ -343,6 +344,15 @@ impl Client {
                     self.simulation.player_manager.detach_player(self_id);
                 }
                 AttachKind::Attach(target_id) => {
+                    if ship_controller.is_antiwarped(
+                        &self.simulation.player_manager,
+                        &self.radar,
+                        self.settings.antiwarp_pixels as u32,
+                    ) {
+                        // TODO: Notification
+                        return;
+                    }
+
                     let request = crate::net::packet::c2s::AttachRequestMessage {
                         player_id: target_id,
                     };
@@ -356,6 +366,9 @@ impl Client {
                         .attach_player(self_id, target_id);
 
                     ship_controller.ship.current_energy /= 3;
+
+                    ship_controller.ship.fake_antiwarp_remaining_ticks =
+                        self.settings.antiwarp_settle_delay as u32;
                 }
             },
             Err(e) => {
