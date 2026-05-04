@@ -4,6 +4,8 @@ use crate::{
     math::{PixelUnit, Position, PositionUnit, Velocity},
     net::packet::s2c::PowerballPositionMessage,
     player::{PlayerId, PlayerManager},
+    radar::{IndicatorFlag, Radar},
+    ship::ShipKind,
 };
 
 const MAX_BALL_COUNT: usize = 8;
@@ -60,15 +62,56 @@ impl Powerball {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct CarryState {
+    pub ball_id: usize,
+
+    pub remaining_ticks: u32,
+}
+
 pub struct PowerballManager {
     pub balls: [Powerball; MAX_BALL_COUNT],
+    pub carry_state: Option<CarryState>,
 }
 
 impl PowerballManager {
+    pub const PICKUP_PHASE_TICKS: u32 = 100;
+
     pub fn new() -> Self {
         Self {
             balls: [(); MAX_BALL_COUNT].map(|_| Powerball::empty()),
+            carry_state: None,
         }
+    }
+
+    pub fn clear_carry_state(&mut self) {
+        self.carry_state = None;
+    }
+
+    pub fn get_carry_remaining_ticks(&self) -> Option<u32> {
+        if let Some(carry_state) = &self.carry_state {
+            return Some(carry_state.remaining_ticks);
+        }
+
+        None
+    }
+
+    pub fn tick_carry_state(&mut self) -> Option<u8> {
+        if let Some(carry_state) = &mut self.carry_state {
+            if carry_state.remaining_ticks > 0 {
+                carry_state.remaining_ticks -= 1;
+            }
+
+            if carry_state.remaining_ticks == 0 {
+                let ball_id = carry_state.ball_id as u8;
+
+                self.carry_state = None;
+
+                return Some(ball_id);
+            }
+        }
+
+        None
     }
 
     pub fn get_ball_by_id(&self, ball_id: u8) -> Option<&Powerball> {
@@ -96,20 +139,29 @@ impl PowerballManager {
         false
     }
 
+    // Returns true if the ball was just picked up by us.
     pub fn on_ball_position_message(
         &mut self,
         player_manager: &mut PlayerManager,
         settings: &ArenaSettings,
         message: &PowerballPositionMessage,
-    ) {
-        let Some(ball) = self.get_ball_by_id_mut(message.ball_id) else {
+    ) -> bool {
+        if message.ball_id >= 8 {
             log::warn!("Got ball position for invalid ball {}", message.ball_id);
-            return;
+            return false;
+        }
+
+        let mut carry_state = self.carry_state.take();
+
+        let Some(ball) = self.get_ball_by_id_mut(message.ball_id) else {
+            return false;
         };
 
         let new_ball_world_position = ball.state == PowerballState::Invalid
             || message.timestamp > ball.timestamp
             || (ball.state == PowerballState::Carried && message.timestamp.value() != 0);
+
+        let mut new_pickup = false;
 
         if new_ball_world_position {
             ball.carrier_id = message.owner_id;
@@ -124,7 +176,11 @@ impl PowerballManager {
             ball.state = PowerballState::World;
             ball.current_sim_tick = message.timestamp;
 
-            // TODO: Self carry update
+            if let Some(carry) = &carry_state {
+                if carry.ball_id == message.ball_id as usize {
+                    carry_state = None;
+                }
+            }
 
             let mut carrier_ship_kind = crate::ship::ShipKind::Warbird;
 
@@ -151,6 +207,26 @@ impl PowerballManager {
                     Position::from_pixels(PixelUnit(message.x as i32), PixelUnit(message.y as i32));
                 ball.velocity = Velocity::empty();
 
+                if ball.state != PowerballState::Carried
+                    && ball.carrier_id == player_manager.self_id
+                {
+                    if let Some(me) = player_manager.get_self() {
+                        if me.ship_kind != ShipKind::Spectator {
+                            let remaining_ticks = settings
+                                .get_ship_settings(me.ship_kind)
+                                .powerball_throw_timer
+                                as u32;
+
+                            carry_state = Some(CarryState {
+                                ball_id: message.ball_id as usize,
+                                remaining_ticks,
+                            });
+
+                            new_pickup = true;
+                        }
+                    }
+                }
+
                 if let Some(carrier) = player_manager.get_by_id_mut(message.owner_id) {
                     ball.state = PowerballState::Carried;
                     ball.frequency = carrier.frequency;
@@ -162,6 +238,73 @@ impl PowerballManager {
             } else {
                 // Invalid player id and timestamp 0 means the ball no longer exists.
                 ball.state = PowerballState::Invalid;
+
+                if let Some(player) = player_manager.get_by_id_mut(ball.carrier_id) {
+                    player.carrying_ball = false;
+                }
+
+                if let Some(carry) = &carry_state {
+                    if carry.ball_id == message.ball_id as usize {
+                        carry_state = None;
+                    }
+                }
+            }
+        }
+
+        self.carry_state = carry_state;
+
+        new_pickup
+    }
+
+    pub fn render_radar(
+        &self,
+        radar: &mut Radar,
+        player_manager: &PlayerManager,
+        view_freq: u16,
+        current_tick: GameTick,
+        global_display: bool,
+    ) {
+        let full_map = if global_display {
+            IndicatorFlag::FullMap
+        } else {
+            0
+        };
+
+        for ball in &self.balls {
+            match &ball.state {
+                PowerballState::World => {
+                    radar.add_indicator(
+                        crate::render::colors::ColorRenderableKind::RadarBall,
+                        ball.position,
+                        current_tick,
+                        full_map | IndicatorFlag::SmallMap,
+                    );
+                }
+                PowerballState::Carried => {
+                    let position = if let Some(carrier) = player_manager.get_by_id(ball.carrier_id)
+                    {
+                        if let Some(carrier_position) = carrier.position {
+                            carrier_position
+                        } else {
+                            ball.position
+                        }
+                    } else {
+                        ball.position
+                    };
+                    let kind = if ball.frequency == view_freq {
+                        crate::render::colors::ColorRenderableKind::RadarTeammateFlagCarry
+                    } else {
+                        crate::render::colors::ColorRenderableKind::RadarEnemyFlagCarry
+                    };
+
+                    radar.add_indicator(
+                        kind,
+                        position,
+                        current_tick,
+                        full_map | IndicatorFlag::SmallMap,
+                    );
+                }
+                _ => {}
             }
         }
     }

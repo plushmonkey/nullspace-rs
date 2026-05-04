@@ -52,6 +52,7 @@ use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
+use smol_str::SmolStr;
 use smol_str::format_smolstr;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -229,6 +230,7 @@ impl Client {
                             input_state,
                             &mut self.connection,
                             &mut self.simulation.player_manager,
+                            &mut self.simulation.powerball_manager,
                             &self.map,
                             &self.radar,
                             &self.settings,
@@ -253,6 +255,56 @@ impl Client {
                                 &self.settings,
                                 explosion_event,
                             );
+                        }
+                        SimulationEventKind::PowerballPickupRequest(ball_id, ball_timestamp) => {
+                            let request = crate::net::packet::c2s::PowerballRequestMessage {
+                                ball_id: *ball_id,
+                                timestamp: *ball_timestamp,
+                            };
+
+                            if let Err(e) = self.connection.send_reliable(&request) {
+                                log::error!("{e}");
+                            }
+                        }
+                        SimulationEventKind::PowerballTimeout(ball_id) => {
+                            let (position, velocity) =
+                                if let Some(me) = self.simulation.player_manager.get_self() {
+                                    if let Some(me_position) = me.position {
+                                        let speed = if me.ship_kind != ShipKind::Spectator {
+                                            self.settings
+                                                .get_ship_settings(me.ship_kind)
+                                                .powerball_speed
+                                        } else {
+                                            0
+                                        };
+
+                                        let mut velocity = me.velocity;
+                                        let forward = me.get_heading() * -1.0f32 * speed as f32;
+
+                                        velocity.x.0 += forward.x as i32;
+                                        velocity.y.0 += forward.y as i32;
+
+                                        (me_position, velocity)
+                                    } else {
+                                        (Position::empty(), Velocity::empty())
+                                    }
+                                } else {
+                                    (Position::empty(), Velocity::empty())
+                                };
+
+                            let message = crate::net::packet::c2s::PowerballFireMessage {
+                                ball_id: *ball_id,
+                                x: (position.x.0 / 1000) as u16,
+                                y: (position.y.0 / 1000) as u16,
+                                x_velocity: velocity.x.0 as i16,
+                                y_velocity: velocity.y.0 as i16,
+                                player_id: self.simulation.player_manager.self_id,
+                                timestamp: self.connection.get_game_tick(),
+                            };
+
+                            if let Err(e) = self.connection.send_reliable(&message) {
+                                log::error!("{e}");
+                            }
                         }
                     }
                 }
@@ -1443,11 +1495,25 @@ impl Client {
                 }
             }
             GameServerMessage::PowerballPosition(message) => {
-                self.simulation.powerball_manager.on_ball_position_message(
+                let new_pickup = self.simulation.powerball_manager.on_ball_position_message(
                     &mut self.simulation.player_manager,
                     &self.settings,
                     message,
                 );
+
+                if new_pickup {
+                    let current_tick = self.connection.get_game_tick();
+
+                    if let MovementController::Ship(ship_controller) = &mut self.controller {
+                        let bomb_delay = self
+                            .settings
+                            .get_ship_settings(ship_controller.ship.kind)
+                            .bomb_fire_delay;
+
+                        ship_controller.ship.next_bomb_tick = current_tick + bomb_delay as i32;
+                        ship_controller.ship.next_bullet_tick = current_tick + bomb_delay as i32;
+                    }
+                }
             }
             GameServerMessage::MapInformation(info) => {
                 log::debug!("Map name: {}", info.filename);
@@ -1550,6 +1616,18 @@ impl Client {
                 self.flag_controller
                     .handle_turf_update_message(message, &self.map);
             }
+            GameServerMessage::FlagReward(message) => {
+                for reward in &message.rewards {
+                    for player in &mut self.simulation.player_manager.players {
+                        if player.frequency == reward.frequency {
+                            player.flag_points =
+                                player.flag_points.wrapping_add(reward.points as i32);
+                        }
+                    }
+                }
+
+                self.statbox.rebuild(&self.simulation.player_manager);
+            }
             GameServerMessage::SetShipCoordinates(message) => {
                 let position = Position::from_tile(message.x as i32, message.y as i32);
 
@@ -1557,6 +1635,7 @@ impl Client {
                     if me.ship_kind != ShipKind::Spectator {
                         me.position = Some(position);
                         me.velocity.clear();
+                        me.status |= StatusFlags::Flash;
                     }
                 }
             }
@@ -1685,14 +1764,21 @@ impl Client {
                 }
 
                 render_state.render_map = true;
+                let view_freq = self.get_freq();
 
                 self.render_players(render_state, sprites);
                 self.render_weapons(render_state, sprites);
                 self.render_powerballs(render_state, sprites);
 
-                self.render_map_animations(render_state, sprites);
+                self.simulation.powerball_manager.render_radar(
+                    &mut self.radar,
+                    &self.simulation.player_manager,
+                    view_freq,
+                    self.connection.get_game_tick(),
+                    self.settings.powerball_global_position,
+                );
 
-                let view_freq = self.get_freq();
+                self.render_map_animations(render_state, sprites);
 
                 let self_flag_ticks = if let Some(me) = self.simulation.player_manager.get_self() {
                     me.flag_remaining_ticks
@@ -1840,10 +1926,21 @@ impl Client {
                 let color_kind = if player.frequency == self.get_freq() {
                     ColorRenderableKind::RadarTeammate
                 } else {
-                    if player.flag_count > 0 {
+                    if player.flag_count > 0 || player.carrying_ball {
                         ColorRenderableKind::RadarEnemyFlagCarry
                     } else {
-                        ColorRenderableKind::RadarEnemyTarget
+                        let mut color = ColorRenderableKind::RadarEnemyTarget;
+
+                        for child_id in &player.children {
+                            if let Some(child) = self.simulation.player_manager.get_by_id(*child_id)
+                            {
+                                if child.flag_count > 0 || child.carrying_ball {
+                                    color = ColorRenderableKind::RadarEnemyFlagCarry;
+                                    break;
+                                }
+                            }
+                        }
+                        color
                     }
                 };
 
@@ -1875,6 +1972,27 @@ impl Client {
 
                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                 let mut name_y = y_pixels + (renderable.size[1] as i32) / 2;
+
+                if player.id == self.simulation.player_manager.self_id && player.carrying_ball {
+                    if let Some(ball_ticks) = self
+                        .simulation
+                        .powerball_manager
+                        .get_carry_remaining_ticks()
+                    {
+                        let seconds = ball_ticks as f32 / 100.0f32;
+
+                        render_state.draw_world_text(
+                            &format_smolstr!("{:.1}", seconds),
+                            name_x,
+                            name_y,
+                            Layer::Ships,
+                            TextColor::Red,
+                            TextAlignment::Left,
+                        );
+
+                        name_y += render_state.text_renderer.character_height;
+                    }
+                }
 
                 if let Some(extra_data) = &player.extra_position_data {
                     let energy = extra_data.energy as u32;
@@ -1933,18 +2051,14 @@ impl Client {
                 let name_color = if player.frequency == self.get_freq() {
                     TextColor::Yellow
                 } else {
-                    if player.flag_count > 0 {
+                    if player.flag_count > 0 || player.carrying_ball {
                         TextColor::DarkRed
                     } else {
                         TextColor::Blue
                     }
                 };
 
-                let player_name_view = if player.flag_count > 0 {
-                    format_smolstr!("{}({}:{})", player.name, player.bounty, player.flag_count)
-                } else {
-                    format_smolstr!("{}({})", player.name, player.bounty)
-                };
+                let player_name_view = Self::get_player_name_view(player);
 
                 render_state.draw_world_text(
                     &player_name_view,
@@ -1987,24 +2101,51 @@ impl Client {
                             }
                         }
 
-                        let child_name_view = if child.flag_count > 0 {
-                            format_smolstr!("{}({}:{})", child.name, child.bounty, child.flag_count)
+                        let child_name_color = if player.frequency == self.get_freq() {
+                            TextColor::Yellow
                         } else {
-                            format_smolstr!("{}({})", player.name, player.bounty)
+                            if child.flag_count > 0 || child.carrying_ball {
+                                TextColor::DarkRed
+                            } else {
+                                TextColor::Blue
+                            }
                         };
+
+                        let child_name_view = Self::get_player_name_view(child);
 
                         render_state.draw_world_text(
                             &child_name_view,
                             name_x,
                             child_y,
                             Layer::AfterShips,
-                            name_color,
+                            child_name_color,
                             TextAlignment::Left,
                         );
                     }
 
                     child_y += render_state.text_renderer.character_height;
                 }
+            }
+        }
+    }
+
+    fn get_player_name_view(player: &Player) -> SmolStr {
+        if player.flag_count > 0 {
+            if player.carrying_ball {
+                format_smolstr!(
+                    "{}({}:{}) (Ball)",
+                    player.name,
+                    player.bounty,
+                    player.flag_count
+                )
+            } else {
+                format_smolstr!("{}({}:{})", player.name, player.bounty, player.flag_count)
+            }
+        } else {
+            if player.carrying_ball {
+                format_smolstr!("{}({}) (Ball)", player.name, player.bounty)
+            } else {
+                format_smolstr!("{}({})", player.name, player.bounty)
             }
         }
     }
@@ -2707,6 +2848,7 @@ impl Client {
                         _ => {}
                     }
                 }
+                _ => {}
             }
         }
     }

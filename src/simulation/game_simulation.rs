@@ -26,6 +26,8 @@ pub struct WeaponExplosionEvent {
 
 pub enum SimulationEventKind {
     WeaponExplosion(WeaponExplosionEvent),
+    PowerballPickupRequest(u8, GameTick),
+    PowerballTimeout(u8),
 }
 
 pub struct SimulationEvent {
@@ -120,7 +122,16 @@ impl Simulation {
             return;
         }
 
-        for powerball in &mut self.powerball_manager.balls {
+        if let Some(ball_id) = self.powerball_manager.tick_carry_state() {
+            // We dropped the ball, so we need to fire it.
+            self.events.push(SimulationEvent {
+                kind: SimulationEventKind::PowerballTimeout(ball_id),
+                tick: self.tick,
+            });
+        }
+
+        for ball_id in 0..self.powerball_manager.balls.len() {
+            let powerball = &mut self.powerball_manager.balls[ball_id];
             let sim_ticks = self.tick.diff(&powerball.current_sim_tick).min(6000);
 
             if powerball.state == PowerballState::World {
@@ -190,7 +201,17 @@ impl Simulation {
                                 }
                             }
 
-                            powerball.remaining_pickup_ticks = 100;
+                            if player.id == self.player_manager.self_id {
+                                self.events.push(SimulationEvent {
+                                    kind: SimulationEventKind::PowerballPickupRequest(
+                                        ball_id as u8,
+                                        powerball.timestamp,
+                                    ),
+                                    tick: self.tick,
+                                });
+                            }
+
+                            powerball.remaining_pickup_ticks = PowerballManager::PICKUP_PHASE_TICKS;
                         }
                     }
                 }

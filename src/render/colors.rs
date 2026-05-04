@@ -18,7 +18,7 @@ pub enum ColorRenderableKind {
     Background = 16,
 
     RadarPrize = 23,
-
+    RadarBall = 24,
     RadarPortal = 25,
     RadarTeamFlag = 26,
     RadarSelfFlagCarry = 27,

@@ -7,6 +7,7 @@ use crate::{
     map::{Map, TILE_ID_SAFE},
     net::connection::Connection,
     player::{PlayerManager, StatusFlags},
+    powerball::PowerballManager,
     radar::Radar,
     render::{
         animation_renderer::get_animation_index,
@@ -41,6 +42,7 @@ impl ShipController {
         input_state: &InputState,
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
+        powerball_manager: &mut PowerballManager,
         map: &Map,
         radar: &Radar,
         settings: &ArenaSettings,
@@ -130,6 +132,7 @@ impl ShipController {
             input_state,
             connection,
             player_manager,
+            powerball_manager,
             map,
             radar,
             settings,
@@ -395,6 +398,7 @@ impl ShipController {
         input_state: &InputState,
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
+        powerball_manager: &mut PowerballManager,
         map: &Map,
         radar: &Radar,
         settings: &ArenaSettings,
@@ -546,6 +550,22 @@ impl ShipController {
         }
 
         if input_state.is_triggered(InputAction::Warp) {
+            if let Some(carry) = &powerball_manager.carry_state {
+                if self.shoot_powerball(
+                    player_manager,
+                    connection,
+                    settings,
+                    carry.ball_id as u8,
+                    current_tick,
+                ) {
+                    powerball_manager.clear_carry_state();
+
+                    self.ship.next_bomb_tick = current_tick + 60;
+                    self.ship.next_bullet_tick = current_tick + 60;
+                    return;
+                }
+            }
+
             if self.is_antiwarped(player_manager, radar, settings.antiwarp_pixels as u32) {
                 // TODO: Notification
             } else {
@@ -596,6 +616,24 @@ impl ShipController {
             && self.ship.guns > 0
             && can_fast_shoot
         {
+            if !settings.powerball_gun_allowed {
+                if let Some(carry) = &powerball_manager.carry_state {
+                    if self.shoot_powerball(
+                        player_manager,
+                        connection,
+                        settings,
+                        carry.ball_id as u8,
+                        current_tick,
+                    ) {
+                        powerball_manager.clear_carry_state();
+
+                        self.ship.next_bomb_tick = current_tick + 60;
+                        self.ship.next_bullet_tick = current_tick + 60;
+                        return;
+                    }
+                }
+            }
+
             let multifire =
                 self.ship.multifire && self.ship.capability & ShipCapabilityFlag::Multifire != 0;
             let mut level = self.ship.guns - 1;
@@ -643,6 +681,24 @@ impl ShipController {
             && current_tick > self.ship.next_bomb_tick
             && self.ship.bombs > 0
         {
+            if !settings.powerball_bomb_allowed {
+                if let Some(carry) = &powerball_manager.carry_state {
+                    if self.shoot_powerball(
+                        player_manager,
+                        connection,
+                        settings,
+                        carry.ball_id as u8,
+                        current_tick,
+                    ) {
+                        powerball_manager.clear_carry_state();
+
+                        self.ship.next_bomb_tick = current_tick + 60;
+                        self.ship.next_bullet_tick = current_tick + 60;
+                        return;
+                    }
+                }
+            }
+
             let mut level = self.ship.bombs - 1;
 
             if flagger_settings && settings.flagger_gun_upgrade {
@@ -706,6 +762,24 @@ impl ShipController {
             && current_tick > self.ship.next_bomb_tick
             && self.ship.bombs > 0
         {
+            if !settings.powerball_bomb_allowed {
+                if let Some(carry) = &powerball_manager.carry_state {
+                    if self.shoot_powerball(
+                        player_manager,
+                        connection,
+                        settings,
+                        carry.ball_id as u8,
+                        current_tick,
+                    ) {
+                        powerball_manager.clear_carry_state();
+
+                        self.ship.next_bomb_tick = current_tick + 60;
+                        self.ship.next_bullet_tick = current_tick + 60;
+                        return;
+                    }
+                }
+            }
+
             let mut level = self.ship.bombs - 1;
 
             if flagger_settings && settings.flagger_gun_upgrade {
@@ -794,6 +868,51 @@ impl ShipController {
 
         self.ship.current_energy -= energy_cost as u32;
         self.ship.weapon = Some(weapon_kind);
+    }
+
+    fn shoot_powerball(
+        &mut self,
+        player_manager: &PlayerManager,
+        connection: &mut Connection,
+        settings: &ArenaSettings,
+        ball_id: u8,
+        current_tick: GameTick,
+    ) -> bool {
+        let Some(me) = player_manager.get_self() else {
+            return false;
+        };
+
+        let Some(me_position) = me.position else {
+            return false;
+        };
+
+        let speed = if me.ship_kind != ShipKind::Spectator {
+            settings.get_ship_settings(me.ship_kind).powerball_speed
+        } else {
+            return false;
+        };
+
+        let mut velocity = me.velocity;
+        let forward = me.get_heading() * speed as f32;
+
+        velocity.x.0 += forward.x as i32;
+        velocity.y.0 += forward.y as i32;
+
+        let message = crate::net::packet::c2s::PowerballFireMessage {
+            ball_id,
+            x: (me_position.x.0 / 1000) as u16,
+            y: (me_position.y.0 / 1000) as u16,
+            x_velocity: velocity.x.0 as i16,
+            y_velocity: velocity.y.0 as i16,
+            player_id: me.id,
+            timestamp: current_tick,
+        };
+
+        if let Err(e) = connection.send_reliable(&message) {
+            log::error!("{e}");
+        }
+
+        true
     }
 
     pub fn apply_damage(
