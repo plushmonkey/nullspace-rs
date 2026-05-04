@@ -37,6 +37,14 @@ pub enum RenderError {
     LostDevice,
 }
 
+#[derive(Copy, Clone)]
+pub enum HudTimerKind {
+    Shield,
+    Super,
+    Flag,
+    Portal,
+}
+
 // Holds the window render state and the game renderers that have custom shaders.
 pub struct RenderState {
     pub instance: wgpu::Instance,
@@ -446,5 +454,30 @@ impl RenderState {
                 depth_or_array_layers: 1,
             },
         );
+    }
+
+    pub fn get_hud_timer_position(&self, kind: HudTimerKind) -> (i32, i32) {
+        let renderable_height = 16;
+        let ui_x = (self.config.width - renderable_height as u32) as i32;
+        let top_y = 64;
+
+        match kind {
+            HudTimerKind::Shield => {
+                let ui_y = top_y;
+                (ui_x, ui_y)
+            }
+            HudTimerKind::Super => {
+                let ui_y = top_y + renderable_height;
+                (ui_x, ui_y)
+            }
+            HudTimerKind::Flag => {
+                let ui_y = top_y + renderable_height * 2;
+                (ui_x, ui_y)
+            }
+            HudTimerKind::Portal => {
+                let ui_y = top_y + renderable_height * 3;
+                (ui_x, ui_y)
+            }
+        }
     }
 }

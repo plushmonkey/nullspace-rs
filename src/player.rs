@@ -115,6 +115,7 @@ pub struct Player {
     pub children: Vec<PlayerId>,
 
     pub flag_count: u16,
+    pub flag_remaining_ticks: u32,
 
     pub last_position_timestamp: GameTick,
     pub enter_delay: u16,
@@ -167,6 +168,7 @@ impl Player {
             children: vec![],
 
             flag_count: 0,
+            flag_remaining_ticks: 0,
 
             last_position_timestamp: GameTick::empty(),
             enter_delay: 0,

@@ -134,6 +134,9 @@ pub enum GameSpriteKind {
     Icons,
     WarpPoint,
     Spark,
+    DropFlag,
+    Super,
+    Shield,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -171,6 +174,9 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (9, 6),      // Icons
     (10, 1),     // WarpPoint
     (10, 1),     // Spark
+    (10, 1),     // DropFlag
+    (10, 1),     // Super
+    (10, 1),     // Shield
     (5, 2),      // Repel
 ];
 
@@ -310,6 +316,9 @@ impl GameSpriteLoader {
             (GameSpriteKind::Icons, "graphics/Icons.bm2"),
             (GameSpriteKind::WarpPoint, "graphics/warppnt.bm2"),
             (GameSpriteKind::Spark, "graphics/spark.bm2"),
+            (GameSpriteKind::DropFlag, "graphics/dropflag.bm2"),
+            (GameSpriteKind::Super, "graphics/super.bm2"),
+            (GameSpriteKind::Shield, "graphics/shield.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

@@ -4,6 +4,7 @@ use crate::attach::can_attach_to;
 use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
+use crate::flag::FlagController;
 use crate::input::InputAction;
 use crate::input::InputState;
 use crate::map::ANIMATED_TILE_KIND_COUNT;
@@ -27,6 +28,7 @@ use crate::powerball::is_team_goal;
 use crate::prize::apply_prize_id;
 use crate::radar::IndicatorFlag;
 use crate::radar::Radar;
+use crate::render::animation_renderer::get_animation_index;
 use crate::render::colors::ColorRenderableKind;
 use crate::render::game_sprites::GAME_SPRITE_SHEET_DEFINITIONS;
 use crate::render::game_sprites::GameSpriteKind;
@@ -119,6 +121,7 @@ pub struct Client {
     pub registration: RegistrationFormMessage,
 
     pub simulation: Simulation,
+    pub flag_controller: FlagController,
 
     // This is the local tick for the last processed tick.
     local_tick: GameTick,
@@ -152,6 +155,7 @@ impl Client {
             zone: zone.to_owned(),
             registration,
             simulation: Simulation::new(GameTick::now(0)),
+            flag_controller: FlagController::new(),
             local_tick: GameTick::now(0),
             radar: Radar::new(),
             chat_controller: ChatController::new(),
@@ -201,6 +205,12 @@ impl Client {
 
             // Simulation must be updated before spectate controller so the positions are updated for the player we're spectating.
             self.simulation.tick(&self.map, &self.settings);
+
+            self.flag_controller.tick(
+                &mut self.simulation.player_manager,
+                &mut self.connection,
+                &self.settings,
+            );
 
             if let ConnectionState::Playing = self.connection.state {
                 match &mut self.controller {
@@ -378,6 +388,12 @@ impl Client {
     }
 
     fn get_extra_position_data(&self) -> Option<ExtraPositionData> {
+        let mut flag_timer = 0;
+
+        if let Some(me) = self.simulation.player_manager.get_self() {
+            flag_timer = (me.flag_remaining_ticks / 100) as u16;
+        }
+
         if let MovementController::Ship(ship_controller) = &self.controller {
             if self.settings.extra_position_data || self.connection.send_extra_position_info {
                 let items = ItemSet {
@@ -395,7 +411,7 @@ impl Client {
                 let data = ExtraPositionData {
                     energy: (ship_controller.ship.current_energy / 1000) as u16,
                     s2c_latency: 0,
-                    flag_timer: 0,
+                    flag_timer,
                     items: items,
                 };
 
@@ -710,6 +726,7 @@ impl Client {
             GameServerMessage::PlayerId(message) => {
                 // We need to initialize the simulation here before we receive player enter events.
                 self.simulation = Simulation::new(self.connection.get_game_tick());
+                self.flag_controller.clear();
                 self.last_position_tick = self.connection.get_game_tick();
                 self.simulation.player_manager.self_id = message.id;
 
@@ -1248,6 +1265,13 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(message.killer_id)
                 {
+                    if (killer.flag_count > 0
+                        && message.bounty > self.settings.flag_drop_reset_reward as u16)
+                        || message.flag_transfer > 0
+                    {
+                        killer.flag_remaining_ticks = self.settings.flag_drop_delay as u32;
+                    }
+
                     killer.flag_count += message.flag_transfer;
                     killer.wins = killer.wins.wrapping_add(1);
                     killer.kill_points = killer.kill_points.wrapping_add(message.bounty as i32);
@@ -1264,6 +1288,8 @@ impl Client {
                     killed.enter_delay = self.settings.enter_delay as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
                     killed.losses = killed.losses.wrapping_add(1);
+                    killed.flag_count = 0;
+                    killed.flag_remaining_ticks = 0;
 
                     self.simulation
                         .player_manager
@@ -1505,6 +1531,35 @@ impl Client {
                 self.statbox
                     .display_select_box(Box::new(SelectBox::new_directory(&directory.entries)));
             }
+            GameServerMessage::FlagPosition(message) => {
+                self.flag_controller.handle_flag_position_message(message);
+            }
+            GameServerMessage::FlagClaim(message) => {
+                self.flag_controller.handle_flag_claim_message(
+                    message,
+                    &mut self.simulation.player_manager,
+                    &self.map,
+                    &self.settings,
+                );
+            }
+            GameServerMessage::FlagDrop(message) => {
+                self.flag_controller
+                    .handle_flag_drop_message(message, &mut self.simulation.player_manager);
+            }
+            GameServerMessage::TurfFlagUpdate(message) => {
+                self.flag_controller
+                    .handle_turf_update_message(message, &self.map);
+            }
+            GameServerMessage::SetShipCoordinates(message) => {
+                let position = Position::from_tile(message.x as i32, message.y as i32);
+
+                if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                    if me.ship_kind != ShipKind::Spectator {
+                        me.position = Some(position);
+                        me.velocity.clear();
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -1637,6 +1692,23 @@ impl Client {
 
                 self.render_map_animations(render_state, sprites);
 
+                let view_freq = self.get_freq();
+
+                let self_flag_ticks = if let Some(me) = self.simulation.player_manager.get_self() {
+                    me.flag_remaining_ticks
+                } else {
+                    0
+                };
+
+                self.flag_controller.render(
+                    render_state,
+                    sprites,
+                    &mut self.radar,
+                    self.connection.get_game_tick(),
+                    view_freq,
+                    self_flag_ticks,
+                );
+
                 self.radar.render(
                     render_state,
                     sprites,
@@ -1768,7 +1840,11 @@ impl Client {
                 let color_kind = if player.frequency == self.get_freq() {
                     ColorRenderableKind::RadarTeammate
                 } else {
-                    ColorRenderableKind::RadarEnemyTarget
+                    if player.flag_count > 0 {
+                        ColorRenderableKind::RadarEnemyFlagCarry
+                    } else {
+                        ColorRenderableKind::RadarEnemyTarget
+                    }
                 };
 
                 self.radar.add_indicator(
@@ -1857,11 +1933,21 @@ impl Client {
                 let name_color = if player.frequency == self.get_freq() {
                     TextColor::Yellow
                 } else {
-                    TextColor::Blue
+                    if player.flag_count > 0 {
+                        TextColor::DarkRed
+                    } else {
+                        TextColor::Blue
+                    }
+                };
+
+                let player_name_view = if player.flag_count > 0 {
+                    format_smolstr!("{}({}:{})", player.name, player.bounty, player.flag_count)
+                } else {
+                    format_smolstr!("{}({})", player.name, player.bounty)
                 };
 
                 render_state.draw_world_text(
-                    &format!("{}({})", player.name, player.bounty),
+                    &player_name_view,
                     name_x,
                     name_y,
                     Layer::AfterShips,
@@ -1901,8 +1987,14 @@ impl Client {
                             }
                         }
 
+                        let child_name_view = if child.flag_count > 0 {
+                            format_smolstr!("{}({}:{})", child.name, child.bounty, child.flag_count)
+                        } else {
+                            format_smolstr!("{}({})", player.name, player.bounty)
+                        };
+
                         render_state.draw_world_text(
-                            &format!("{}({})", child.name, child.bounty),
+                            &child_name_view,
                             name_x,
                             child_y,
                             Layer::AfterShips,
@@ -1918,6 +2010,8 @@ impl Client {
     }
 
     fn render_weapons(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
+        let tick_value = self.connection.get_game_tick().value();
+
         for weapon in &self.simulation.weapon_manager.weapons {
             let x_pixels = weapon.position.x.0 / 1000;
             let y_pixels = weapon.position.y.0 / 1000;
@@ -1925,7 +2019,7 @@ impl Client {
             match weapon.kind {
                 WeaponKind::Bullet(bullet) => {
                     if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
-                        let animation_index = self.get_animation_index(4, 20);
+                        let animation_index = get_animation_index(tick_value, 4, 20);
                         let renderable_index = (bullet.level * 4) as usize + animation_index;
                         let renderable = &renderables.renderables[renderable_index];
                         render_state.sprite_renderer.draw_centered(
@@ -1938,7 +2032,7 @@ impl Client {
                     }
                 }
                 WeaponKind::BouncingBullet(bouncing) => {
-                    let animation_index = self.get_animation_index(4, 20);
+                    let animation_index = get_animation_index(tick_value, 4, 20);
                     let renderable_index = (bouncing.level * 4) as usize + 5 * 4 + animation_index;
                     if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
                         let renderable = &renderables.renderables[renderable_index];
@@ -1952,7 +2046,7 @@ impl Client {
                     }
                 }
                 WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
-                    let animation_index = self.get_animation_index(10, 100);
+                    let animation_index = get_animation_index(tick_value, 10, 100);
 
                     if bomb.mine {
                         let renderable_index = {
@@ -1999,7 +2093,7 @@ impl Client {
                     }
                 }
                 WeaponKind::Thor(_) => {
-                    let animation_index = self.get_animation_index(10, 100);
+                    let animation_index = get_animation_index(tick_value, 10, 100);
                     let renderable_index = 120 + animation_index;
                     if let Some(renderables) = sprites.get_set(GameSpriteKind::Bombs) {
                         let renderable = &renderables.renderables[renderable_index];
@@ -2013,7 +2107,7 @@ impl Client {
                     }
                 }
                 WeaponKind::Shrapnel(shrapnel) => {
-                    let animation_index = self.get_animation_index(10, 60);
+                    let animation_index = get_animation_index(tick_value, 10, 60);
                     let renderable_index = (shrapnel.level as usize * 10)
                         + (shrapnel.bouncing as usize) * 30
                         + animation_index;
@@ -2046,7 +2140,7 @@ impl Client {
                     }
                 }
                 WeaponKind::Burst(burst) => {
-                    let animation_index = self.get_animation_index(4, 20);
+                    let animation_index = get_animation_index(tick_value, 4, 20);
                     let renderable_index =
                         (4 * 4) + (burst.active as usize) * (5 * 4) + animation_index;
                     if let Some(renderables) = sprites.get_set(GameSpriteKind::Bullets) {
@@ -2158,6 +2252,8 @@ impl Client {
 
         let render_duration = 100;
 
+        let tick_value = self.connection.get_game_tick().value();
+
         for ball in &self.simulation.powerball_manager.balls {
             match &ball.state {
                 PowerballState::World => {
@@ -2172,8 +2268,8 @@ impl Client {
 
                     let x_pixels = ball.position.x.0 / 1000;
                     let y_pixels = ball.position.y.0 / 1000;
-                    let index =
-                        self.get_animation_index(10, render_duration) + phasing as usize * 10;
+                    let index = get_animation_index(tick_value, 10, render_duration)
+                        + phasing as usize * 10;
 
                     let renderable = &ball_sprites.renderables[index];
 
@@ -2193,7 +2289,7 @@ impl Client {
                         }
 
                         if let Some(position) = carrier.position {
-                            let index = self.get_animation_index(10, render_duration);
+                            let index = get_animation_index(tick_value, 10, render_duration);
                             let heading = carrier.get_heading();
                             let offset = heading
                                 * self
@@ -2407,6 +2503,8 @@ impl Client {
             (GameSpriteKind::Flag, 100),
         ];
 
+        let tick_value = self.connection.get_game_tick().value();
+
         // Loop over the animated tiles except for flags. Flags require extra game state to determine how they should be rendered.
         for i in 0..ANIMATED_TILE_KIND_COUNT - 1 {
             let tiles = &self.map.animated_tiles[i];
@@ -2442,13 +2540,15 @@ impl Client {
 
                         // First half of goal frames are team goals, second half are enemy.
                         // This increments the animation index to point into the appropriate set.
-                        let animation_index = self.get_animation_index(GOAL_FRAMES, duration)
-                            + enemy_goal as usize * GOAL_FRAMES;
+                        let animation_index =
+                            get_animation_index(tick_value, GOAL_FRAMES, duration)
+                                + enemy_goal as usize * GOAL_FRAMES;
 
                         &sprite_set.renderables[animation_index]
                     }
                     _ => {
-                        let animation_index = self.get_animation_index(frames as usize, duration);
+                        let animation_index =
+                            get_animation_index(tick_value, frames as usize, duration);
                         &sprite_set.renderables[animation_index]
                     }
                 };
@@ -2467,8 +2567,8 @@ impl Client {
 
         if let Some(brick_sprites) = sprites.get_set(GameSpriteKind::Brick) {
             for brick in &self.map.bricks {
-                let index =
-                    self.get_animation_index(10, 50) + (self_freq == brick.frequency) as usize * 10;
+                let index = get_animation_index(tick_value, 10, 50)
+                    + (self_freq == brick.frequency) as usize * 10;
 
                 let renderable = &brick_sprites.renderables[index];
                 let x_pixels = brick.tile.x() as i32 * 16;
@@ -2511,7 +2611,7 @@ impl Client {
 
             // There are two door sets and each one is 4 frames. Dividing by 4 will give us the first or second half depending on tile id.
             let set = (door_tile.id() - TILE_ID_FIRST_DOOR) as usize / 4;
-            let frame = self.get_animation_index(4, 40);
+            let frame = get_animation_index(tick_value, 4, 40);
 
             let index = (set * 4) + frame;
 
@@ -2525,13 +2625,6 @@ impl Client {
                 Layer::Tiles,
             );
         }
-    }
-
-    fn get_animation_index(&self, frames: usize, duration: usize) -> usize {
-        let ticks_per_frame = duration / frames;
-        let ticks = self.connection.get_game_tick().value() as usize;
-
-        (ticks / ticks_per_frame) % frames
     }
 
     fn render_explosions(&mut self, render_state: &mut RenderState) {

@@ -134,3 +134,10 @@ impl AnimationRenderer {
         });
     }
 }
+
+pub fn get_animation_index(tick_value: u32, frames: usize, duration: usize) -> usize {
+    let ticks_per_frame = duration / frames;
+    let ticks = tick_value as usize;
+
+    (ticks / ticks_per_frame) % frames
+}

@@ -36,6 +36,7 @@ pub mod chat;
 pub mod checksum;
 pub mod client;
 pub mod clock;
+pub mod flag;
 pub mod input;
 pub mod map;
 pub mod math;

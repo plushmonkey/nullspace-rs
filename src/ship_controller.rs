@@ -9,6 +9,7 @@ use crate::{
     player::{PlayerManager, StatusFlags},
     radar::Radar,
     render::{
+        animation_renderer::get_animation_index,
         game_sprites::{GameSpriteKind, GameSprites, SpriteSet},
         layer::Layer,
         render_state::RenderState,
@@ -213,7 +214,7 @@ impl ShipController {
         let rocket_enabled = self.ship.rocket_remaining_ticks > 0;
         let engine_shutdown = self.ship.shutdown_remaining_ticks > 0;
 
-        let afterburners_cost = ship_settings.afterburner_energy as u32 * 1000;
+        let afterburners_cost = ship_settings.afterburner_energy as u32;
 
         let afterburners_enabled = input_state.is_down(InputAction::Afterburner)
             && self.ship.current_energy > afterburners_cost;
@@ -588,6 +589,7 @@ impl ShipController {
         }
 
         let mut energy_cost = 0;
+        let has_super = self.ship.super_remaining_ticks > 0;
 
         if input_state.is_down(InputAction::Bullet)
             && current_tick > self.ship.next_bullet_tick
@@ -628,7 +630,7 @@ impl ShipController {
                 energy_cost = energy_cost * (settings.flagger_fire_cost_percent / 1000) as i32
             }
 
-            if self.ship.current_energy >= energy_cost as u32 {
+            if has_super || self.ship.current_energy >= energy_cost as u32 {
                 self.ship.next_bullet_tick = current_tick + delay;
                 self.ship.next_bomb_tick = self.ship.next_bullet_tick;
                 self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
@@ -689,9 +691,11 @@ impl ShipController {
                 energy_cost = energy_cost * (settings.flagger_fire_cost_percent / 1000) as i32
             }
 
-            if self.ship.current_energy >= energy_cost as u32 {
-                self.ship.next_bullet_tick = current_tick + ship_settings.mine_fire_delay as i32;
-                self.ship.next_bomb_tick = current_tick + ship_settings.mine_fire_delay as i32;
+            if has_super || self.ship.current_energy >= energy_cost as u32 {
+                let delay = (ship_settings.mine_fire_delay as i32).max(bomb_fire_delay);
+
+                self.ship.next_bullet_tick = current_tick + delay as i32;
+                self.ship.next_bomb_tick = current_tick + delay as i32;
                 self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
             } else {
                 weapon_kind = WeaponKind::None;
@@ -740,7 +744,7 @@ impl ShipController {
                 energy_cost = energy_cost * (settings.flagger_fire_cost_percent / 1000) as i32
             }
 
-            if self.ship.current_energy >= energy_cost as u32 {
+            if has_super || self.ship.current_energy >= energy_cost as u32 {
                 self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
                 self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
                 self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
@@ -762,6 +766,10 @@ impl ShipController {
         }
 
         energy_cost *= 1000;
+
+        if has_super {
+            energy_cost = 0;
+        }
 
         if self.ship.current_energy < energy_cost as u32 {
             return;
@@ -917,9 +925,9 @@ impl ShipController {
                 WeaponKind::Bullet(_) | WeaponKind::BouncingBullet(_) | WeaponKind::Burst(_) => {
                     let mut rng = VieRng::new(GameTick::now(0).value() as i32);
 
-                    let r = rng.next() % (damage as u32 * damage as u32 + 1);
+                    let r = rng.next() % (damage as u32 / 1000 * damage as u32 / 1000 + 1);
 
-                    damage = f32::sqrt(r as f32) as i32;
+                    damage = f32::sqrt(r as f32) as i32 * 1000;
                 }
                 _ => {}
             }
@@ -989,7 +997,7 @@ impl ShipController {
             let (x_pixels, y_pixels) = portal_position.to_pixels();
 
             if let Some(warp_point_sprites) = sprites.get_set(GameSpriteKind::WarpPoint) {
-                let animation_index = Self::get_animation_index(current_tick, 10, 10 * 10);
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
                 let renderable = &warp_point_sprites.renderables[animation_index];
 
                 render_state.sprite_renderer.draw_centered(
@@ -1000,18 +1008,86 @@ impl ShipController {
                     Layer::AfterBackground,
                 );
 
-                let ui_x = render_state.config.width - renderable.size[0];
-                let ui_y = 100;
+                let (ui_x, ui_y) = render_state
+                    .get_hud_timer_position(crate::render::render_state::HudTimerKind::Portal);
 
                 render_state.sprite_renderer.draw(
                     &render_state.ui_camera,
-                    &warp_point_sprites.renderables[animation_index],
+                    renderable,
                     ui_x as i32,
                     ui_y,
                     Layer::Gauges,
                 );
 
                 let remaining_time = self.ship.portal_remaining_ticks as f32 / 100.0f32;
+                let text_y =
+                    ui_y + renderable.size[1] as i32 - render_state.text_renderer.character_height;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    &format_smolstr!("{:.1}", remaining_time),
+                    ui_x as i32,
+                    text_y,
+                    Layer::Gauges,
+                    TextColor::Yellow,
+                    TextAlignment::Right,
+                );
+            }
+        }
+
+        if self.ship.shield_remaining_ticks > 0 {
+            if let Some(shield_sprites) = sprites.get_set(GameSpriteKind::Shield) {
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+                let renderable = &shield_sprites.renderables[animation_index];
+
+                let (ui_x, ui_y) = render_state
+                    .get_hud_timer_position(crate::render::render_state::HudTimerKind::Shield);
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    ui_x as i32,
+                    ui_y,
+                    Layer::Gauges,
+                );
+
+                let shield_percent = (self.ship.shield_remaining_ticks as f32
+                    / settings.get_ship_settings(self.ship.kind).shield_time as f32)
+                    * 100.0f32;
+                let text_y =
+                    ui_y + renderable.size[1] as i32 - render_state.text_renderer.character_height;
+
+                render_state.text_renderer.draw(
+                    &mut render_state.sprite_renderer,
+                    &render_state.ui_camera,
+                    &format_smolstr!("{}%", shield_percent as i32),
+                    ui_x as i32,
+                    text_y,
+                    Layer::Gauges,
+                    TextColor::Yellow,
+                    TextAlignment::Right,
+                );
+            }
+        }
+
+        if self.ship.super_remaining_ticks > 0 {
+            if let Some(super_sprites) = sprites.get_set(GameSpriteKind::Super) {
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+                let renderable = &super_sprites.renderables[animation_index];
+
+                let (ui_x, ui_y) = render_state
+                    .get_hud_timer_position(crate::render::render_state::HudTimerKind::Super);
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    ui_x as i32,
+                    ui_y,
+                    Layer::Gauges,
+                );
+
+                let remaining_time = self.ship.super_remaining_ticks as f32 / 100.0f32;
                 let text_y =
                     ui_y + renderable.size[1] as i32 - render_state.text_renderer.character_height;
 
@@ -1384,7 +1460,7 @@ impl ShipController {
                 let energy_percent =
                     self.ship.current_energy as f32 / self.ship.max_energy.max(1) as f32;
 
-                let animation_index = Self::get_animation_index(current_tick, 14, 14 * 10);
+                let animation_index = get_animation_index(current_tick.value(), 14, 14 * 10);
 
                 let start_index = if energy_percent < 0.25f32 {
                     14 * 2
@@ -1424,13 +1500,6 @@ impl ShipController {
                 );
             }
         }
-    }
-
-    fn get_animation_index(current_tick: GameTick, frames: usize, duration: usize) -> usize {
-        let ticks_per_frame = duration / frames;
-        let ticks = current_tick.value() as usize;
-
-        (ticks / ticks_per_frame) % frames
     }
 
     fn render_attach_turret(
