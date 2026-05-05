@@ -15,6 +15,7 @@ pub const TILE_ID_LAST_DOOR: TileId = 169;
 pub const TILE_ID_FLAG: TileId = 170;
 pub const TILE_ID_SAFE: TileId = 171;
 pub const TILE_ID_GOAL: TileId = 172;
+pub const TILE_ID_WEAPON_SOLID: TileId = 191;
 pub const TILE_ID_WORMHOLE: TileId = 220;
 pub const TILE_ID_WEAPON_KILLER: TileId = 241;
 pub const TILE_ID_THOR_KILLER: TileId = 242;
@@ -59,9 +60,13 @@ pub enum AnimatedTileKind {
     AsteroidLarge,
     SpaceStation,
     Wormhole,
+
+    // These three must be the last in this enum.
     Flag,
+    EnemyBrick,
+    TeamBrick,
 }
-pub const ANIMATED_TILE_KIND_COUNT: usize = 7;
+pub const ANIMATED_TILE_KIND_COUNT: usize = 9;
 
 impl AnimatedTileKind {
     pub fn get_tile_size(&self) -> u16 {
@@ -73,6 +78,8 @@ impl AnimatedTileKind {
             AnimatedTileKind::SpaceStation => 6,
             AnimatedTileKind::Wormhole => 5,
             AnimatedTileKind::Flag => 1,
+            AnimatedTileKind::EnemyBrick => 1,
+            AnimatedTileKind::TeamBrick => 1,
         }
     }
 
@@ -85,6 +92,8 @@ impl AnimatedTileKind {
             219 => Some(AnimatedTileKind::SpaceStation),
             220 => Some(AnimatedTileKind::Wormhole),
             170 => Some(AnimatedTileKind::Flag),
+            252 => Some(AnimatedTileKind::EnemyBrick),
+            253 => Some(AnimatedTileKind::TeamBrick),
             _ => None,
         }
     }

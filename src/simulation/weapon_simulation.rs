@@ -1,7 +1,10 @@
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
-    map::{Map, TILE_ID_SAFE, TILE_ID_THOR_KILLER, TILE_ID_WEAPON_KILLER, TILE_ID_WORMHOLE},
+    map::{
+        Map, TILE_ID_SAFE, TILE_ID_THOR_KILLER, TILE_ID_WEAPON_KILLER, TILE_ID_WEAPON_SOLID,
+        TILE_ID_WORMHOLE,
+    },
     math::{
         PixelUnit, Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction,
         radians, rotate_vec2,
@@ -585,6 +588,7 @@ impl WeaponManager {
                 }
 
                 if tile_id == TILE_ID_THOR_KILLER
+                    || tile_id == TILE_ID_WEAPON_SOLID
                     || map.is_solid_position(weapon.position, weapon.frequency)
                 {
                     weapon.position.x = prev_x;
@@ -617,6 +621,7 @@ impl WeaponManager {
                 }
 
                 if tile_id == TILE_ID_THOR_KILLER
+                    || tile_id == TILE_ID_WEAPON_SOLID
                     || map.is_solid_position(weapon.position, weapon.frequency)
                 {
                     weapon.position.y = prev_y;

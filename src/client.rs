@@ -8,6 +8,7 @@ use crate::flag::FlagController;
 use crate::input::InputAction;
 use crate::input::InputState;
 use crate::map::ANIMATED_TILE_KIND_COUNT;
+use crate::map::AnimatedTileKind;
 use crate::map::DoorRng;
 use crate::map::Map;
 use crate::map::TILE_ID_FIRST_DOOR;
@@ -2786,7 +2787,7 @@ impl Client {
         );
 
         let view_rect = Rectangle::new(view_min, view_max);
-        const ANIMATED_TILE_MAPPING: [(GameSpriteKind, usize); ANIMATED_TILE_KIND_COUNT] = [
+        const ANIMATED_TILE_MAPPING: [(GameSpriteKind, usize); ANIMATED_TILE_KIND_COUNT - 2] = [
             (GameSpriteKind::Goal, 50),
             (GameSpriteKind::AsteroidSmall, 150),
             (GameSpriteKind::AsteroidSmall2, 150),
@@ -2799,7 +2800,8 @@ impl Client {
         let tick_value = self.connection.get_game_tick().value();
 
         // Loop over the animated tiles except for flags. Flags require extra game state to determine how they should be rendered.
-        for i in 0..ANIMATED_TILE_KIND_COUNT - 1 {
+        // Skip the last two because bricks are handled differently.
+        for i in 0..ANIMATED_TILE_KIND_COUNT - 3 {
             let tiles = &self.map.animated_tiles[i];
 
             if tiles.is_empty() {
@@ -2851,8 +2853,45 @@ impl Client {
                     renderable,
                     x_pixels,
                     y_pixels,
-                    Layer::Tiles,
+                    Layer::AfterTiles,
                 );
+            }
+        }
+
+        let map_enemy_bricks = &self.map.animated_tiles[AnimatedTileKind::EnemyBrick as usize];
+        let map_team_bricks = &self.map.animated_tiles[AnimatedTileKind::TeamBrick as usize];
+
+        // Render the bricks that are part of the map.
+        if !map_enemy_bricks.is_empty() || !map_team_bricks.is_empty() {
+            if let Some(brick_sprites) = sprites.get_set(GameSpriteKind::Brick) {
+                let sets = [map_enemy_bricks, map_team_bricks];
+
+                for i in 0..sets.len() {
+                    let set = sets[i];
+
+                    for tile in set {
+                        let x_pixels = tile.x() as i32 * 16;
+                        let y_pixels = tile.y() as i32 * 16;
+                        let position =
+                            Position::from_pixels(PixelUnit(x_pixels), PixelUnit(y_pixels));
+
+                        if !view_rect.contains(position) {
+                            continue;
+                        }
+
+                        let animation_index = get_animation_index(tick_value, 10, 10 * 10);
+
+                        let renderable = &brick_sprites.renderables[i * 10 + animation_index];
+
+                        render_state.sprite_renderer.draw(
+                            &render_state.camera,
+                            renderable,
+                            x_pixels,
+                            y_pixels,
+                            Layer::AfterTiles,
+                        );
+                    }
+                }
             }
         }
 
