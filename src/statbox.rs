@@ -79,7 +79,7 @@ impl Statbox {
             view: StatboxView::None,
             sorted_players: vec![],
 
-            sliding_view: SlidingView::new(15),
+            sliding_view: SlidingView::new(20),
             selected_index: 0,
             selected_player_id: PlayerId::invalid(),
 

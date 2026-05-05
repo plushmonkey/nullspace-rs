@@ -1029,11 +1029,17 @@ impl ShipController {
                     0
                 }
             }
-            WeaponKind::Burst(_) => settings.burst_damage_level,
+            WeaponKind::Burst(_) => {
+                if hit_me {
+                    settings.burst_damage_level
+                } else {
+                    0
+                }
+            }
             _ => 0,
         };
 
-        if self.ship.shield_remaining_ticks > 0 {
+        if damage > 0 && self.ship.shield_remaining_ticks > 0 {
             let reduction = (damage as i64 * self.ship.shield_remaining_ticks as i64)
                 / settings.get_ship_settings(me.ship_kind).shield_time as i64;
             damage -= reduction as i32;
@@ -1233,29 +1239,38 @@ impl ShipController {
 
             let right_side_x = (render_state.config.width - icon_width) as i32;
 
-            if let Some(gun_index) = self.get_gun_renderable_index() {
-                let renderable = &icon_sprites.renderables[gun_index];
+            let (gun_index, gun_offset) = if let Some(gun_index) = self.get_gun_renderable_index() {
+                (gun_index, 0)
+            } else {
+                (0, icon_width - 4)
+            };
 
-                render_state.sprite_renderer.draw(
-                    &render_state.ui_camera,
-                    renderable,
-                    right_side_x,
-                    y,
-                    Layer::Gauges,
-                );
-            }
+            let renderable = &icon_sprites.renderables[gun_index];
 
-            if let Some(bomb_index) = self.get_bomb_renderable_index() {
-                let renderable = &icon_sprites.renderables[bomb_index];
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                renderable,
+                right_side_x + gun_offset as i32,
+                y,
+                Layer::Gauges,
+            );
 
-                render_state.sprite_renderer.draw(
-                    &render_state.ui_camera,
-                    renderable,
-                    right_side_x,
-                    y + icon_height,
-                    Layer::Gauges,
-                );
-            }
+            let (bomb_index, bomb_offset) =
+                if let Some(bomb_index) = self.get_bomb_renderable_index() {
+                    (bomb_index, 0)
+                } else {
+                    (18, icon_width - 4)
+                };
+
+            let renderable = &icon_sprites.renderables[bomb_index];
+
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                renderable,
+                right_side_x + bomb_offset as i32,
+                y + icon_height,
+                Layer::Gauges,
+            );
 
             self.render_status_indicator(
                 render_state,
