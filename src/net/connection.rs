@@ -423,8 +423,6 @@ impl Connection {
 
                     if first_sync {
                         self.current_tick = GameTick::now(current_time_diff);
-                    } else {
-                        self.current_tick = self.current_tick + (new_tick_diff - self.tick_diff);
                     }
 
                     self.tick_diff = new_tick_diff;

@@ -226,7 +226,7 @@ impl<'a> SendChatMessage<'a> {
 
     pub fn frequency(target_player_id: PlayerId, text: &'a str) -> SendChatMessage<'a> {
         SendChatMessage {
-            kind: ChatKind::Team,
+            kind: ChatKind::Frequency,
             sound: 0,
             target_id: target_player_id,
             text,

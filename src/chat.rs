@@ -1,10 +1,14 @@
+use smol_str::{StrExt, ToSmolStr};
+
 use crate::{
     net::{connection::Connection, packet::s2c::ChatKind},
+    player::PlayerManager,
     render::{
         layer::Layer,
         render_state::RenderState,
         text_renderer::{TextAlignment, TextColor},
     },
+    statbox::Statbox,
 };
 
 pub enum ChatSendKind {
@@ -26,11 +30,13 @@ pub struct ChatController {
     pub messages: Vec<ChatEntry>,
     pub insert_index: usize,
     pub full_history: bool,
+    pub recent_private: Vec<String>,
 }
 
 impl ChatController {
     const MAX_MESSAGE_HISTORY: usize = 64;
     const MAX_DISPLAY: usize = 10;
+    const RECENT_NAME_COUNT: usize = 5;
 
     pub fn new() -> Self {
         Self {
@@ -38,6 +44,7 @@ impl ChatController {
             messages: vec![],
             insert_index: 0,
             full_history: false,
+            recent_private: vec![],
         }
     }
 
@@ -212,12 +219,74 @@ impl ChatController {
             }
             _ => {
                 if code >= 0x20 && self.input.len() < MAX_INPUT_LENGTH {
+                    if code == b':' && !self.input.is_empty() {
+                        let mut is_recent_request = false;
+                        let mut current_recent = None;
+
+                        if self.input[0] == b':' {
+                            if self.input.len() > 1 {
+                                // Search for the next ':'. If it is the last character of the input, then it is a request for recent.
+                                if let Some(position) =
+                                    self.input[1..].iter().position(|c| *c == b':')
+                                {
+                                    if position + 2 == self.input.len() {
+                                        is_recent_request = true;
+                                        current_recent = Some(&self.input[1..]);
+                                    }
+                                }
+                            } else {
+                                // New chat input would be '::', so it is a request for recent.
+                                is_recent_request = true;
+                            }
+                        }
+
+                        if is_recent_request {
+                            if self.recent_private.is_empty() {
+                                return false;
+                            }
+
+                            let new_name = if let Some(current) = current_recent {
+                                if let Ok(current_name) = std::str::from_utf8(current) {
+                                    self.get_next_recent_name(current_name).to_smolstr()
+                                } else {
+                                    self.get_next_recent_name("").to_smolstr()
+                                }
+                            } else {
+                                self.get_next_recent_name("").to_smolstr()
+                            };
+
+                            self.input.clear();
+                            self.input.push(b':');
+                            for c in new_name.as_bytes() {
+                                self.input.push(*c);
+                            }
+                            self.input.push(b':');
+
+                            return false;
+                        }
+                    }
+
                     self.input.push(code);
                 }
             }
         }
 
         false
+    }
+
+    fn get_next_recent_name(&self, current: &str) -> &str {
+        if let Some(position) = self
+            .recent_private
+            .iter()
+            .position(|name| name.to_lowercase_smolstr() == current.to_lowercase_smolstr())
+        {
+            let prev_index = ((position as isize - 1) + self.recent_private.len() as isize)
+                % self.recent_private.len() as isize;
+
+            return &self.recent_private[prev_index as usize];
+        } else {
+            return &self.recent_private[self.recent_private.len() - 1];
+        }
     }
 
     pub fn send_public(&mut self, connection: &mut Connection, message: &str) {
@@ -230,7 +299,12 @@ impl ChatController {
         }
     }
 
-    pub fn send_input(&mut self, connection: &mut Connection) {
+    pub fn send_input(
+        &mut self,
+        connection: &mut Connection,
+        statbox: &Statbox,
+        player_manager: &PlayerManager,
+    ) {
         if self.handle_input_commands(connection) {
             self.input.clear();
             return;
@@ -238,8 +312,6 @@ impl ChatController {
 
         match std::str::from_utf8(&self.input) {
             Ok(msg) => {
-                use crate::net::packet::Serialize;
-
                 let send_kind = self.get_chat_send_kind();
 
                 let chat = match &send_kind {
@@ -247,31 +319,48 @@ impl ChatController {
                     ChatSendKind::Team => {
                         let skip = if self.input[0] == b'\'' { 1 } else { 2 };
 
-                        crate::net::packet::c2s::SendChatMessage::frequency(
-                            connection.player_id,
-                            &msg[skip..],
-                        )
-                        //crate::net::packet::c2s::SendChatMessage::team(&msg[skip..])
+                        crate::net::packet::c2s::SendChatMessage::team(&msg[skip..])
                     }
                     ChatSendKind::Private => {
                         if self.input[0] == b':' {
-                            crate::net::packet::c2s::SendChatMessage::remote_private(msg)
+                            if let Some(remote_end) =
+                                self.input[1..].iter().position(|c| *c == b':')
+                            {
+                                let player_name = &msg[1..remote_end + 1];
+
+                                if let Some(local_player) = player_manager.get_by_name(player_name)
+                                {
+                                    crate::net::packet::c2s::SendChatMessage::private(
+                                        local_player.id,
+                                        &msg[remote_end + 2..],
+                                    )
+                                } else {
+                                    crate::net::packet::c2s::SendChatMessage::remote_private(msg)
+                                }
+                            } else {
+                                crate::net::packet::c2s::SendChatMessage::public(msg)
+                            }
                         } else {
-                            // TODO: Implement once statbox is implemented.
-                            crate::net::packet::c2s::SendChatMessage::public(msg)
+                            let selected_player = statbox.get_selected_player_id();
+
+                            crate::net::packet::c2s::SendChatMessage::private(
+                                selected_player,
+                                &msg[1..],
+                            )
                         }
                     }
                     ChatSendKind::Frequency => {
-                        // TODO: Implement once statbox is implemented.
+                        let selected_player = statbox.get_selected_player_id();
+
                         crate::net::packet::c2s::SendChatMessage::frequency(
-                            connection.player_id,
+                            selected_player,
                             &msg[1..],
                         )
                     }
                     ChatSendKind::Channel => crate::net::packet::c2s::SendChatMessage::channel(msg),
                 };
 
-                if let Err(e) = connection.send_packet(&chat.serialize()) {
+                if let Err(e) = connection.send_reliable(&chat) {
                     log::error!("{e}");
                 }
 
@@ -279,21 +368,34 @@ impl ChatController {
 
                 match &send_kind {
                     ChatSendKind::Public => {
-                        self.handle_chat_message(ChatKind::Public, sender, msg.to_string())
+                        self.handle_chat_message(ChatKind::Public, sender, chat.text.to_string())
                     }
                     ChatSendKind::Private => {
-                        self.handle_chat_message(ChatKind::Private, sender, msg.to_string())
+                        if chat.kind == ChatKind::RemotePrivate {
+                            self.handle_chat_message(
+                                ChatKind::RemotePrivate,
+                                sender,
+                                chat.text.to_string(),
+                            )
+                        } else {
+                            self.handle_chat_message(
+                                ChatKind::Private,
+                                sender,
+                                chat.text.to_string(),
+                            )
+                        }
                     }
                     ChatSendKind::Team => {
-                        let skip = if self.input[0] == b'\'' { 1 } else { 2 };
-                        self.handle_chat_message(ChatKind::Team, sender, msg[skip..].to_string())
+                        self.handle_chat_message(ChatKind::Team, sender, chat.text.to_string())
                     }
                     ChatSendKind::Frequency => {
-                        self.handle_chat_message(ChatKind::Frequency, sender, msg[1..].to_string())
+                        self.handle_chat_message(ChatKind::Frequency, sender, chat.text.to_string())
                     }
-                    ChatSendKind::Channel => {
-                        self.handle_chat_message(ChatKind::Channel, "".to_string(), msg.to_string())
-                    }
+                    ChatSendKind::Channel => self.handle_chat_message(
+                        ChatKind::Channel,
+                        "".to_string(),
+                        chat.text.to_string(),
+                    ),
                 }
             }
             Err(e) => {
@@ -393,7 +495,7 @@ impl ChatController {
                 }
             }
             b':' => {
-                if self.input.iter().find(|c| **c == b':').is_some() {
+                if self.input.len() >= 2 && self.input[2..].iter().find(|c| **c == b':').is_some() {
                     ChatSendKind::Private
                 } else {
                     ChatSendKind::Public
@@ -406,6 +508,27 @@ impl ChatController {
     }
 
     pub fn handle_chat_message(&mut self, kind: ChatKind, sender: String, message: String) {
+        match &kind {
+            ChatKind::RemotePrivate | ChatKind::Private => {
+                let sender_lower = sender.to_lowercase_smolstr();
+
+                if let Some(existing) = self
+                    .recent_private
+                    .iter()
+                    .position(|name| name.to_lowercase_smolstr() == sender_lower)
+                {
+                    self.recent_private.remove(existing);
+                }
+
+                if self.recent_private.len() >= Self::RECENT_NAME_COUNT {
+                    self.recent_private.remove(0);
+                }
+
+                self.recent_private.push(sender.clone());
+            }
+            _ => {}
+        }
+
         let entry = ChatEntry {
             kind: kind,
             sender,

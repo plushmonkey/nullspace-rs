@@ -163,6 +163,8 @@ impl Ship {
         self.flag_remaining_ticks = 0;
         self.repel_effect_remaining_ticks = 0;
 
+        self.portal_position = None;
+
         self.multifire = false;
         self.status = 0;
         self.capability = 0;

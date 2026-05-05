@@ -737,6 +737,14 @@ impl Client {
                     }
                     ChatKind::RemotePrivate => {
                         log::debug!("RP {}", chat.message);
+                        if !chat.message.is_empty() {
+                            let check = &chat.message[1..];
+                            if let Some(end_position) =
+                                check.as_bytes().iter().position(|c| *c == b':')
+                            {
+                                sender_name = check[..end_position].to_string();
+                            }
+                        }
                     }
                     ChatKind::Channel => {
                         log::debug!("C {}", chat.message);
@@ -1130,11 +1138,6 @@ impl Client {
                             "small",
                         );
                     }
-                } else {
-                    log::warn!(
-                        "got small position packet from bad player id {}",
-                        message.player_id.value
-                    );
                 }
             }
             GameServerMessage::LargePosition(message) => {
@@ -1243,11 +1246,6 @@ impl Client {
 
                         log::trace!("Spawn count for {}: {}", player.name, spawn_count);
                     }
-                } else {
-                    log::warn!(
-                        "got large position packet from bad player id {}",
-                        message.player_id.value
-                    );
                 }
             }
             GameServerMessage::BatchedSmallPosition(message) => {

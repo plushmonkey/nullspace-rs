@@ -219,6 +219,12 @@ impl Statbox {
 
     pub fn rebuild(&mut self, player_manager: &PlayerManager) {
         log::debug!("Rebuilding statbox");
+
+        if !self.selected_player_id.valid() {
+            self.selected_player_id = player_manager.self_id;
+            return;
+        }
+
         self.sort(player_manager);
         self.restore_selected_index();
     }

@@ -364,9 +364,11 @@ impl ApplicationPlayingState {
                         self.client.chat_controller.input.push(*c);
                     }
 
-                    self.client
-                        .chat_controller
-                        .send_input(&mut self.client.connection);
+                    self.client.chat_controller.send_input(
+                        &mut self.client.connection,
+                        &self.client.statbox,
+                        &self.client.simulation.player_manager,
+                    );
                 }
                 return;
             }
@@ -377,9 +379,11 @@ impl ApplicationPlayingState {
             self.input_state
                 .is_modifier_down(input::InputModifier::Control),
         ) {
-            self.client
-                .chat_controller
-                .send_input(&mut self.client.connection);
+            self.client.chat_controller.send_input(
+                &mut self.client.connection,
+                &self.client.statbox,
+                &self.client.simulation.player_manager,
+            );
         }
     }
 }

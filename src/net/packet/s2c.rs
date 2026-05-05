@@ -156,7 +156,7 @@ pub struct PlayerDeathMessage {
     pub flag_transfer: u16,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum ChatKind {
     Arena = 0,
     PublicMacro = 1,
@@ -568,8 +568,14 @@ impl ServerMessage {
                 }
 
                 let tick_value = u32::from_le_bytes(packet[2..6].try_into().unwrap());
-                let packets_sent = u32::from_le_bytes(packet[6..10].try_into().unwrap());
-                let packets_recv = u32::from_le_bytes(packet[10..14].try_into().unwrap());
+                let (packets_sent, packets_recv) = if packet.len() >= 14 {
+                    let packets_sent = u32::from_le_bytes(packet[6..10].try_into().unwrap());
+                    let packets_recv = u32::from_le_bytes(packet[10..14].try_into().unwrap());
+
+                    (packets_sent, packets_recv)
+                } else {
+                    (0, 0)
+                };
 
                 let message = ClockSyncRequestMessage {
                     local_tick: tick_value,
