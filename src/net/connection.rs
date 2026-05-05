@@ -19,6 +19,7 @@ use std::net::AddrParseError;
 #[cfg(target_arch = "wasm32")]
 use crate::net::webtransport_socket::WebTransportSocket;
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum ConnectionState {
     EncryptionHandshake,
     Authentication,
@@ -451,7 +452,8 @@ impl Connection {
                     }
                 }
                 CoreServerMessage::HugeChunkCancelAck => {
-                    //
+                    self.sequencer.awaiting_huge_cancel = false;
+                    self.sequencer.huge_chunk_data.clear();
                 }
                 CoreServerMessage::Cluster(cluster) => {
                     self.sequencer.handle_cluster(cluster);
@@ -479,8 +481,24 @@ impl Connection {
                     }
                     _ => {}
                 },
+                GameServerMessage::MapInformation(_) => {
+                    self.cancel_downloads();
+                }
                 _ => {}
             },
+        }
+    }
+
+    pub fn cancel_downloads(&mut self) {
+        if self.state == ConnectionState::MapDownload || !self.sequencer.huge_chunk_data.is_empty()
+        {
+            let message = crate::net::packet::bi::HugeChunkCancelMessage {};
+            self.sequencer.huge_chunk_data.clear();
+            self.sequencer.awaiting_huge_cancel = true;
+
+            if let Err(e) = self.send_reliable(&message) {
+                log::error!("{e}");
+            }
         }
     }
 

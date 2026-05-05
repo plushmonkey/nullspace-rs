@@ -36,9 +36,11 @@ pub struct PacketSequencer {
     // This queue stores clustered packets and coalesced packets such as small and huge chunks.
     // A deque is used to reduce the amount of work for processing the queue in order.
     pub process_queue: VecDeque<Vec<u8>>,
-    pub chunk_data: Vec<u8>,
+    pub huge_chunk_data: Vec<u8>,
+    pub small_chunk_data: Vec<u8>,
 
     pub tick: GameTick,
+    pub awaiting_huge_cancel: bool,
 }
 
 impl PacketSequencer {
@@ -49,8 +51,10 @@ impl PacketSequencer {
             reliable_sent: Vec::new(),
             reliable_queue: Vec::new(),
             process_queue: VecDeque::new(),
-            chunk_data: Vec::new(),
+            huge_chunk_data: Vec::new(),
+            small_chunk_data: Vec::new(),
             tick: GameTick::empty(),
+            awaiting_huge_cancel: false,
         }
     }
 
@@ -129,30 +133,38 @@ impl PacketSequencer {
 
     pub fn handle_small_chunk_body(&mut self, packet: &Packet) {
         let data = &packet.data[..packet.size];
-        self.chunk_data.extend(data.iter());
+        self.small_chunk_data.extend(data.iter());
     }
 
     pub fn handle_small_chunk_tail(&mut self, packet: &Packet) {
         let data = &packet.data[..packet.size];
-        self.chunk_data.extend(data.iter());
-        self.process_queue.push_back(self.chunk_data.clone());
-        self.chunk_data.clear();
+        self.small_chunk_data.extend(data.iter());
+        self.process_queue.push_back(self.small_chunk_data.clone());
+        self.small_chunk_data.clear();
     }
 
     pub fn handle_huge_chunk(&mut self, chunk: &HugeChunkMessage) {
+        if self.awaiting_huge_cancel {
+            return;
+        }
+
         let data = &chunk.data.data[..chunk.data.size];
-        self.chunk_data.extend(data.iter());
+        self.huge_chunk_data.extend(data.iter());
 
-        println!("Downloading {}/{}", self.chunk_data.len(), chunk.total_size);
+        log::debug!(
+            "Downloading {}/{}",
+            self.huge_chunk_data.len(),
+            chunk.total_size
+        );
 
-        if self.chunk_data.len() >= chunk.total_size as usize {
-            self.process_queue.push_back(self.chunk_data.clone());
-            self.chunk_data.clear();
+        if self.huge_chunk_data.len() >= chunk.total_size as usize {
+            self.process_queue.push_back(self.huge_chunk_data.clone());
+            self.huge_chunk_data.clear();
         }
     }
 
     pub fn handle_huge_chunk_cancel(&mut self) {
-        self.chunk_data.clear();
+        self.huge_chunk_data.clear();
     }
 
     pub fn increment_id(&mut self) {

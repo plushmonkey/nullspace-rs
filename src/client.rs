@@ -803,6 +803,10 @@ impl Client {
 
                 self.map.clear_bricks();
 
+                // Stop downloading the map if we're downloading.
+                // We need to clear the process queue for the new settings and map.
+                self.connection.cancel_downloads();
+
                 if let Some(render_state) = render_state {
                     render_state.animation_renderer.clear();
                 }
