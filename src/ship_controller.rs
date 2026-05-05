@@ -125,7 +125,9 @@ impl ShipController {
 
         self.tick_status(StatusFlags::XRadar, ship_settings.xradar_energy as u32);
         self.tick_status(StatusFlags::Stealth, ship_settings.stealth_energy as u32);
-        self.tick_status(StatusFlags::Cloak, ship_settings.cloak_energy as u32);
+        if self.tick_status(StatusFlags::Cloak, ship_settings.cloak_energy as u32) {
+            self.ship.status |= StatusFlags::Flash;
+        }
         self.tick_status(StatusFlags::Antiwarp, ship_settings.antiwarp_energy as u32);
 
         self.fire_weapons(
@@ -193,14 +195,18 @@ impl ShipController {
         }
     }
 
-    fn tick_status(&mut self, status_flag: u8, cost: u32) {
+    // Returns true if the status was enabled and is now disabled.
+    fn tick_status(&mut self, status_flag: u8, cost: u32) -> bool {
         if self.ship.status & status_flag != 0 {
             if self.ship.current_energy > cost {
                 self.ship.current_energy -= cost;
             } else {
                 self.ship.status &= !status_flag;
+                return true;
             }
         }
+
+        false
     }
 
     fn perform_acceleration(
@@ -847,6 +853,11 @@ impl ShipController {
 
         if self.ship.current_energy < energy_cost as u32 {
             return;
+        }
+
+        if self.ship.status & StatusFlags::Cloak != 0 {
+            self.ship.status &= !StatusFlags::Cloak;
+            self.ship.status |= StatusFlags::Flash;
         }
 
         match &mut weapon_kind {

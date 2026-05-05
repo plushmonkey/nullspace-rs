@@ -17,6 +17,8 @@ pub struct SpectateController {
     pub spectate_player_id: Option<PlayerId>,
     pub last_spectate_freq: u16,
     freecam: bool,
+    // TODO: Render and handle input if enabled in settings.
+    pub xradar: bool,
 }
 
 impl SpectateController {
@@ -25,6 +27,7 @@ impl SpectateController {
             spectate_player_id: None,
             last_spectate_freq: 0xFFFF,
             freecam: false,
+            xradar: true,
         }
     }
 

@@ -2,7 +2,7 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     map::Map,
-    math::Position,
+    math::{Position, Rectangle},
     player::{PlayerId, PlayerManager},
     powerball::{PowerballManager, PowerballState},
     ship::ShipKind,
@@ -28,6 +28,7 @@ pub enum SimulationEventKind {
     WeaponExplosion(WeaponExplosionEvent),
     PowerballPickupRequest(u8, GameTick),
     PowerballTimeout(u8),
+    DoorWarp,
 }
 
 pub struct SimulationEvent {
@@ -59,10 +60,51 @@ impl Simulation {
         }
     }
 
-    pub fn tick(&mut self, map: &Map, settings: &ArenaSettings) {
+    fn perform_doorwarp(&mut self, map: &Map, settings: &ArenaSettings) {
+        let Some(me) = self.player_manager.get_self_mut() else {
+            return;
+        };
+
+        let Some(_) = me.position else {
+            return;
+        };
+
+        if me.ship_kind == ShipKind::Spectator {
+            return;
+        }
+
+        let player_collider =
+            me.get_collider(settings.get_ship_settings(me.ship_kind).get_radius());
+
+        for door_tile in &map.doors {
+            if !map.is_solid(door_tile.x(), door_tile.y(), me.frequency) {
+                continue;
+            }
+
+            let door_collider = Rectangle::new(
+                Position::from_tile(door_tile.x() as i32, door_tile.y() as i32),
+                Position::from_tile(door_tile.x() as i32 + 1, door_tile.y() as i32 + 1),
+            );
+
+            if door_collider.intersects(&player_collider) {
+                self.events.push(SimulationEvent {
+                    kind: SimulationEventKind::DoorWarp,
+                    tick: self.tick,
+                });
+                return;
+            }
+        }
+    }
+
+    pub fn tick(&mut self, map: &mut Map, settings: &ArenaSettings) {
         self.events.clear();
 
         self.tick = GameTick::new(self.tick.value().wrapping_add(1), 0);
+
+        if map.doors_mutated {
+            self.perform_doorwarp(map, settings);
+            map.doors_mutated = false;
+        }
 
         for player in &mut self.player_manager.players {
             player_simulation::integrate_player(map, settings, player);

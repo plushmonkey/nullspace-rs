@@ -133,6 +133,7 @@ pub struct Map {
 
     pub doors: Vec<Tile>,
     pub door_rng: Option<DoorRng>,
+    pub doors_mutated: bool,
 
     pub bricks: Vec<Brick>,
 }
@@ -208,6 +209,7 @@ impl Map {
             animated_tiles: [(); ANIMATED_TILE_KIND_COUNT].map(|_| Vec::new()),
             doors: vec![],
             door_rng: None,
+            doors_mutated: false,
             bricks: vec![],
         }
     }
@@ -364,6 +366,8 @@ impl Map {
 
             door_rng.last_mode = door_rng.current_mode;
             door_rng.current_mode = new_door_mode as u8;
+
+            self.doors_mutated = true;
 
             Self::apply_door_mode(&mut self.doors, &mut self.tiles[..], new_door_mode as u32);
         }
@@ -527,6 +531,7 @@ impl Map {
                 door_rng.current_mode = door_rng.last_mode;
                 door_rng.last_tick = timestamp;
                 door_rng.rng.seed = seed as i32;
+                self.doors_mutated = true;
 
                 return;
             }
@@ -548,6 +553,8 @@ impl Map {
             door_rng.last_mode = door_rng.current_mode;
             door_rng.current_mode = door_mode;
         }
+
+        self.doors_mutated = true;
     }
 
     fn apply_door_mode(doors: &mut Vec<Tile>, tiles: &mut [u8], door_mode: u32) {

@@ -205,7 +205,7 @@ impl Client {
                 .tick(&self.settings, self.connection.get_game_tick());
 
             // Simulation must be updated before spectate controller so the positions are updated for the player we're spectating.
-            self.simulation.tick(&self.map, &self.settings);
+            self.simulation.tick(&mut self.map, &self.settings);
 
             self.flag_controller.tick(
                 &mut self.simulation.player_manager,
@@ -304,6 +304,25 @@ impl Client {
 
                             if let Err(e) = self.connection.send_reliable(&message) {
                                 log::error!("{e}");
+                            }
+                        }
+                        SimulationEventKind::DoorWarp => {
+                            let player_count = self.simulation.player_manager.players.len();
+                            let rng = VieRng::new(self.connection.get_game_tick().value() as i32);
+
+                            if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                                let position = generate_spawn_position(
+                                    &self.settings,
+                                    &self.map,
+                                    me.ship_kind,
+                                    me.frequency,
+                                    rng,
+                                    player_count,
+                                );
+                                me.position = Some(position);
+                                me.status |= StatusFlags::Flash;
+                                ship_controller.ship.status |= StatusFlags::Flash;
+                                me.velocity.clear();
                             }
                         }
                     }
@@ -851,8 +870,19 @@ impl Client {
                 let end_tick = message.timestamp + self.settings.brick_time as i32;
 
                 let mut position = start;
+                let mut me_collider = Rectangle::empty();
+                let mut check_brickwarp = false;
 
-                // TODO: Self brick warp.
+                if let Some(me) = self.simulation.player_manager.get_self() {
+                    if me.ship_kind != ShipKind::Spectator && !me.is_dead() {
+                        if let Some(_) = me.position {
+                            me_collider = me.get_collider(
+                                self.settings.get_ship_settings(me.ship_kind).get_radius(),
+                            );
+                            check_brickwarp = me.frequency != message.frequency;
+                        }
+                    }
+                }
 
                 for _ in 0..distance {
                     self.map.insert_brick(
@@ -861,6 +891,34 @@ impl Client {
                         message.frequency,
                         end_tick,
                     );
+
+                    if check_brickwarp {
+                        let collider = Rectangle::new(
+                            Position::from_tile(position.x as i32, position.y as i32),
+                            Position::from_tile(position.x as i32 + 1, position.y as i32 + 1),
+                        );
+
+                        if collider.intersects(&me_collider) {
+                            let player_count = self.simulation.player_manager.players.len();
+
+                            if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                                let rng =
+                                    VieRng::new(self.connection.get_game_tick().value() as i32);
+
+                                let new_position = generate_spawn_position(
+                                    &self.settings,
+                                    &self.map,
+                                    me.ship_kind,
+                                    me.frequency,
+                                    rng,
+                                    player_count,
+                                );
+                                me.position = Some(new_position);
+                                me.velocity.clear();
+                                me.status |= StatusFlags::Flash;
+                            }
+                        }
+                    }
 
                     position += direction;
                 }
@@ -1865,6 +1923,15 @@ impl Client {
             );
         }
 
+        let using_xradar = match &self.controller {
+            MovementController::Ship(ship_controller) => {
+                ship_controller.ship.status & StatusFlags::XRadar != 0
+            }
+            MovementController::Spectate(spectate_controller) => spectate_controller.xradar,
+        };
+
+        let view_freq = self.get_freq();
+
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
                 continue;
@@ -1921,6 +1988,12 @@ impl Client {
                 }
             }
 
+            let visible = using_xradar
+                || (player.status & StatusFlags::Cloak == 0)
+                || player.frequency == view_freq;
+            let visible_radar = using_xradar
+                || Self::is_radar_visible(&self.simulation.player_manager, player.id, view_freq);
+
             // Player indicator continues to be on radar even while they are exploding, so add it before the enter delay check.
             if player.id != self_view_id {
                 let color_kind = if player.frequency == self.get_freq() {
@@ -1944,12 +2017,14 @@ impl Client {
                     }
                 };
 
-                self.radar.add_indicator(
-                    color_kind,
-                    player_position,
-                    self.connection.get_game_tick(),
-                    IndicatorFlag::SmallMap,
-                );
+                if visible_radar {
+                    self.radar.add_indicator(
+                        color_kind,
+                        player_position,
+                        self.connection.get_game_tick(),
+                        IndicatorFlag::SmallMap,
+                    );
+                }
             }
 
             if player.enter_delay > 0 {
@@ -1962,13 +2037,15 @@ impl Client {
 
                 let renderable = &ship_renderables.renderables[ship_index];
 
-                render_state.sprite_renderer.draw_centered(
-                    &render_state.camera,
-                    renderable,
-                    x_pixels,
-                    y_pixels,
-                    Layer::Ships,
-                );
+                if visible {
+                    render_state.sprite_renderer.draw_centered(
+                        &render_state.camera,
+                        renderable,
+                        x_pixels,
+                        y_pixels,
+                        Layer::Ships,
+                    );
+                }
 
                 let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                 let mut name_y = y_pixels + (renderable.size[1] as i32) / 2;
@@ -1994,56 +2071,58 @@ impl Client {
                     }
                 }
 
-                if let Some(extra_data) = &player.extra_position_data {
-                    let energy = extra_data.energy as u32;
-                    let energy_x = x_pixels - (renderable.size[0] as i32) / 2;
-                    let energy_y = y_pixels + (renderable.size[1] as i32) / 2;
+                if visible {
+                    if let Some(extra_data) = &player.extra_position_data {
+                        let energy = extra_data.energy as u32;
+                        let energy_x = x_pixels - (renderable.size[0] as i32) / 2;
+                        let energy_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                    let initial_energy = (self
-                        .settings
-                        .get_ship_settings(player.ship_kind)
-                        .initial_energy) as u32;
+                        let initial_energy = (self
+                            .settings
+                            .get_ship_settings(player.ship_kind)
+                            .initial_energy) as u32;
 
-                    let energy_color = if energy <= initial_energy / 4 {
-                        TextColor::DarkRed
-                    } else if energy <= initial_energy / 2 {
-                        TextColor::Yellow
-                    } else {
-                        TextColor::White
-                    };
+                        let energy_color = if energy <= initial_energy / 4 {
+                            TextColor::DarkRed
+                        } else if energy <= initial_energy / 2 {
+                            TextColor::Yellow
+                        } else {
+                            TextColor::White
+                        };
 
-                    render_state.draw_world_text(
-                        &format_smolstr!("{}", energy),
-                        energy_x,
-                        energy_y,
-                        Layer::Ships,
-                        energy_color,
-                        TextAlignment::Right,
-                    );
-                } else if player.id == self.simulation.player_manager.self_id {
-                    if let MovementController::Ship(ship_controller) = &self.controller {
-                        let half_energy = ship_controller.ship.max_energy / 2;
+                        render_state.draw_world_text(
+                            &format_smolstr!("{}", energy),
+                            energy_x,
+                            energy_y,
+                            Layer::Ships,
+                            energy_color,
+                            TextAlignment::Right,
+                        );
+                    } else if player.id == self.simulation.player_manager.self_id {
+                        if let MovementController::Ship(ship_controller) = &self.controller {
+                            let half_energy = ship_controller.ship.max_energy / 2;
 
-                        if ship_controller.ship.current_energy <= half_energy {
-                            let quarter_energy = ship_controller.ship.max_energy / 4;
-                            let energy = ship_controller.ship.current_energy / 1000;
-                            let energy_color =
-                                if ship_controller.ship.current_energy <= quarter_energy {
-                                    TextColor::DarkRed
-                                } else {
-                                    TextColor::Yellow
-                                };
+                            if ship_controller.ship.current_energy <= half_energy {
+                                let quarter_energy = ship_controller.ship.max_energy / 4;
+                                let energy = ship_controller.ship.current_energy / 1000;
+                                let energy_color =
+                                    if ship_controller.ship.current_energy <= quarter_energy {
+                                        TextColor::DarkRed
+                                    } else {
+                                        TextColor::Yellow
+                                    };
 
-                            render_state.draw_world_text(
-                                &format_smolstr!("{}", energy),
-                                name_x,
-                                name_y,
-                                Layer::Ships,
-                                energy_color,
-                                TextAlignment::Left,
-                            );
+                                render_state.draw_world_text(
+                                    &format_smolstr!("{}", energy),
+                                    name_x,
+                                    name_y,
+                                    Layer::Ships,
+                                    energy_color,
+                                    TextAlignment::Left,
+                                );
 
-                            name_y += render_state.text_renderer.character_height;
+                                name_y += render_state.text_renderer.character_height;
+                            }
                         }
                     }
                 }
@@ -2060,19 +2139,29 @@ impl Client {
 
                 let player_name_view = Self::get_player_name_view(player);
 
-                render_state.draw_world_text(
-                    &player_name_view,
-                    name_x,
-                    name_y,
-                    Layer::AfterShips,
-                    name_color,
-                    TextAlignment::Left,
-                );
+                if visible {
+                    render_state.draw_world_text(
+                        &player_name_view,
+                        name_x,
+                        name_y,
+                        Layer::AfterShips,
+                        name_color,
+                        TextAlignment::Left,
+                    );
+                }
 
                 let mut child_y = name_y + render_state.text_renderer.character_height;
 
                 for child_id in &player.children {
                     if let Some(child) = self.simulation.player_manager.get_by_id(*child_id) {
+                        let visible = using_xradar
+                            || (child.status & StatusFlags::Cloak == 0)
+                            || child.frequency == view_freq;
+
+                        if !visible {
+                            continue;
+                        }
+
                         if child.id == self.simulation.player_manager.self_id {
                             if let MovementController::Ship(ship_controller) = &self.controller {
                                 let half_energy = ship_controller.ship.max_energy / 2;
@@ -2098,6 +2187,21 @@ impl Client {
 
                                     child_y += render_state.text_renderer.character_height;
                                 }
+                            }
+                        } else {
+                            if let Some(turret_sprites) =
+                                sprites.get_set(GameSpriteKind::TeamTurret)
+                            {
+                                let renderable =
+                                    &turret_sprites.renderables[child.direction as usize % 40];
+
+                                render_state.sprite_renderer.draw_centered(
+                                    &render_state.camera,
+                                    renderable,
+                                    x_pixels,
+                                    y_pixels,
+                                    Layer::AfterShips,
+                                );
                             }
                         }
 
@@ -2127,6 +2231,32 @@ impl Client {
                 }
             }
         }
+    }
+
+    fn is_radar_visible(
+        player_manager: &PlayerManager,
+        player_id: PlayerId,
+        view_freq: u16,
+    ) -> bool {
+        if let Some(player) = player_manager.get_by_id(player_id) {
+            if player.frequency == view_freq {
+                return true;
+            }
+
+            if player.status & StatusFlags::Stealth == 0 {
+                return true;
+            }
+
+            for child_id in &player.children {
+                if let Some(child) = player_manager.get_by_id(*child_id) {
+                    if child.status & StatusFlags::Stealth == 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     fn get_player_name_view(player: &Player) -> SmolStr {
@@ -2708,7 +2838,7 @@ impl Client {
 
         if let Some(brick_sprites) = sprites.get_set(GameSpriteKind::Brick) {
             for brick in &self.map.bricks {
-                let index = get_animation_index(tick_value, 10, 50)
+                let index = get_animation_index(tick_value, 10, 10 * 10)
                     + (self_freq == brick.frequency) as usize * 10;
 
                 let renderable = &brick_sprites.renderables[index];

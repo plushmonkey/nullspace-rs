@@ -137,6 +137,7 @@ pub enum GameSpriteKind {
     DropFlag,
     Super,
     Shield,
+    TeamTurret,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -177,6 +178,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (10, 1),     // DropFlag
     (10, 1),     // Super
     (10, 1),     // Shield
+    (20, 2),     // TeamTurret
     (5, 2),      // Repel
 ];
 
@@ -319,6 +321,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::DropFlag, "graphics/dropflag.bm2"),
             (GameSpriteKind::Super, "graphics/super.bm2"),
             (GameSpriteKind::Shield, "graphics/shield.bm2"),
+            (GameSpriteKind::TeamTurret, "graphics/turret2.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 
