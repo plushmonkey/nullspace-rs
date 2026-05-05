@@ -552,6 +552,16 @@ impl ShipController {
                 self.ship.portal_position = Some(me_position);
                 self.ship.portals -= 1;
                 self.ship.portal_remaining_ticks = settings.warp_point_delay as u32;
+
+                let future_tick = current_tick + 60;
+
+                if future_tick > self.ship.next_bomb_tick {
+                    self.ship.next_bomb_tick = future_tick;
+                }
+
+                if future_tick > self.ship.next_bullet_tick {
+                    self.ship.next_bullet_tick = future_tick;
+                }
             }
         }
 
@@ -566,8 +576,16 @@ impl ShipController {
                 ) {
                     powerball_manager.clear_carry_state();
 
-                    self.ship.next_bomb_tick = current_tick + 60;
-                    self.ship.next_bullet_tick = current_tick + 60;
+                    let future_tick = current_tick + 60;
+
+                    if future_tick > self.ship.next_bomb_tick {
+                        self.ship.next_bomb_tick = future_tick;
+                    }
+
+                    if future_tick > self.ship.next_bullet_tick {
+                        self.ship.next_bullet_tick = future_tick;
+                    }
+
                     return;
                 }
             }
@@ -601,7 +619,15 @@ impl ShipController {
                         me.position = Some(new_position);
 
                         self.ship.status |= StatusFlags::Flash;
-                        self.ship.next_bomb_tick = current_tick + Self::REPEL_DELAY_TICKS;
+
+                        let future_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                        if future_tick > self.ship.next_bomb_tick {
+                            self.ship.next_bomb_tick = future_tick;
+                        }
+
+                        if future_tick > self.ship.next_bullet_tick {
+                            self.ship.next_bullet_tick = future_tick;
+                        }
                     }
 
                     if use_energy {
