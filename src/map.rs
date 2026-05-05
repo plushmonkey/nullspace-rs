@@ -16,7 +16,10 @@ pub const TILE_ID_FLAG: TileId = 170;
 pub const TILE_ID_SAFE: TileId = 171;
 pub const TILE_ID_GOAL: TileId = 172;
 pub const TILE_ID_WORMHOLE: TileId = 220;
+pub const TILE_ID_WEAPON_KILLER: TileId = 241;
+pub const TILE_ID_THOR_KILLER: TileId = 242;
 pub const TILE_ID_FAKE_BRICK: TileId = 250;
+pub const TILE_ID_ANIMATED_ENEMY_BRICK: TileId = 252;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -264,7 +267,7 @@ impl Map {
             }
         }
 
-        if tile_id >= 242 && tile_id <= 252 {
+        if tile_id >= 243 && tile_id <= 251 {
             return true;
         }
 

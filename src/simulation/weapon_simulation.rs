@@ -1,7 +1,7 @@
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
-    map::{Map, TILE_ID_SAFE, TILE_ID_WORMHOLE},
+    map::{Map, TILE_ID_SAFE, TILE_ID_THOR_KILLER, TILE_ID_WEAPON_KILLER, TILE_ID_WORMHOLE},
     math::{
         PixelUnit, Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction,
         radians, rotate_vec2,
@@ -568,10 +568,25 @@ impl WeaponManager {
         weapon.position.x = weapon.position.x + weapon.velocity.x;
 
         let x_collide = match &weapon.kind {
-            WeaponKind::Thor(_) => false,
+            WeaponKind::Thor(_) => {
+                let tile_id = map.get_tile_from_position(&weapon.position);
+
+                if tile_id == TILE_ID_THOR_KILLER {
+                    return WeaponSimulateResult::TimedOut;
+                }
+
+                false
+            }
             _ => {
-                // TODO: Handle special tiles here
-                if map.is_solid_position(weapon.position, weapon.frequency) {
+                let tile_id = map.get_tile_from_position(&weapon.position);
+
+                if tile_id == TILE_ID_WEAPON_KILLER {
+                    return WeaponSimulateResult::TimedOut;
+                }
+
+                if tile_id == TILE_ID_THOR_KILLER
+                    || map.is_solid_position(weapon.position, weapon.frequency)
+                {
                     weapon.position.x = prev_x;
                     weapon.velocity.x.0 *= -1;
                     true
@@ -585,10 +600,25 @@ impl WeaponManager {
         weapon.position.y = weapon.position.y + weapon.velocity.y;
 
         let y_collide = match &weapon.kind {
-            WeaponKind::Thor(_) => false,
+            WeaponKind::Thor(_) => {
+                let tile_id = map.get_tile_from_position(&weapon.position);
+
+                if tile_id == TILE_ID_THOR_KILLER {
+                    return WeaponSimulateResult::TimedOut;
+                }
+
+                false
+            }
             _ => {
-                // TODO: Handle special tiles here
-                if map.is_solid_position(weapon.position, weapon.frequency) {
+                let tile_id = map.get_tile_from_position(&weapon.position);
+
+                if tile_id == TILE_ID_WEAPON_KILLER {
+                    return WeaponSimulateResult::TimedOut;
+                }
+
+                if tile_id == TILE_ID_THOR_KILLER
+                    || map.is_solid_position(weapon.position, weapon.frequency)
+                {
                     weapon.position.y = prev_y;
                     weapon.velocity.y.0 *= -1;
                     true

@@ -4,9 +4,9 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     input::{InputAction, InputState},
-    map::{Map, TILE_ID_SAFE},
+    map::{Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
-    player::{PlayerManager, StatusFlags},
+    player::{Player, PlayerManager, StatusFlags},
     powerball::PowerballManager,
     radar::Radar,
     render::{
@@ -141,6 +141,22 @@ impl ShipController {
             current_tick,
             afterburners_enabled,
         );
+
+        if let Some(me) = player_manager.get_self_mut() {
+            if me.ship_kind != ShipKind::Spectator && !me.is_dead() {
+                if let Some(me_position) = me.position {
+                    let tile_id = map.get_tile_from_position(&me_position);
+
+                    if tile_id == TILE_ID_THOR_KILLER {
+                        self.tile_warp(me, settings, map, current_tick, player_count);
+                    } else if tile_id == TILE_ID_ANIMATED_ENEMY_BRICK {
+                        if current_tick.value() % 200 == 0 {
+                            self.tile_warp(me, settings, map, current_tick, player_count);
+                        }
+                    }
+                }
+            }
+        }
 
         let me = player_manager
             .get_self_mut()
@@ -333,6 +349,25 @@ impl ShipController {
         if let Some(me) = player_manager.get_self_mut() {
             me.direction = self.ship.get_direction();
         }
+    }
+
+    fn tile_warp(
+        &mut self,
+        me: &mut Player,
+        settings: &ArenaSettings,
+        map: &Map,
+        current_tick: GameTick,
+        player_count: usize,
+    ) {
+        let rng = VieRng::new(current_tick.value() as i32);
+        let new_position =
+            generate_spawn_position(settings, map, me.ship_kind, me.frequency, rng, player_count);
+
+        me.position = Some(new_position);
+        me.velocity.clear();
+
+        self.ship.status |= StatusFlags::Flash;
+        self.ship.current_energy = 1000;
     }
 
     pub fn reset_ship(

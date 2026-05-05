@@ -1892,6 +1892,48 @@ impl Client {
         }
     }
 
+    fn get_radar_player_color(
+        player_manager: &PlayerManager,
+        player_id: PlayerId,
+        view_freq: u16,
+        is_decoy: bool,
+    ) -> ColorRenderableKind {
+        let Some(player) = player_manager.get_by_id(player_id) else {
+            return ColorRenderableKind::RadarEnemyTarget;
+        };
+
+        if player.frequency == view_freq {
+            if is_decoy {
+                ColorRenderableKind::RadarDecoy
+            } else {
+                if player.flag_count > 0 || player.carrying_ball {
+                    ColorRenderableKind::RadarTeammateFlagCarry
+                } else {
+                    ColorRenderableKind::RadarTeammate
+                }
+            }
+        } else {
+            if player.flag_count > 0 || player.carrying_ball {
+                ColorRenderableKind::RadarEnemyFlagCarry
+            } else {
+                let mut color = ColorRenderableKind::RadarEnemyTarget;
+
+                if !is_decoy {
+                    for child_id in &player.children {
+                        if let Some(child) = player_manager.get_by_id(*child_id) {
+                            if child.flag_count > 0 || child.carrying_ball {
+                                color = ColorRenderableKind::RadarEnemyFlagCarry;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                color
+            }
+        }
+    }
+
     fn render_players(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         let self_position = Position::new(
             PositionUnit(render_state.camera.position.x as i32 * 16000),
@@ -1998,26 +2040,12 @@ impl Client {
 
             // Player indicator continues to be on radar even while they are exploding, so add it before the enter delay check.
             if player.id != self_view_id {
-                let color_kind = if player.frequency == self.get_freq() {
-                    ColorRenderableKind::RadarTeammate
-                } else {
-                    if player.flag_count > 0 || player.carrying_ball {
-                        ColorRenderableKind::RadarEnemyFlagCarry
-                    } else {
-                        let mut color = ColorRenderableKind::RadarEnemyTarget;
-
-                        for child_id in &player.children {
-                            if let Some(child) = self.simulation.player_manager.get_by_id(*child_id)
-                            {
-                                if child.flag_count > 0 || child.carrying_ball {
-                                    color = ColorRenderableKind::RadarEnemyFlagCarry;
-                                    break;
-                                }
-                            }
-                        }
-                        color
-                    }
-                };
+                let color_kind = Self::get_radar_player_color(
+                    &self.simulation.player_manager,
+                    player.id,
+                    self.get_freq(),
+                    false,
+                );
 
                 if visible_radar {
                     self.radar.add_indicator(
@@ -2129,17 +2157,8 @@ impl Client {
                     }
                 }
 
-                let name_color = if player.frequency == self.get_freq() {
-                    TextColor::Yellow
-                } else {
-                    if player.flag_count > 0 || player.carrying_ball {
-                        TextColor::DarkRed
-                    } else {
-                        TextColor::Blue
-                    }
-                };
-
-                let player_name_view = Self::get_player_name_view(player);
+                let (player_name_view, name_color) =
+                    Self::get_player_name_view(player, self.get_freq());
 
                 if visible {
                     render_state.draw_world_text(
@@ -2207,17 +2226,8 @@ impl Client {
                             }
                         }
 
-                        let child_name_color = if player.frequency == self.get_freq() {
-                            TextColor::Yellow
-                        } else {
-                            if child.flag_count > 0 || child.carrying_ball {
-                                TextColor::DarkRed
-                            } else {
-                                TextColor::Blue
-                            }
-                        };
-
-                        let child_name_view = Self::get_player_name_view(child);
+                        let (child_name_view, child_name_color) =
+                            Self::get_player_name_view(child, self.get_freq());
 
                         render_state.draw_world_text(
                             &child_name_view,
@@ -2261,8 +2271,18 @@ impl Client {
         false
     }
 
-    fn get_player_name_view(player: &Player) -> SmolStr {
-        if player.flag_count > 0 {
+    fn get_player_name_view(player: &Player, view_freq: u16) -> (SmolStr, TextColor) {
+        let color = if player.frequency == view_freq {
+            TextColor::Yellow
+        } else {
+            if player.flag_count > 0 || player.carrying_ball {
+                TextColor::DarkRed
+            } else {
+                TextColor::Blue
+            }
+        };
+
+        let text = if player.flag_count > 0 {
             if player.carrying_ball {
                 format_smolstr!(
                     "{}({}:{}) (Ball)",
@@ -2279,7 +2299,9 @@ impl Client {
             } else {
                 format_smolstr!("{}({})", player.name, player.bounty)
             }
-        }
+        };
+
+        (text, color)
     }
 
     fn render_weapons(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
@@ -2451,14 +2473,11 @@ impl Client {
                             let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                             let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                            let name_color = if player.frequency == self.get_freq() {
-                                TextColor::Yellow
-                            } else {
-                                TextColor::Blue
-                            };
+                            let (player_name_view, name_color) =
+                                Self::get_player_name_view(player, self.get_freq());
 
                             render_state.draw_world_text(
-                                &format!("{}({})", player.name, player.bounty),
+                                &player_name_view,
                                 name_x,
                                 name_y,
                                 Layer::Ships,
@@ -2500,11 +2519,12 @@ impl Client {
                     }
                 }
                 WeaponKind::Decoy(_) => {
-                    let color_kind = if self.get_freq() == weapon.frequency {
-                        ColorRenderableKind::RadarDecoy
-                    } else {
-                        ColorRenderableKind::RadarEnemyTarget
-                    };
+                    let color_kind = Self::get_radar_player_color(
+                        &self.simulation.player_manager,
+                        weapon.player_id,
+                        self.get_freq(),
+                        true,
+                    );
 
                     self.radar.add_indicator(
                         color_kind,
