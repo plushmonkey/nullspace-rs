@@ -46,7 +46,7 @@ const MAX_SQUAD_VIEW_LENGTH: usize = 10;
 
 const BORDER_LEFT_WIDTH: i32 = 3;
 const TICKER_WIDTH: i32 = 10;
-const BANNER_WIDTH: i32 = 12;
+const BANNER_WIDTH: i32 = 14;
 const SPACING_WIDTH: i32 = 2;
 
 struct FrequencyViewEntry {
@@ -534,6 +534,16 @@ impl Statbox {
 
         let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
 
+        if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                &banner_renderable,
+                current_x + name_width + 1,
+                current_y + 1,
+                Layer::AfterGauges,
+            );
+        }
+
         let points_x = BORDER_LEFT_WIDTH + TICKER_WIDTH + name_width + BANNER_WIDTH + SPACING_WIDTH;
 
         render_state.text_renderer.draw(
@@ -582,6 +592,18 @@ impl Statbox {
             color,
             TextAlignment::Left,
         );
+
+        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+
+        if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                &banner_renderable,
+                current_x + name_width + 1,
+                current_y + 1,
+                Layer::AfterGauges,
+            );
+        }
 
         render_state.text_renderer.draw(
             &mut render_state.sprite_renderer,
@@ -634,6 +656,18 @@ impl Statbox {
             color,
             TextAlignment::Left,
         );
+
+        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+
+        if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
+            render_state.sprite_renderer.draw(
+                &render_state.ui_camera,
+                &banner_renderable,
+                current_x + name_width + 1,
+                current_y + 1,
+                Layer::AfterGauges,
+            );
+        }
 
         let squad_x = MAX_NAME_VIEW_LENGTH as i32 * font_width
             + BORDER_LEFT_WIDTH

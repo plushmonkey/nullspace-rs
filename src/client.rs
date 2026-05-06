@@ -868,6 +868,9 @@ impl Client {
 
                 if let Some(render_state) = render_state {
                     render_state.animation_renderer.clear();
+                    render_state
+                        .banner_manager
+                        .clear(&mut render_state.sprite_renderer);
                 }
 
                 self.statbox.reset();
@@ -1059,6 +1062,12 @@ impl Client {
                     log::debug!("{} left arena", player.name);
                 }
 
+                if let Some(render_state) = render_state {
+                    render_state
+                        .banner_manager
+                        .destroy_banner(&mut render_state.sprite_renderer, leaving.player_id);
+                }
+
                 self.statbox.rebuild(&self.simulation.player_manager);
 
                 if let MovementController::Spectate(spectate_controller) = &mut self.controller {
@@ -1067,6 +1076,17 @@ impl Client {
                         &mut self.simulation.player_manager,
                         &mut self.connection,
                         &self.statbox,
+                    );
+                }
+            }
+            GameServerMessage::PlayerBannerChanged(message) => {
+                if let Some(render_state) = render_state {
+                    render_state.banner_manager.set_banner(
+                        &render_state.device,
+                        &render_state.queue,
+                        &mut render_state.sprite_renderer,
+                        message.player_id,
+                        &message.banner_data,
                     );
                 }
             }
@@ -2321,9 +2341,24 @@ impl Client {
                     Self::get_player_name_view(player, self.get_freq());
 
                 if visible {
+                    let mut text_x = name_x;
+
+                    if let Some(banner_renderable) =
+                        render_state.banner_manager.get_banner(player.id)
+                    {
+                        render_state.sprite_renderer.draw(
+                            &render_state.camera,
+                            &banner_renderable,
+                            name_x,
+                            name_y + 1,
+                            Layer::AfterShips,
+                        );
+                        text_x += 16;
+                    }
+
                     render_state.draw_world_text(
                         &player_name_view,
-                        name_x,
+                        text_x,
                         name_y,
                         Layer::AfterShips,
                         name_color,
@@ -2389,9 +2424,24 @@ impl Client {
                         let (child_name_view, child_name_color) =
                             Self::get_player_name_view(child, self.get_freq());
 
+                        let mut text_x = name_x;
+
+                        if let Some(banner_renderable) =
+                            render_state.banner_manager.get_banner(player.id)
+                        {
+                            render_state.sprite_renderer.draw(
+                                &render_state.camera,
+                                &banner_renderable,
+                                name_x,
+                                child_y + 1,
+                                Layer::AfterShips,
+                            );
+                            text_x += 16;
+                        }
+
                         render_state.draw_world_text(
                             &child_name_view,
-                            name_x,
+                            text_x,
                             child_y,
                             Layer::AfterShips,
                             child_name_color,
@@ -2636,9 +2686,24 @@ impl Client {
                             let (player_name_view, name_color) =
                                 Self::get_player_name_view(player, self.get_freq());
 
+                            let mut text_x = name_x;
+
+                            if let Some(banner_renderable) =
+                                render_state.banner_manager.get_banner(player.id)
+                            {
+                                render_state.sprite_renderer.draw(
+                                    &render_state.camera,
+                                    &banner_renderable,
+                                    name_x,
+                                    name_y + 1,
+                                    Layer::AfterShips,
+                                );
+                                text_x += 16;
+                            }
+
                             render_state.draw_world_text(
                                 &player_name_view,
-                                name_x,
+                                text_x,
                                 name_y,
                                 Layer::Ships,
                                 name_color,

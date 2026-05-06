@@ -9,6 +9,7 @@ use crate::{
     render::{
         animation_renderer::AnimationRenderer,
         background_renderer::BackgroundRenderer,
+        banner::BannerManager,
         camera::Camera,
         game_sprites::{GameSprites, SpriteSet},
         layer::Layer,
@@ -64,6 +65,7 @@ pub struct RenderState {
     pub text_renderer: TextRenderer,
     pub background_renderer: BackgroundRenderer,
     pub animation_renderer: AnimationRenderer,
+    pub banner_manager: BannerManager,
 
     pub render_map: bool,
 }
@@ -219,6 +221,7 @@ impl RenderState {
             text_renderer,
             background_renderer,
             animation_renderer,
+            banner_manager: BannerManager::new(&surface_format),
             render_map: false,
         })
     }

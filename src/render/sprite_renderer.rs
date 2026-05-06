@@ -71,6 +71,8 @@ pub struct SpriteRenderer {
     // Each sprite sheet has their own push buffer that is stored here.
     // Rendering will go through each one and draw them in one call, then clear it for next frame.
     push_buffers: Vec<Vec<Vertex>>,
+
+    free_sheets: Vec<usize>,
 }
 
 impl SpriteRenderer {
@@ -184,6 +186,7 @@ impl SpriteRenderer {
             linear_sampler,
             sprite_sheets: vec![],
             push_buffers: vec![],
+            free_sheets: vec![],
         }
     }
 
@@ -400,19 +403,38 @@ impl SpriteRenderer {
             ],
         });
 
-        let sheet_index = SheetIndex(self.sprite_sheets.len() as u32);
+        if !self.free_sheets.is_empty() {
+            let sheet_index = SheetIndex(self.free_sheets.pop().unwrap() as u32);
 
-        let sheet = SpriteSheet {
-            bind_group,
-            sheet_index,
-            width: texture.texture.width(),
-            height: texture.texture.height(),
-        };
+            let sheet = SpriteSheet {
+                bind_group,
+                sheet_index,
+                width: texture.texture.width(),
+                height: texture.texture.height(),
+            };
 
-        self.sprite_sheets.push(sheet);
-        self.push_buffers.push(vec![]);
+            self.sprite_sheets[sheet_index.0 as usize] = sheet;
 
-        sheet_index
+            sheet_index
+        } else {
+            let sheet_index = SheetIndex(self.sprite_sheets.len() as u32);
+
+            let sheet = SpriteSheet {
+                bind_group,
+                sheet_index,
+                width: texture.texture.width(),
+                height: texture.texture.height(),
+            };
+
+            self.sprite_sheets.push(sheet);
+            self.push_buffers.push(vec![]);
+
+            sheet_index
+        }
+    }
+
+    pub fn destroy_sheet(&mut self, index: SheetIndex) {
+        self.free_sheets.push(index.0 as usize);
     }
 
     pub fn get_sheet(&mut self, index: SheetIndex) -> Option<&SpriteSheet> {

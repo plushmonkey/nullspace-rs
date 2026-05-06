@@ -1,5 +1,6 @@
 pub mod animation_renderer;
 pub mod background_renderer;
+pub mod banner;
 pub mod camera;
 pub mod colors;
 pub mod game_sprites;

@@ -678,8 +678,14 @@ impl ServerMessage {
 
                 let mut data = packet;
                 while data.len() >= 64 {
-                    let name = CStr::from_bytes_until_nul(&data[3..23])?.to_str()?;
-                    let squad = CStr::from_bytes_until_nul(&data[23..43])?.to_str()?;
+                    let mut name_terminated = [0; 21];
+                    let mut squad_terminated = [0; 21];
+
+                    name_terminated[0..20].copy_from_slice(&data[3..23]);
+                    squad_terminated[0..20].copy_from_slice(&data[23..43]);
+
+                    let name = CStr::from_bytes_until_nul(&name_terminated)?.to_str()?;
+                    let squad = CStr::from_bytes_until_nul(&squad_terminated)?.to_str()?;
 
                     let current = PlayerEntering {
                         ship_kind: ShipKind::from_network_value(data[1]),
@@ -987,7 +993,11 @@ impl ServerMessage {
                     return Err(PacketError::InvalidGamePacketSize(kind));
                 }
 
-                let filename = CStr::from_bytes_until_nul(&packet[1..17])?.to_str()?;
+                let mut terminated_str = [0; 17];
+
+                terminated_str[0..16].copy_from_slice(&packet[1..17]);
+
+                let filename = CStr::from_bytes_until_nul(&terminated_str)?.to_str()?;
                 let data = packet[17..].to_vec();
 
                 let message = FileTransferMessage {
@@ -1377,7 +1387,11 @@ impl ServerMessage {
                     return Err(PacketError::InvalidGamePacketSize(kind));
                 }
 
-                let filename = CStr::from_bytes_until_nul(&packet[1..17])?.to_str()?;
+                let mut terminated_str = [0; 17];
+
+                terminated_str[0..16].copy_from_slice(&packet[1..17]);
+
+                let filename = CStr::from_bytes_until_nul(&terminated_str)?.to_str()?;
                 let mut filesize = None;
 
                 if packet.len() >= 25 {
@@ -1399,7 +1413,11 @@ impl ServerMessage {
                     return Err(PacketError::InvalidGamePacketSize(kind));
                 }
 
-                let filename = CStr::from_bytes_until_nul(&packet[1..17])?.to_str()?;
+                let mut terminated_str = [0; 17];
+
+                terminated_str[0..16].copy_from_slice(&packet[1..17]);
+
+                let filename = CStr::from_bytes_until_nul(&terminated_str)?.to_str()?;
                 let data = packet[17..].to_vec();
 
                 let message = CompressedMapMessage {
