@@ -6,6 +6,7 @@ use crate::{
     input::{InputAction, InputState},
     map::{Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
+    notification::NotificationManager,
     player::{Player, PlayerManager, StatusFlags},
     powerball::PowerballManager,
     radar::Radar,
@@ -46,6 +47,7 @@ impl ShipController {
         map: &Map,
         radar: &Radar,
         settings: &ArenaSettings,
+        notifications: &mut NotificationManager,
         current_tick: GameTick,
         render_state: &mut Option<&mut RenderState>,
     ) {
@@ -138,6 +140,7 @@ impl ShipController {
             map,
             radar,
             settings,
+            notifications,
             current_tick,
             afterburners_enabled,
         );
@@ -148,10 +151,16 @@ impl ShipController {
                     let tile_id = map.get_tile_from_position(&me_position);
 
                     if tile_id == TILE_ID_THOR_KILLER {
-                        self.tile_warp(me, settings, map, current_tick, player_count);
+                        self.warp_with_energy_loss(me, settings, map, current_tick, player_count);
                     } else if tile_id == TILE_ID_ANIMATED_ENEMY_BRICK {
                         if current_tick.value() % 200 == 0 {
-                            self.tile_warp(me, settings, map, current_tick, player_count);
+                            self.warp_with_energy_loss(
+                                me,
+                                settings,
+                                map,
+                                current_tick,
+                                player_count,
+                            );
                         }
                     }
                 }
@@ -351,7 +360,7 @@ impl ShipController {
         }
     }
 
-    fn tile_warp(
+    pub fn warp_with_energy_loss(
         &mut self,
         me: &mut Player,
         settings: &ArenaSettings,
@@ -383,6 +392,7 @@ impl ShipController {
         &self,
         player_manager: &PlayerManager,
         radar: &Radar,
+        notifications: &mut NotificationManager,
         antiwarp_pixels: u32,
     ) -> bool {
         let antiwarp_pixels = antiwarp_pixels as i32;
@@ -427,6 +437,10 @@ impl ShipController {
             let (dx, dy) = me_position.delta_pixels(&player_position);
 
             if dx.abs() < antiwarp_pixels || dy.abs() < antiwarp_pixels {
+                notifications.push(
+                    format!("AntiWarp engaged by: {}", player.name),
+                    TextColor::Yellow,
+                );
                 return true;
             }
         }
@@ -443,6 +457,7 @@ impl ShipController {
         map: &Map,
         radar: &Radar,
         settings: &ArenaSettings,
+        notifications: &mut NotificationManager,
         current_tick: GameTick,
         afterburners_enabled: bool,
     ) {
@@ -581,9 +596,12 @@ impl ShipController {
         }
 
         if input_state.is_triggered(InputAction::Portal) && self.ship.portals > 0 {
-            if self.is_antiwarped(player_manager, radar, settings.antiwarp_pixels as u32) {
-                // TODO: Notification
-            } else {
+            if !self.is_antiwarped(
+                player_manager,
+                radar,
+                notifications,
+                settings.antiwarp_pixels as u32,
+            ) {
                 self.ship.portal_position = Some(me_position);
                 self.ship.portals -= 1;
                 self.ship.portal_remaining_ticks = settings.warp_point_delay as u32;
@@ -625,9 +643,12 @@ impl ShipController {
                 }
             }
 
-            if self.is_antiwarped(player_manager, radar, settings.antiwarp_pixels as u32) {
-                // TODO: Notification
-            } else {
+            if !self.is_antiwarped(
+                player_manager,
+                radar,
+                notifications,
+                settings.antiwarp_pixels as u32,
+            ) {
                 let (new_position, use_energy) =
                     if let Some(portal_position) = self.ship.portal_position {
                         self.ship.portal_position = None;
@@ -650,6 +671,10 @@ impl ShipController {
                     };
 
                 if let Some(me) = player_manager.get_self_mut() {
+                    if use_energy && !self.ship.is_max_energy() {
+                        notifications.push_str("Not enough energy to warp.", TextColor::Yellow);
+                    }
+
                     if !use_energy || self.ship.is_max_energy() {
                         me.position = Some(new_position);
 
@@ -665,7 +690,7 @@ impl ShipController {
                         }
                     }
 
-                    if use_energy {
+                    if use_energy && self.ship.is_max_energy() {
                         self.ship.current_energy = 1000;
                         me.velocity.clear();
                         self.ship.fake_antiwarp_remaining_ticks =
@@ -766,6 +791,8 @@ impl ShipController {
                 }
             }
 
+            // TODO: Limit mine count and mine placement
+            // notifications.push_str("", TextColor::Yellow);
             let mut level = self.ship.bombs - 1;
 
             if flagger_settings && settings.flagger_gun_upgrade {

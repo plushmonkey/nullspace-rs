@@ -23,9 +23,11 @@ use crate::net::connection::{Connection, ConnectionState};
 use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
+use crate::notification::NotificationManager;
 use crate::player::*;
 use crate::powerball::PowerballState;
 use crate::powerball::is_team_goal;
+use crate::prize::Prize;
 use crate::prize::PrizeManager;
 use crate::prize::apply_prize_id;
 use crate::radar::IndicatorFlag;
@@ -134,6 +136,7 @@ pub struct Client {
 
     pub chat_controller: ChatController,
     pub statbox: Statbox,
+    pub notifications: NotificationManager,
 
     controller: MovementController,
     outbound_position_queue: OutboundPositionQueue,
@@ -165,6 +168,7 @@ impl Client {
             radar: Radar::new(),
             chat_controller: ChatController::new(),
             statbox: Statbox::new(),
+            notifications: NotificationManager::new(),
             controller: MovementController::Spectate(SpectateController::new()),
             outbound_position_queue: OutboundPositionQueue::new(),
         })
@@ -217,6 +221,8 @@ impl Client {
                 &self.settings,
             );
 
+            self.notifications.tick();
+
             if let ConnectionState::Playing = self.connection.state {
                 match &mut self.controller {
                     MovementController::Spectate(spectate_controller) => {
@@ -228,10 +234,11 @@ impl Client {
                         );
 
                         self.prize_manager.tick(
-                            &self.simulation.player_manager,
+                            &mut self.simulation.player_manager,
                             &self.settings,
                             &self.map,
                             &mut self.connection,
+                            &mut self.notifications,
                             &mut None,
                         );
                     }
@@ -246,15 +253,17 @@ impl Client {
                             &self.map,
                             &self.radar,
                             &self.settings,
+                            &mut self.notifications,
                             current_tick,
                             &mut render_state,
                         );
 
                         self.prize_manager.tick(
-                            &self.simulation.player_manager,
+                            &mut self.simulation.player_manager,
                             &self.settings,
                             &self.map,
                             &mut self.connection,
+                            &mut self.notifications,
                             &mut Some(ship_controller),
                         );
 
@@ -448,9 +457,9 @@ impl Client {
                     if ship_controller.is_antiwarped(
                         &self.simulation.player_manager,
                         &self.radar,
+                        &mut self.notifications,
                         self.settings.antiwarp_pixels as u32,
                     ) {
-                        // TODO: Notification
                         return;
                     }
 
@@ -473,7 +482,8 @@ impl Client {
                 }
             },
             Err(e) => {
-                log::info!("AttachError: {}", e.get_notification_string());
+                self.notifications
+                    .push_str(e.get_notification_string(), TextColor::Yellow);
             }
         }
     }
@@ -828,6 +838,8 @@ impl Client {
                 self.flag_controller.clear();
                 self.last_position_tick = self.connection.get_game_tick();
                 self.simulation.player_manager.self_id = message.id;
+
+                self.notifications.clear();
 
                 self.map.clear_bricks();
 
@@ -1390,6 +1402,22 @@ impl Client {
                         self.simulation.player_manager.get_by_id(message.killed_id)
                     {
                         log::debug!("{} killed by {}", killed.name, killer.name);
+
+                        let color = if killer.id == self.simulation.player_manager.self_id
+                            || killed.id == self.simulation.player_manager.self_id
+                        {
+                            TextColor::Yellow
+                        } else {
+                            TextColor::Green
+                        };
+
+                        self.notifications.push(
+                            format!(
+                                "{}({}) killed by: {}",
+                                killed.name, killed.bounty, killer.name
+                            ),
+                            color,
+                        );
                     }
                 }
 
@@ -1418,7 +1446,8 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(message.killed_id)
                 {
-                    killed.enter_delay = self.settings.enter_delay as u16 + PLAYER_EXPLOSION_DURATION as u16;
+                    killed.enter_delay =
+                        self.settings.enter_delay as u16 + PLAYER_EXPLOSION_DURATION as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
                     killed.losses = killed.losses.wrapping_add(1);
                     killed.flag_count = 0;
@@ -1572,12 +1601,41 @@ impl Client {
                     );
                 }
             }
+            GameServerMessage::PrizePickup(message) => {
+                self.prize_manager.on_prize_collected(message.x, message.y);
+
+                let frequency = if let Some(player) =
+                    self.simulation.player_manager.get_by_id(message.player_id)
+                {
+                    player.frequency
+                } else {
+                    0xFFFF
+                };
+
+                if message.prize_id != Prize::Warp as i16 {
+                    if let Some(me) = self.simulation.player_manager.get_self() {
+                        if let MovementController::Ship(ship_controller) = &mut self.controller {
+                            let share_limit = self
+                                .settings
+                                .get_ship_settings(me.ship_kind)
+                                .prize_share_limit;
+
+                            if me.bounty < share_limit && me.frequency == frequency {
+                                if let Err(e) = apply_prize_id(
+                                    &self.settings,
+                                    &mut ship_controller.ship,
+                                    self.connection.get_game_tick(),
+                                    message.prize_id as i32,
+                                    Some(&mut self.notifications),
+                                ) {
+                                    log::error!("{e}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             GameServerMessage::CollectedPrize(message) => {
-                log::info!(
-                    "Got CollectedPrize for id {} x{}",
-                    message.prize_id,
-                    message.count
-                );
                 if let MovementController::Ship(ship_controller) = &mut self.controller {
                     for _ in 0..message.count {
                         if let Err(e) = apply_prize_id(
@@ -1585,8 +1643,23 @@ impl Client {
                             &mut ship_controller.ship,
                             self.connection.get_game_tick(),
                             message.prize_id as i32,
+                            Some(&mut self.notifications),
                         ) {
                             log::error!("{e}");
+                        }
+                    }
+
+                    if message.prize_id == Prize::Warp as i16 {
+                        let player_count = self.simulation.player_manager.players.len();
+
+                        if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                            ship_controller.warp_with_energy_loss(
+                                me,
+                                &self.settings,
+                                &self.map,
+                                self.connection.get_game_tick(),
+                                player_count,
+                            );
                         }
                     }
                 }
@@ -1814,7 +1887,12 @@ impl Client {
         }
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
+    pub fn render(
+        &mut self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        menu_open: bool,
+    ) {
         self.chat_controller.render(render_state);
         self.statbox
             .render(&self.simulation.player_manager, render_state, sprites);
@@ -1882,6 +1960,10 @@ impl Client {
                     &mut self.radar,
                     self.connection.get_game_tick(),
                 );
+
+                if !menu_open {
+                    self.notifications.render(render_state);
+                }
 
                 let self_flag_ticks = if let Some(me) = self.simulation.player_manager.get_self() {
                     me.flag_remaining_ticks

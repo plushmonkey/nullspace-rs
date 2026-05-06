@@ -42,6 +42,7 @@ pub mod map;
 pub mod math;
 pub mod menu;
 pub mod net;
+pub mod notification;
 pub mod player;
 pub mod powerball;
 pub mod prize;
@@ -239,7 +240,8 @@ impl ApplicationPlayingState {
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
-        self.client.render(render_state, &self.sprites);
+        self.client
+            .render(render_state, &self.sprites, self.menu.is_open());
 
         if self.menu.is_open() {
             self.menu.render(render_state, &self.sprites);

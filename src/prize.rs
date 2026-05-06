@@ -6,6 +6,7 @@ use crate::{
     map::Map,
     math::{Position, Rectangle},
     net::connection::Connection,
+    notification::NotificationManager,
     player::PlayerManager,
     radar::{IndicatorFlag, Radar},
     render::{
@@ -14,13 +15,14 @@ use crate::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::RenderState,
+        text_renderer::TextColor,
     },
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
     ship_controller::ShipController,
 };
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Prize {
     None,
     Recharge,
@@ -136,27 +138,38 @@ impl PrizeManager {
 
     pub fn tick(
         &mut self,
-        player_manager: &PlayerManager,
+        player_manager: &mut PlayerManager,
         settings: &ArenaSettings,
         map: &Map,
         connection: &mut Connection,
+        notifications: &mut NotificationManager,
         ship_controller: &mut Option<&mut ShipController>,
     ) {
-        self.perform_collisions(player_manager, settings, connection, ship_controller);
+        self.perform_collisions(
+            player_manager,
+            settings,
+            connection,
+            map,
+            notifications,
+            ship_controller,
+        );
         self.expire_greens();
         self.spawn_prizes(settings, map, player_manager.players.len());
     }
 
     fn perform_collisions(
         &mut self,
-        player_manager: &PlayerManager,
+        player_manager: &mut PlayerManager,
         settings: &ArenaSettings,
         connection: &mut Connection,
+        map: &Map,
+        notifications: &mut NotificationManager,
         ship_controller: &mut Option<&mut ShipController>,
     ) {
         let current_tick = connection.get_game_tick();
+        let player_count = player_manager.players.len();
 
-        for player in &player_manager.players {
+        for player in &mut player_manager.players {
             if player.ship_kind == ShipKind::Spectator || player.is_dead() {
                 continue;
             }
@@ -175,26 +188,40 @@ impl PrizeManager {
                 );
 
                 if green_collider.intersects(&player_collider) {
-                    if let Some(ship_controller) = ship_controller {
-                        if let Err(e) = apply_prize_id(
-                            settings,
-                            &mut ship_controller.ship,
-                            current_tick,
-                            green.prize_id,
-                        ) {
-                            log::error!("{e}");
-                        }
-                        
-                        ship_controller.ship.bounty = ship_controller.ship.bounty.wrapping_add(1);
+                    if player.id == player_manager.self_id {
+                        if let Some(ship_controller) = ship_controller {
+                            if let Err(e) = apply_prize_id(
+                                settings,
+                                &mut ship_controller.ship,
+                                current_tick,
+                                green.prize_id,
+                                Some(notifications),
+                            ) {
+                                log::error!("{e}");
+                            }
 
-                        let message = crate::net::packet::c2s::TakePrizeMessage {
-                            timestamp: current_tick,
-                            x: green.x_tile,
-                            y: green.y_tile,
-                            prize: green.prize_id as i16,
-                        };
-                        if let Err(e) = connection.send_reliable(&message) {
-                            log::error!("{e}");
+                            ship_controller.ship.bounty =
+                                ship_controller.ship.bounty.wrapping_add(1);
+
+                            if green.prize_id == Prize::Warp as i32 {
+                                ship_controller.warp_with_energy_loss(
+                                    player,
+                                    settings,
+                                    map,
+                                    current_tick,
+                                    player_count,
+                                );
+                            }
+
+                            let message = crate::net::packet::c2s::TakePrizeMessage {
+                                timestamp: current_tick,
+                                x: green.x_tile,
+                                y: green.y_tile,
+                                prize: green.prize_id as i16,
+                            };
+                            if let Err(e) = connection.send_reliable(&message) {
+                                log::error!("{e}");
+                            }
                         }
                     }
 
@@ -252,6 +279,15 @@ impl PrizeManager {
             y_tile,
             prize_id,
         });
+    }
+
+    pub fn on_prize_collected(&mut self, x: u16, y: u16) {
+        for i in 0..self.greens.len() {
+            if self.greens[i].x_tile == x && self.greens[i].y_tile == y {
+                self.greens.remove(i);
+                return;
+            }
+        }
     }
 
     fn expire_greens(&mut self) {
@@ -378,7 +414,7 @@ pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: Game
         let random_prize = generate_prize_id(settings, &mut rng, false);
 
         if is_valid_multiprize_id(random_prize) {
-            if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize) {
+            if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize, None) {
                 applied += 1;
             }
         }
@@ -389,16 +425,83 @@ pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: Game
     }
 }
 
+const POSITIVE_NOTIFICATIONS: [&'static str; 29] = [
+    "",
+    "Charge rate increased.",
+    "Maximum energy level increased.",
+    "Rotation speed increased.",
+    "Stealth available.",
+    "Cloak available.",
+    "X-Radar available.",
+    "Warp!",
+    "Guns upgraded.",
+    "Bombs upgraded.",
+    "Bouncing bullets.",
+    "Thrusters upgraded.",
+    "Top speed increased.",
+    "Full charge.",
+    "Engines shut-down.",
+    "MultiFire bullets.",
+    "Proximity bombs.",
+    "Temporary SuperPower!",
+    "Temporary Shields.",
+    "Shrapnel increased.",
+    "AntiWarp available.",
+    "Repeller increased.",
+    "Burst increased.",
+    "Decoy increased.",
+    "Thor's hammer increased.",
+    "MultiPrize!",
+    "Brick increased.",
+    "Rocket Increased.",
+    "Portal increased.",
+];
+
+const NEGATIVE_NOTIFICATIONS: [&'static str; 29] = [
+    "",
+    "Charge rate decreased.",
+    "Maximum energy level decreased.",
+    "Rotation speed decreased.",
+    "Stealth lost.",
+    "Cloak lost.",
+    "X-Radar lost.",
+    "Warp!",
+    "Guns downgraded.",
+    "Bombs downgraded.",
+    "Bouncing bullets lost.",
+    "Thrusters downgraded.",
+    "Top speed reduced.",
+    "Energy depleted.",
+    "Engines shut-down (severe).",
+    "MultiFire lost.",
+    "Proximity bombs lost.",
+    "",
+    "",
+    "Shrapnel reduced.",
+    "AntiWarp lost.",
+    "Repeller lost.",
+    "Burst lost.",
+    "Decoy lost.",
+    "Thor's hammer lost.",
+    "",
+    "Brick lost.",
+    "Rocket lost.",
+    "Portal lost.",
+];
+
 pub fn apply_prize_id(
     settings: &ArenaSettings,
     ship: &mut Ship,
     tick: GameTick,
     prize_id: i32,
+    notifications: Option<&mut NotificationManager>,
 ) -> Result<(Prize, bool), PrizeError> {
     let mut prize = Prize::try_from(prize_id)?;
     let negative = prize_id < 0;
 
     let ship_settings = settings.get_ship_settings(ship.kind);
+
+    let mut max_notification = false;
 
     match &prize {
         Prize::None => {
@@ -408,7 +511,7 @@ pub fn apply_prize_id(
                 let random_prize = generate_prize_id(settings, &mut rng, false);
 
                 if is_valid_multiprize_id(random_prize) {
-                    apply_prize_id(settings, ship, tick, random_prize)?;
+                    apply_prize_id(settings, ship, tick, random_prize, None)?;
                     break;
                 }
             }
@@ -420,12 +523,14 @@ pub fn apply_prize_id(
                     .saturating_sub(ship_settings.upgrade_recharge as u32);
                 if ship.recharge < ship_settings.initial_recharge as u32 {
                     ship.recharge = ship_settings.initial_recharge as u32;
+                    max_notification = true;
                 }
             } else {
                 ship.recharge = ship.recharge + (ship_settings.upgrade_recharge as u32);
 
                 if ship.recharge > ship_settings.maximum_recharge as u32 {
                     ship.recharge = ship_settings.maximum_recharge as u32;
+                    max_notification = true;
                 }
             }
         }
@@ -436,12 +541,14 @@ pub fn apply_prize_id(
                     .saturating_sub(ship_settings.upgrade_energy as u32 * 1000);
                 if ship.max_energy < ship_settings.initial_energy as u32 * 1000 {
                     ship.max_energy = ship_settings.initial_energy as u32 * 1000;
+                    max_notification = true;
                 }
             } else {
                 ship.max_energy = ship.max_energy + (ship_settings.upgrade_energy as u32 * 1000);
 
                 if ship.max_energy > ship_settings.maximum_energy as u32 * 1000 {
                     ship.max_energy = ship_settings.maximum_energy as u32 * 1000;
+                    max_notification = true;
                 }
             }
         }
@@ -452,12 +559,14 @@ pub fn apply_prize_id(
                     .saturating_sub(ship_settings.upgrade_rotation as u32);
                 if ship.rotation < ship_settings.initial_rotation as u32 {
                     ship.rotation = ship_settings.initial_rotation as u32;
+                    max_notification = true;
                 }
             } else {
                 ship.rotation = ship.rotation + (ship_settings.upgrade_rotation as u32);
 
                 if ship.rotation > ship_settings.maximum_rotation as u32 {
                     ship.rotation = ship_settings.maximum_rotation as u32;
+                    max_notification = true;
                 }
             }
         }
@@ -466,8 +575,16 @@ pub fn apply_prize_id(
                 prize = Prize::FullCharge;
             } else {
                 if negative {
+                    if ship.capability & ShipCapabilityFlag::Stealth != 0 {
+                        max_notification = true;
+                    }
+
                     ship.capability &= !ShipCapabilityFlag::Stealth;
                 } else {
+                    if ship.capability & ShipCapabilityFlag::Stealth == 0 {
+                        max_notification = true;
+                    }
+
                     ship.capability |= ShipCapabilityFlag::Stealth;
                 }
             }
@@ -477,8 +594,14 @@ pub fn apply_prize_id(
                 prize = Prize::FullCharge;
             } else {
                 if negative {
+                    if ship.capability & ShipCapabilityFlag::Cloak != 0 {
+                        max_notification = true;
+                    }
                     ship.capability &= !ShipCapabilityFlag::Cloak;
                 } else {
+                    if ship.capability & ShipCapabilityFlag::Cloak == 0 {
+                        max_notification = true;
+                    }
                     ship.capability |= ShipCapabilityFlag::Cloak;
                 }
             }
@@ -488,8 +611,14 @@ pub fn apply_prize_id(
                 prize = Prize::FullCharge;
             } else {
                 if negative {
+                    if ship.capability & ShipCapabilityFlag::XRadar != 0 {
+                        max_notification = true;
+                    }
                     ship.capability &= !ShipCapabilityFlag::XRadar;
                 } else {
+                    if ship.capability & ShipCapabilityFlag::XRadar == 0 {
+                        max_notification = true;
+                    }
                     ship.capability |= ShipCapabilityFlag::XRadar;
                 }
             }
@@ -506,12 +635,14 @@ pub fn apply_prize_id(
                 ship.guns = ship.guns.saturating_sub(1);
 
                 if ship.guns < ship_settings.initial_guns {
+                    max_notification = true;
                     ship.guns = ship_settings.initial_guns;
                 }
             } else {
                 ship.guns = ship.guns.saturating_add(1);
 
                 if ship.guns > ship_settings.max_guns {
+                    max_notification = true;
                     ship.guns = ship_settings.max_guns;
                 }
             }
@@ -521,20 +652,30 @@ pub fn apply_prize_id(
                 ship.bombs = ship.bombs.saturating_sub(1);
 
                 if ship.bombs < ship_settings.initial_bombs {
+                    max_notification = true;
                     ship.bombs = ship_settings.initial_bombs;
                 }
             } else {
                 ship.bombs = ship.bombs.saturating_add(1);
 
                 if ship.bombs > ship_settings.max_bombs {
+                    max_notification = true;
                     ship.bombs = ship_settings.max_bombs;
                 }
             }
         }
         Prize::BouncingBullets => {
             if negative {
+                if ship.capability & ShipCapabilityFlag::BouncingBullets != 0 {
+                    max_notification = true;
+                }
+
                 ship.capability &= !ShipCapabilityFlag::BouncingBullets;
             } else {
+                if ship.capability & ShipCapabilityFlag::BouncingBullets == 0 {
+                    max_notification = true;
+                }
+
                 ship.capability |= ShipCapabilityFlag::BouncingBullets;
             }
         }
@@ -544,12 +685,14 @@ pub fn apply_prize_id(
                     .thrust
                     .saturating_sub(ship_settings.upgrade_thrust as u32);
                 if ship.thrust < ship_settings.initial_thrust as u32 {
+                    max_notification = true;
                     ship.thrust = ship_settings.initial_thrust as u32;
                 }
             } else {
                 ship.thrust = ship.thrust + (ship_settings.upgrade_thrust as u32);
 
                 if ship.thrust > ship_settings.maximum_thrust as u32 {
+                    max_notification = true;
                     ship.thrust = ship_settings.maximum_thrust as u32;
                 }
             }
@@ -560,12 +703,14 @@ pub fn apply_prize_id(
                     .speed
                     .saturating_sub(ship_settings.upgrade_speed as u32);
                 if ship.speed < ship_settings.initial_speed as u32 {
+                    max_notification = true;
                     ship.speed = ship_settings.initial_speed as u32;
                 }
             } else {
                 ship.speed = ship.speed + (ship_settings.upgrade_speed as u32);
 
                 if ship.speed > ship_settings.maximum_speed as u32 {
+                    max_notification = true;
                     ship.speed = ship_settings.maximum_speed as u32;
                 }
             }
@@ -583,15 +728,27 @@ pub fn apply_prize_id(
         }
         Prize::Multifire => {
             if negative {
+                if ship.capability & ShipCapabilityFlag::Multifire != 0 {
+                    max_notification = true;
+                }
                 ship.capability &= !ShipCapabilityFlag::Multifire;
             } else {
+                if ship.capability & ShipCapabilityFlag::Multifire == 0 {
+                    max_notification = true;
+                }
                 ship.capability |= ShipCapabilityFlag::Multifire;
             }
         }
         Prize::Proximity => {
             if negative {
+                if ship.capability & ShipCapabilityFlag::Proximity != 0 {
+                    max_notification = true;
+                }
                 ship.capability &= !ShipCapabilityFlag::Proximity;
             } else {
+                if ship.capability & ShipCapabilityFlag::Proximity == 0 {
+                    max_notification = true;
+                }
                 ship.capability |= ShipCapabilityFlag::Proximity;
             }
         }
@@ -611,12 +768,16 @@ pub fn apply_prize_id(
         }
         Prize::Shrapnel => {
             if negative {
+                if ship.shrapnel <= ship_settings.shrapnel_rate {
+                    max_notification = true;
+                }
                 ship.shrapnel = ship.shrapnel.saturating_sub(ship_settings.shrapnel_rate);
             } else {
                 ship.shrapnel = ship.shrapnel.saturating_add(ship_settings.shrapnel_rate);
 
                 if ship.shrapnel > ship_settings.max_shrapnel {
                     ship.shrapnel = ship_settings.max_shrapnel;
+                    max_notification = true;
                 }
             }
         }
@@ -625,52 +786,74 @@ pub fn apply_prize_id(
                 prize = Prize::FullCharge;
             } else {
                 if negative {
+                    if ship.capability & ShipCapabilityFlag::Antiwarp != 0 {
+                        max_notification = true;
+                    }
                     ship.capability &= !ShipCapabilityFlag::Antiwarp;
                 } else {
+                    if ship.capability & ShipCapabilityFlag::Antiwarp == 0 {
+                        max_notification = true;
+                    }
                     ship.capability |= ShipCapabilityFlag::Antiwarp;
                 }
             }
         }
         Prize::Repel => {
             if negative {
+                if ship.repels == 1 {
+                    max_notification = true;
+                }
                 ship.repels = ship.repels.saturating_sub(1);
             } else {
                 ship.repels = ship.repels.saturating_add(1);
 
                 if ship.repels > ship_settings.max_repel {
+                    max_notification = true;
                     ship.repels = ship_settings.max_repel;
                 }
             }
         }
         Prize::Burst => {
             if negative {
+                if ship.bursts == 1 {
+                    max_notification = true;
+                }
                 ship.bursts = ship.bursts.saturating_sub(1);
             } else {
                 ship.bursts = ship.bursts.saturating_add(1);
 
                 if ship.bursts > ship_settings.max_burst {
+                    max_notification = true;
                     ship.bursts = ship_settings.max_burst;
                 }
             }
         }
         Prize::Decoy => {
             if negative {
+                if ship.decoys == 1 {
+                    max_notification = true;
+                }
                 ship.decoys = ship.decoys.saturating_sub(1);
             } else {
                 ship.decoys = ship.decoys.saturating_add(1);
 
                 if ship.decoys > ship_settings.max_decoy {
+                    max_notification = true;
                     ship.decoys = ship_settings.max_decoy;
                 }
             }
         }
         Prize::Thor => {
             if negative {
+                if ship.thors == 1 {
+                    max_notification = true;
+                }
                 ship.thors = ship.thors.saturating_sub(1);
             } else {
                 ship.thors = ship.thors.saturating_add(1);
 
                 if ship.thors > ship_settings.max_thor {
+                    max_notification = true;
                     ship.thors = ship_settings.max_thor;
                 }
             }
@@ -684,7 +867,7 @@ pub fn apply_prize_id(
                     let random_prize = generate_prize_id(settings, &mut rng, false);
 
                     if is_valid_multiprize_id(random_prize) {
-                        apply_prize_id(settings, ship, tick, random_prize)?;
+                        apply_prize_id(settings, ship, tick, random_prize, None)?;
                         break;
                     }
                 }
@@ -692,33 +875,45 @@ pub fn apply_prize_id(
         }
         Prize::Brick => {
             if negative {
+                if ship.bricks == 1 {
+                    max_notification = true;
+                }
                 ship.bricks = ship.bricks.saturating_sub(1);
             } else {
                 ship.bricks = ship.bricks.saturating_add(1);
 
                 if ship.bricks > ship_settings.max_brick {
                     ship.bricks = ship_settings.max_brick;
+                    max_notification = true;
                 }
             }
         }
         Prize::Rocket => {
             if negative {
+                if ship.rockets == 1 {
+                    max_notification = true;
+                }
                 ship.rockets = ship.rockets.saturating_sub(1);
             } else {
                 ship.rockets = ship.rockets.saturating_add(1);
 
                 if ship.rockets > ship_settings.max_rocket {
+                    max_notification = true;
                     ship.rockets = ship_settings.max_rocket;
                 }
             }
         }
         Prize::Portal => {
             if negative {
+                if ship.portals == 1 {
+                    max_notification = true;
+                }
                 ship.portals = ship.portals.saturating_sub(1);
             } else {
                 ship.portals = ship.portals.saturating_add(1);
 
                 if ship.portals > ship_settings.max_portal {
+                    max_notification = true;
                     ship.portals = ship_settings.max_portal;
                 }
             }
@@ -731,6 +926,25 @@ pub fn apply_prize_id(
             ship.current_energy = 1;
         } else {
             ship.current_energy = ship.max_energy;
+        }
+    }
+
+    if prize != Prize::None {
+        if let Some(notifications) = notifications {
+            let max_str = if max_notification {
+                if negative { " MIN" } else { " MAX" }
+            } else {
+                ""
+            };
+            let mesg = if negative {
+                NEGATIVE_NOTIFICATIONS[prize as usize]
+            } else {
+                POSITIVE_NOTIFICATIONS[prize as usize]
+            };
+
+            // TODO: Damage
+
+            notifications.push(format!("{}{}", mesg, max_str), TextColor::Green);
         }
     }
 
