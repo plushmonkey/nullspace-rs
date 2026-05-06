@@ -1418,7 +1418,7 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(message.killed_id)
                 {
-                    killed.enter_delay = self.settings.enter_delay as u16;
+                    killed.enter_delay = self.settings.enter_delay as u16 + PLAYER_EXPLOSION_DURATION as u16;
                     killed.explosion_remaining_ticks = PLAYER_EXPLOSION_DURATION;
                     killed.losses = killed.losses.wrapping_add(1);
                     killed.flag_count = 0;

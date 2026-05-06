@@ -55,7 +55,7 @@ impl ShipController {
             .get_self_mut()
             .expect("Ship controller player must exist");
 
-        if me.enter_delay > 0 {
+        if me.enter_delay > 0 && settings.enter_delay > 0 {
             // Clear velocity after explosion.
             if me.enter_delay < settings.enter_delay as u16 {
                 me.velocity.clear();

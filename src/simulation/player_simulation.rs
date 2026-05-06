@@ -21,14 +21,14 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
 
     if player.explosion_remaining_ticks > 0 {
         player.explosion_remaining_ticks -= 1;
-
-        if player.explosion_remaining_ticks == 0 {
-            player.position = None;
-        }
     }
 
     if player.enter_delay > 0 {
         player.enter_delay = player.enter_delay.saturating_sub(1);
+
+        if settings.enter_delay > 0 && player.enter_delay < settings.enter_delay as u16 {
+            player.position = None;
+        }
     }
 
     if player.ship_kind == ShipKind::Spectator {
