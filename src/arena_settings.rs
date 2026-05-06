@@ -563,7 +563,7 @@ impl PrizeWeightSettings {
             self.burst,
             self.decoy,
             self.thor,
-            self.multi_fire,
+            self.multi_prize,
             self.brick,
             self.rocket,
             self.portal,

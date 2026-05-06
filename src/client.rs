@@ -26,6 +26,7 @@ use crate::net::packet::s2c::*;
 use crate::player::*;
 use crate::powerball::PowerballState;
 use crate::powerball::is_team_goal;
+use crate::prize::PrizeManager;
 use crate::prize::apply_prize_id;
 use crate::radar::IndicatorFlag;
 use crate::radar::Radar;
@@ -124,6 +125,7 @@ pub struct Client {
 
     pub simulation: Simulation,
     pub flag_controller: FlagController,
+    pub prize_manager: PrizeManager,
 
     // This is the local tick for the last processed tick.
     local_tick: GameTick,
@@ -158,6 +160,7 @@ impl Client {
             registration,
             simulation: Simulation::new(GameTick::now(0)),
             flag_controller: FlagController::new(),
+            prize_manager: PrizeManager::new(),
             local_tick: GameTick::now(0),
             radar: Radar::new(),
             chat_controller: ChatController::new(),
@@ -223,6 +226,14 @@ impl Client {
                             &mut self.connection,
                             &self.statbox,
                         );
+
+                        self.prize_manager.tick(
+                            &self.simulation.player_manager,
+                            &self.settings,
+                            &self.map,
+                            &mut self.connection,
+                            &mut None,
+                        );
                     }
                     MovementController::Ship(ship_controller) => {
                         let current_tick = self.connection.get_game_tick();
@@ -237,6 +248,14 @@ impl Client {
                             &self.settings,
                             current_tick,
                             &mut render_state,
+                        );
+
+                        self.prize_manager.tick(
+                            &self.simulation.player_manager,
+                            &self.settings,
+                            &self.map,
+                            &mut self.connection,
+                            &mut Some(ship_controller),
                         );
 
                         if input_state.is_triggered(InputAction::Attach) {
@@ -845,6 +864,7 @@ impl Client {
             GameServerMessage::SynchronizationRequest(sync) => {
                 self.map.set_door_seed(sync.door_seed, sync.timestamp);
                 self.map.tick(&self.settings, sync.timestamp);
+                self.prize_manager.set_seed(sync.prize_seed as i32);
 
                 if sync.checksum_key != 0 && self.map.checksum != 0 {
                     // Send security packet
@@ -1404,6 +1424,22 @@ impl Client {
                     killed.flag_count = 0;
                     killed.flag_remaining_ticks = 0;
 
+                    if let Some(killed_position) = killed.position {
+                        let was_moving = killed.velocity.x.0 != 0 || killed.velocity.y.0 != 0;
+
+                        if message.prize_id > 0 && was_moving {
+                            let x = (killed_position.x.0 / 16000) as u16;
+                            let y = (killed_position.y.0 / 16000) as u16;
+
+                            self.prize_manager.spawn_green(
+                                x,
+                                y,
+                                message.prize_id as i32,
+                                self.settings.death_prize_time as u32,
+                            );
+                        }
+                    }
+
                     self.simulation
                         .player_manager
                         .detach_all_children(message.killed_id);
@@ -1840,6 +1876,12 @@ impl Client {
                 );
 
                 self.render_map_animations(render_state, sprites);
+                self.prize_manager.render(
+                    render_state,
+                    sprites,
+                    &mut self.radar,
+                    self.connection.get_game_tick(),
+                );
 
                 let self_flag_ticks = if let Some(me) = self.simulation.player_manager.get_self() {
                     me.flag_remaining_ticks

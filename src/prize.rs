@@ -3,8 +3,21 @@ use thiserror::Error;
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
+    map::Map,
+    math::{Position, Rectangle},
+    net::connection::Connection,
+    player::PlayerManager,
+    radar::{IndicatorFlag, Radar},
+    render::{
+        animation_renderer::get_animation_index,
+        colors::ColorRenderableKind,
+        game_sprites::{GameSpriteKind, GameSprites},
+        layer::Layer,
+        render_state::RenderState,
+    },
     rng::VieRng,
-    ship::{Ship, ShipCapabilityFlag},
+    ship::{Ship, ShipCapabilityFlag, ShipKind},
+    ship_controller::ShipController,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -94,7 +107,217 @@ impl std::convert::TryFrom<i32> for Prize {
     }
 }
 
-pub fn generate_prize_id(settings: &ArenaSettings, prize_seed: i32, negative_allowed: bool) -> i32 {
+pub struct PrizeGreen {
+    pub remaining_ticks: u32,
+    pub x_tile: u16,
+    pub y_tile: u16,
+    pub prize_id: i32,
+}
+
+pub struct PrizeManager {
+    pub greens: Vec<PrizeGreen>,
+    pub seed: Option<i32>,
+    pub spawn_tick_counter: u32,
+}
+
+impl PrizeManager {
+    pub fn new() -> Self {
+        Self {
+            greens: vec![],
+            seed: None,
+            spawn_tick_counter: 0,
+        }
+    }
+
+    pub fn set_seed(&mut self, new_seed: i32) {
+        self.seed = Some(new_seed);
+        self.spawn_tick_counter = 0;
+    }
+
+    pub fn tick(
+        &mut self,
+        player_manager: &PlayerManager,
+        settings: &ArenaSettings,
+        map: &Map,
+        connection: &mut Connection,
+        ship_controller: &mut Option<&mut ShipController>,
+    ) {
+        self.perform_collisions(player_manager, settings, connection, ship_controller);
+        self.expire_greens();
+        self.spawn_prizes(settings, map, player_manager.players.len());
+    }
+
+    fn perform_collisions(
+        &mut self,
+        player_manager: &PlayerManager,
+        settings: &ArenaSettings,
+        connection: &mut Connection,
+        ship_controller: &mut Option<&mut ShipController>,
+    ) {
+        let current_tick = connection.get_game_tick();
+
+        for player in &player_manager.players {
+            if player.ship_kind == ShipKind::Spectator || player.is_dead() {
+                continue;
+            }
+
+            let player_collider =
+                player.get_collider(settings.get_ship_settings(player.ship_kind).get_radius());
+
+            for green in &mut self.greens {
+                if green.remaining_ticks == 0 {
+                    continue;
+                }
+
+                let green_collider = Rectangle::new(
+                    Position::from_tile(green.x_tile as i32, green.y_tile as i32),
+                    Position::from_tile(green.x_tile as i32 + 1, green.y_tile as i32 + 1),
+                );
+
+                if green_collider.intersects(&player_collider) {
+                    if let Some(ship_controller) = ship_controller {
+                        if let Err(e) = apply_prize_id(
+                            settings,
+                            &mut ship_controller.ship,
+                            current_tick,
+                            green.prize_id,
+                        ) {
+                            log::error!("{e}");
+                        }
+                        
+                        ship_controller.ship.bounty = ship_controller.ship.bounty.wrapping_add(1);
+
+                        let message = crate::net::packet::c2s::TakePrizeMessage {
+                            timestamp: current_tick,
+                            x: green.x_tile,
+                            y: green.y_tile,
+                            prize: green.prize_id as i16,
+                        };
+                        if let Err(e) = connection.send_reliable(&message) {
+                            log::error!("{e}");
+                        }
+                    }
+
+                    green.remaining_ticks = 0;
+                }
+            }
+        }
+    }
+
+    fn spawn_prizes(&mut self, settings: &ArenaSettings, map: &Map, player_count: usize) {
+        let Some(seed) = self.seed else {
+            return;
+        };
+
+        self.spawn_tick_counter = self.spawn_tick_counter.wrapping_add(1);
+        let max_greens = (settings.prize_factor as usize * player_count) / 1000;
+
+        if settings.prize_delay > 0 && self.spawn_tick_counter >= settings.prize_delay as u32 {
+            let spawn_extent = ((settings.minimum_virtual as usize
+                + settings.upgrade_virtual as usize * player_count)
+                as u32)
+                .clamp(3, 1024);
+
+            let mut rng = VieRng::new(seed);
+
+            for _ in 0..settings.prize_hide_count {
+                let x_rng = rng.next();
+                let y_rng = rng.next();
+
+                let x = ((x_rng % (spawn_extent - 2)) + 1 + ((1024 - spawn_extent) / 2)) as u16;
+                let y = ((y_rng % (spawn_extent - 2)) + 1 + ((1024 - spawn_extent) / 2)) as u16;
+
+                let prize_id = generate_prize_id(settings, &mut rng, true);
+
+                let duration_rng = rng.next();
+
+                let duration_range =
+                    (settings.prize_max_exist - settings.prize_min_exist).max(0) as u32;
+                let duration =
+                    (duration_rng % (duration_range + 1)) + settings.prize_min_exist as u32;
+
+                if self.greens.len() < max_greens && map.get_tile(x, y) == 0 {
+                    self.spawn_green(x, y, prize_id, duration);
+                }
+            }
+
+            self.set_seed(rng.seed);
+        }
+    }
+
+    pub fn spawn_green(&mut self, x_tile: u16, y_tile: u16, prize_id: i32, duration: u32) {
+        self.greens.push(PrizeGreen {
+            remaining_ticks: duration,
+            x_tile,
+            y_tile,
+            prize_id,
+        });
+    }
+
+    fn expire_greens(&mut self) {
+        let mut green_index = 0;
+
+        loop {
+            if green_index >= self.greens.len() {
+                break;
+            }
+
+            if self.greens[green_index].remaining_ticks > 0 {
+                self.greens[green_index].remaining_ticks -= 1;
+            }
+
+            if self.greens[green_index].remaining_ticks == 0 {
+                self.greens.swap_remove(green_index);
+                continue;
+            }
+
+            green_index += 1;
+        }
+    }
+
+    pub fn render(
+        &self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        radar: &mut Radar,
+        current_tick: GameTick,
+    ) {
+        let Some(prize_sprites) = sprites.get_set(GameSpriteKind::Prize) else {
+            return;
+        };
+
+        let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+        let renderable = &prize_sprites.renderables[animation_index];
+
+        for green in &self.greens {
+            let x_pixels = green.x_tile as i32 * 16;
+            let y_pixels = green.y_tile as i32 * 16;
+
+            render_state.sprite_renderer.draw(
+                &render_state.camera,
+                renderable,
+                x_pixels,
+                y_pixels,
+                Layer::AfterTiles,
+            );
+
+            let position = Position::from_tile(green.x_tile as i32, green.y_tile as i32);
+
+            radar.add_indicator(
+                ColorRenderableKind::RadarPrize,
+                position,
+                current_tick,
+                IndicatorFlag::SmallMap,
+            );
+        }
+    }
+}
+
+pub fn generate_prize_id(
+    settings: &ArenaSettings,
+    rng: &mut VieRng,
+    negative_allowed: bool,
+) -> i32 {
     let total_weight = settings.prize_weights.calculate_total_weight();
 
     if total_weight == 0 {
@@ -103,7 +326,6 @@ pub fn generate_prize_id(settings: &ArenaSettings, prize_seed: i32, negative_all
 
     let weights = settings.prize_weights.get_weights();
 
-    let mut rng = VieRng::new(prize_seed);
     let mut random = rng.next() as u32;
     let mut result = 0;
     let mut weight = 0;
@@ -153,7 +375,7 @@ pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: Game
     let mut applied = 0;
 
     for _ in 0..9999 {
-        let random_prize = generate_prize_id(settings, rng.next() as i32, false);
+        let random_prize = generate_prize_id(settings, &mut rng, false);
 
         if is_valid_multiprize_id(random_prize) {
             if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize) {
@@ -183,7 +405,7 @@ pub fn apply_prize_id(
             let mut rng = VieRng::new(tick.value() as i32);
 
             for _ in 0..9999 {
-                let random_prize = generate_prize_id(settings, rng.next() as i32, false);
+                let random_prize = generate_prize_id(settings, &mut rng, false);
 
                 if is_valid_multiprize_id(random_prize) {
                     apply_prize_id(settings, ship, tick, random_prize)?;
@@ -459,7 +681,7 @@ pub fn apply_prize_id(
 
             for _ in 0..count {
                 for _ in 0..9999 {
-                    let random_prize = generate_prize_id(settings, rng.next() as i32, false);
+                    let random_prize = generate_prize_id(settings, &mut rng, false);
 
                     if is_valid_multiprize_id(random_prize) {
                         apply_prize_id(settings, ship, tick, random_prize)?;
