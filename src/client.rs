@@ -140,6 +140,8 @@ pub struct Client {
 
     controller: MovementController,
     outbound_position_queue: OutboundPositionQueue,
+
+    camera_jitter_time: u32,
 }
 
 impl Client {
@@ -171,6 +173,7 @@ impl Client {
             notifications: NotificationManager::new(),
             controller: MovementController::Spectate(SpectateController::new()),
             outbound_position_queue: OutboundPositionQueue::new(),
+            camera_jitter_time: 0,
         })
     }
 
@@ -222,6 +225,10 @@ impl Client {
             );
 
             self.notifications.tick();
+
+            if self.camera_jitter_time > 0 {
+                self.camera_jitter_time -= 1;
+            }
 
             if let ConnectionState::Playing = self.connection.state {
                 match &mut self.controller {
@@ -278,12 +285,23 @@ impl Client {
                 for event in &self.simulation.events {
                     match &event.kind {
                         SimulationEventKind::WeaponExplosion(explosion_event) => {
-                            ship_controller.apply_damage(
+                            let took_damage = ship_controller.apply_damage(
                                 &mut self.simulation.player_manager,
                                 &mut self.connection,
                                 &self.settings,
                                 explosion_event,
                             );
+
+                            if took_damage {
+                                match &explosion_event.kind {
+                                    WeaponKind::Bomb(_)
+                                    | WeaponKind::ProximityBomb(_)
+                                    | WeaponKind::Thor(_) => {
+                                        self.camera_jitter_time = self.settings.jitter_time as u32;
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                         SimulationEventKind::PowerballPickupRequest(ball_id, ball_timestamp) => {
                             let request = crate::net::packet::c2s::PowerballRequestMessage {
@@ -842,6 +860,7 @@ impl Client {
                 self.notifications.clear();
 
                 self.map.clear_bricks();
+                self.camera_jitter_time = 0;
 
                 // Stop downloading the map if we're downloading.
                 // We need to clear the process queue for the new settings and map.
@@ -1903,6 +1922,21 @@ impl Client {
                     if let Some(me_position) = me.position {
                         render_state.camera.position = me_position.into();
                     }
+                }
+
+                if self.camera_jitter_time > 0 {
+                    let strength =
+                        self.camera_jitter_time as f32 / self.settings.jitter_time as f32;
+                    let max_jitter_tiles =
+                        (self.settings.jitter_time as f32 / 100.0f32).min(2.0f32);
+
+                    let t = (self.camera_jitter_time % 100) as f32 / 100.0f32;
+
+                    let x_jitter = (t * 80.75f32).sin() * strength * max_jitter_tiles;
+                    let y_jitter = (t * 45.63f32).sin() * strength * max_jitter_tiles;
+
+                    render_state.camera.position.x += x_jitter;
+                    render_state.camera.position.y += y_jitter;
                 }
 
                 if let MovementController::Ship(ship_controller) = &self.controller {

@@ -1020,9 +1020,9 @@ impl ShipController {
         connection: &mut Connection,
         settings: &ArenaSettings,
         event: &WeaponExplosionEvent,
-    ) {
+    ) -> bool {
         if self.ship.current_energy == 0 {
-            return;
+            return false;
         }
 
         let hit_me = if let Some(hit_player_id) = event.hit_player {
@@ -1032,15 +1032,15 @@ impl ShipController {
         };
 
         let Some(me) = player_manager.get_self() else {
-            return;
+            return false;
         };
 
         let Some(me_position) = me.position else {
-            return;
+            return false;
         };
 
         if me.status & StatusFlags::Safety != 0 {
-            return;
+            return false;
         }
 
         let mut damage = match &event.kind {
@@ -1164,20 +1164,20 @@ impl ShipController {
         if damage > 0 {
             // TODO: Watchdamage sending
 
-            let apply_damage = if damage as u32 > self.ship.current_energy {
+            let (apply_damage, self_bomb) = if damage as u32 > self.ship.current_energy {
                 match &event.kind {
                     WeaponKind::Bomb(_) | WeaponKind::ProximityBomb(_) | WeaponKind::Thor(_) => {
                         if event.shooter == me.id {
                             self.ship.current_energy = 1000;
-                            false
+                            (false, true)
                         } else {
-                            true
+                            (true, false)
                         }
                     }
-                    _ => true,
+                    _ => (true, false),
                 }
             } else {
-                true
+                (true, false)
             };
 
             if apply_damage {
@@ -1199,7 +1199,11 @@ impl ShipController {
                     }
                 }
             }
+
+            return apply_damage || self_bomb;
         }
+
+        false
     }
 
     pub fn render(
