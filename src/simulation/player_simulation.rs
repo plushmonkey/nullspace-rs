@@ -62,8 +62,10 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
     let start_tile_y = (player_position.y.0 - radius as i32 * 1000) / 16000;
     let end_tile_y: i32 = (player_position.y.0 + radius as i32 * 1000) / 16000;
 
+    let check_x_tile = (i32::cast_unsigned(check_x.0) / 16000) as u16;
+
     for y in start_tile_y..=end_tile_y {
-        if map.is_solid((check_x.0 / 16000) as u16, y as u16, player.frequency) {
+        if map.is_solid(check_x_tile as u16, y as u16, player.frequency) {
             player_position.x = prev_x;
             player.velocity.x = PositionUnit((-player.velocity.x.0 * 16) / bounce_factor);
             player.velocity.y = PositionUnit((player.velocity.y.0 * 16) / bounce_factor);
@@ -89,8 +91,10 @@ pub fn integrate_player(map: &Map, settings: &ArenaSettings, player: &mut Player
     let start_tile_x = (player_position.x.0 - radius as i32 * 1000) / 16000;
     let end_tile_x: i32 = (player_position.x.0 + radius as i32 * 1000) / 16000;
 
+    let check_y_tile = (i32::cast_unsigned(check_y.0) / 16000) as u16;
+
     for x in start_tile_x..=end_tile_x {
-        if map.is_solid(x as u16, (check_y.0 / 16000) as u16, player.frequency) {
+        if map.is_solid(x as u16, check_y_tile, player.frequency) {
             player_position.y = prev_y;
             player.velocity.x = PositionUnit((player.velocity.x.0 * 16) / bounce_factor);
             player.velocity.y = PositionUnit((-player.velocity.y.0 * 16) / bounce_factor);

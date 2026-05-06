@@ -210,6 +210,7 @@ impl PrizeManager {
                                     map,
                                     current_tick,
                                     player_count,
+                                    1000,
                                 );
                             }
 

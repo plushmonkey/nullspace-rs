@@ -72,8 +72,8 @@ impl Position {
     }
 
     pub fn to_tile(&self) -> (u16, u16) {
-        let x_tile = (self.x.0 / 16000) as u16;
-        let y_tile = (self.y.0 / 16000) as u16;
+        let x_tile = (i32::cast_unsigned(self.x.0) / 16000) as u16;
+        let y_tile = (i32::cast_unsigned(self.y.0) / 16000) as u16;
 
         (x_tile, y_tile)
     }
@@ -151,11 +151,11 @@ impl Velocity {
         self.y = PositionUnit(0);
     }
 
-    pub fn truncate(&mut self, length: i32) {
+    pub fn truncate(&mut self, length: u32) {
         let current_length_sq =
-            self.x.0 as i64 * self.x.0 as i64 + self.y.0 as i64 * self.y.0 as i64;
+            (self.x.0 as i64 * self.x.0 as i64 + self.y.0 as i64 * self.y.0 as i64) as u64;
 
-        if current_length_sq > length as i64 * length as i64 {
+        if current_length_sq > length as u64 * length as u64 {
             let new_vec =
                 glam::Vec2::new(self.x.0 as f32, self.y.0 as f32).normalize() * length as f32;
 

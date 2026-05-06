@@ -1678,6 +1678,7 @@ impl Client {
                                 &self.map,
                                 self.connection.get_game_tick(),
                                 player_count,
+                                1000,
                             );
                         }
                     }

@@ -2,8 +2,8 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     map::{
-        Map, TILE_ID_SAFE, TILE_ID_THOR_KILLER, TILE_ID_WEAPON_KILLER, TILE_ID_WEAPON_SOLID,
-        TILE_ID_WORMHOLE,
+        AnimatedTileKind, Map, TILE_ID_SAFE, TILE_ID_THOR_KILLER, TILE_ID_WEAPON_KILLER,
+        TILE_ID_WEAPON_SOLID, TILE_ID_WORMHOLE,
     },
     math::{
         PixelUnit, Position, PositionUnit, Rectangle, Velocity, get_heading_from_direction,
@@ -436,7 +436,13 @@ impl WeaponManager {
             }
         }
 
-        let sim_result = Self::integrate_weapon_position(map, weapon);
+        let gravity = if settings.gravity_bombs {
+            settings.get_ship_settings(player.ship_kind).gravity as i32
+        } else {
+            0
+        };
+
+        let sim_result = Self::integrate_weapon_position(map, weapon, gravity);
 
         if sim_result != WeaponSimulateResult::Continue {
             return sim_result;
@@ -564,8 +570,56 @@ impl WeaponManager {
         WeaponSimulateResult::Continue
     }
 
-    fn integrate_weapon_position(map: &Map, weapon: &mut Weapon) -> WeaponSimulateResult {
-        // todo: gravity bombs
+    fn integrate_weapon_position(
+        map: &Map,
+        weapon: &mut Weapon,
+        gravity: i32,
+    ) -> WeaponSimulateResult {
+        if gravity != 0 {
+            match &mut weapon.kind {
+                WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                    let wormholes = &map.animated_tiles[AnimatedTileKind::Wormhole as usize];
+
+                    let w_x = weapon.position.x.0 / 1000;
+                    let w_y = weapon.position.y.0 / 1000;
+
+                    for wormhole in wormholes {
+                        let wh_x = (wormhole.x() as i32 + 2) * 16 + 8;
+                        let wh_y = (wormhole.y() as i32 + 2) * 16 + 8;
+
+                        let dx = wh_x - w_x;
+                        let dy = wh_y - w_y;
+
+                        let distance_sq = (dx * dx + dy * dy) + 1;
+
+                        if distance_sq < gravity.abs() * 1000 {
+                            let gravity_thrust = (gravity * 1000) / distance_sq;
+                            let direction = glam::Vec2::new(dx as f32, dy as f32).normalize();
+                            let apply = direction * gravity_thrust as f32;
+
+                            weapon.velocity.x.0 += apply.x as i32;
+                            weapon.velocity.y.0 += apply.y as i32;
+
+                            if gravity_thrust != 0 && bomb.mine {
+                                bomb.mine = false;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        const OUT_OF_BOUNDS_MIN: i32 = -50 * 16000;
+        const OUT_OF_BOUNDS_MAX: i32 = (1024 + 50) * 16000;
+
+        if weapon.position.x.0 < OUT_OF_BOUNDS_MIN
+            || weapon.position.y.0 < OUT_OF_BOUNDS_MIN
+            || weapon.position.x.0 > OUT_OF_BOUNDS_MAX
+            || weapon.position.y.0 > OUT_OF_BOUNDS_MAX
+        {
+            return WeaponSimulateResult::TimedOut;
+        }
 
         let prev_x = weapon.position.x;
         weapon.position.x = weapon.position.x + weapon.velocity.x;

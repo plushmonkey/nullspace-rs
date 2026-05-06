@@ -4,7 +4,7 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     input::{InputAction, InputState},
-    map::{Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
+    map::{AnimatedTileKind, Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
     notification::NotificationManager,
     player::{Player, PlayerManager, StatusFlags},
@@ -88,7 +88,11 @@ impl ShipController {
 
         self.tick_effects();
         self.perform_rotation(input_state, player_manager);
-        let afterburners_enabled = self.perform_acceleration(input_state, player_manager, settings);
+
+        let gravity_effect = self.perform_gravity(player_manager, map, settings, current_tick);
+
+        let afterburners_enabled =
+            self.perform_acceleration(input_state, player_manager, settings, gravity_effect);
 
         if self.ship.emped_remaining_ticks == 0 {
             self.ship.current_energy =
@@ -151,7 +155,14 @@ impl ShipController {
                     let tile_id = map.get_tile_from_position(&me_position);
 
                     if tile_id == TILE_ID_THOR_KILLER {
-                        self.warp_with_energy_loss(me, settings, map, current_tick, player_count);
+                        self.warp_with_energy_loss(
+                            me,
+                            settings,
+                            map,
+                            current_tick,
+                            player_count,
+                            1000,
+                        );
                     } else if tile_id == TILE_ID_ANIMATED_ENEMY_BRICK {
                         if current_tick.value() % 200 == 0 {
                             self.warp_with_energy_loss(
@@ -160,6 +171,7 @@ impl ShipController {
                                 map,
                                 current_tick,
                                 player_count,
+                                1000,
                             );
                         }
                     }
@@ -234,11 +246,83 @@ impl ShipController {
         false
     }
 
+    fn perform_gravity(
+        &mut self,
+        player_manager: &mut PlayerManager,
+        map: &Map,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
+    ) -> bool {
+        let player_count = player_manager.players.len();
+
+        let Some(me) = player_manager.get_self_mut() else {
+            return false;
+        };
+
+        if me.is_dead() || me.ship_kind == ShipKind::Spectator {
+            return false;
+        }
+
+        let Some(me_position) = me.position else {
+            return false;
+        };
+
+        let gravity = settings.get_ship_settings(me.ship_kind).gravity as i32;
+
+        let me_x = me_position.x.0 / 1000;
+        let me_y = me_position.y.0 / 1000;
+
+        let wormholes = &map.animated_tiles[AnimatedTileKind::Wormhole as usize];
+
+        let mut under_effects = false;
+
+        let wormhole_radius_sq = (32 + 8) * (32 + 8);
+
+        for wormhole in wormholes {
+            let wh_x = (wormhole.x() as i32 + 2) * 16 + 8;
+            let wh_y = (wormhole.y() as i32 + 2) * 16 + 8;
+
+            let dx = wh_x - me_x;
+            let dy = wh_y - me_y;
+
+            let distance_sq = (dx * dx + dy * dy) + 1;
+
+            if distance_sq < gravity.abs() * 1000 {
+                let gravity_thrust = (gravity * 1000) / distance_sq;
+                let direction = glam::Vec2::new(dx as f32, dy as f32).normalize();
+                let apply = direction * gravity_thrust as f32;
+
+                me.velocity.x.0 += apply.x as i32;
+                me.velocity.y.0 += apply.y as i32;
+
+                if distance_sq < wormhole_radius_sq {
+                    let new_energy = (self.ship.current_energy as f32 * 0.2f32) as u32;
+                    self.warp_with_energy_loss(
+                        me,
+                        settings,
+                        map,
+                        current_tick,
+                        player_count,
+                        new_energy,
+                    );
+                    return false;
+                }
+
+                if gravity_thrust != 0 {
+                    under_effects = true;
+                }
+            }
+        }
+
+        under_effects
+    }
+
     fn perform_acceleration(
         &mut self,
         input_state: &InputState,
         player_manager: &mut PlayerManager,
         settings: &ArenaSettings,
+        gravity_effect: bool,
     ) -> bool {
         let me = player_manager
             .get_self_mut()
@@ -310,10 +394,12 @@ impl ShipController {
             }
         }
 
-        // TODO: Turret penalty
-
         if self.ship.repel_effect_remaining_ticks > 0 {
             speed = settings.repel_speed as u32;
+        }
+
+        if !me.children.is_empty() {
+            speed = speed.saturating_sub(ship_settings.turret_speed_penalty as u32);
         }
 
         if me.flag_count > 0 || (me.carrying_ball && settings.powerball_flag_upgrades) {
@@ -326,7 +412,11 @@ impl ShipController {
             }
         }
 
-        me.velocity.truncate(speed as i32);
+        if gravity_effect {
+            speed = speed.wrapping_add_signed(ship_settings.gravity_top_speed as i32);
+        }
+
+        me.velocity.truncate(speed);
 
         if afterburners_enabled {
             self.ship.current_energy -= afterburners_cost;
@@ -367,6 +457,7 @@ impl ShipController {
         map: &Map,
         current_tick: GameTick,
         player_count: usize,
+        new_energy: u32,
     ) {
         let rng = VieRng::new(current_tick.value() as i32);
         let new_position =
@@ -375,8 +466,10 @@ impl ShipController {
         me.position = Some(new_position);
         me.velocity.clear();
 
+        // TODO: watchdamage - This should generate a wormhole damage event (all warp events are considered wormhole in watchdamage)
+
         self.ship.status |= StatusFlags::Flash;
-        self.ship.current_energy = 1000;
+        self.ship.current_energy = new_energy;
     }
 
     pub fn reset_ship(

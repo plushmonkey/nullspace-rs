@@ -52,7 +52,7 @@ impl Tile {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AnimatedTileKind {
     Goal,
     AsteroidSmall,
@@ -193,14 +193,32 @@ impl Map {
 
                 map.animated_tiles[animated_tile as usize].push(tile);
 
-                for oy in 0..size {
-                    let cy = y + oy;
+                if animated_tile == AnimatedTileKind::Wormhole {
+                    // Mark the wormhole as a weapon killer.
+                    for oy in 0..size {
+                        let cy = y + oy;
 
-                    for ox in 0..size {
-                        let cx = x + ox;
+                        for ox in 0..size {
+                            let cx = x + ox;
 
-                        let index: usize = cy as usize * 1024 + cx as usize;
-                        map.tiles[index] = tile_id;
+                            let index: usize = cy as usize * 1024 + cx as usize;
+                            map.tiles[index] = TILE_ID_WEAPON_KILLER;
+                        }
+                    }
+
+                    // Only mark the actual center of the wormhole as a wormhole tile so the outer part doesn't warp.
+                    let center_index: usize = (y + 2) as usize * 1024 + (x + 2) as usize;
+                    map.tiles[center_index] = tile_id;
+                } else {
+                    for oy in 0..size {
+                        let cy = y + oy;
+
+                        for ox in 0..size {
+                            let cx = x + ox;
+
+                            let index: usize = cy as usize * 1024 + cx as usize;
+                            map.tiles[index] = tile_id;
+                        }
                     }
                 }
             } else if tile_id >= TILE_ID_FIRST_DOOR && tile_id <= TILE_ID_LAST_DOOR {
