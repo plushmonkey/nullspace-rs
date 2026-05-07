@@ -329,11 +329,7 @@ impl ApplicationPlayingState {
                             .send_public(&mut self.client.connection, "?arena");
                     }
                     MenuAction::ShipRequest(ship_kind) => {
-                        let ship_request =
-                            crate::net::packet::c2s::RequestShipMessage { ship_kind };
-                        if let Err(e) = self.client.connection.send_reliable(&ship_request) {
-                            log::error!("{e}");
-                        }
+                        self.client.handle_ship_request(ship_kind);
                     }
                     _ => {}
                 }
@@ -382,11 +378,13 @@ impl ApplicationPlayingState {
             self.input_state
                 .is_modifier_down(input::InputModifier::Control),
         ) {
-            self.client.chat_controller.send_input(
+            if let Some(command) = self.client.chat_controller.send_input(
                 &mut self.client.connection,
                 &self.client.statbox,
                 &self.client.simulation.player_manager,
-            );
+            ) {
+                self.client.handle_chat_command(command);
+            }
         }
     }
 }

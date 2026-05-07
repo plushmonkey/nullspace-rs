@@ -782,16 +782,8 @@ impl Statbox {
             if crown {
                 index += 6;
             }
-        
-            if index >= 0 {
-                /*
-                let index = match (spectating, selected) {
-                    (false, false) => 0,
-                    (false, true) => 0,
-                    (true, false) => 1,
-                    (true, true) => 2,
-                };*/
 
+            if index >= 0 {
                 let renderable = &spectate_sprites.renderables[index as usize];
 
                 render_state.sprite_renderer.draw(

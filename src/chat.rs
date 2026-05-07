@@ -1,4 +1,4 @@
-use smol_str::{StrExt, ToSmolStr};
+use smol_str::{SmolStr, StrExt, ToSmolStr};
 
 use crate::{
     net::{connection::Connection, packet::s2c::ChatKind},
@@ -10,6 +10,11 @@ use crate::{
     },
     statbox::Statbox,
 };
+
+pub enum ChatCommand {
+    ChangeFrequency(u16),
+    Go(SmolStr),
+}
 
 pub enum ChatSendKind {
     Public,
@@ -304,10 +309,10 @@ impl ChatController {
         connection: &mut Connection,
         statbox: &Statbox,
         player_manager: &PlayerManager,
-    ) {
-        if self.handle_input_commands(connection) {
+    ) -> Option<ChatCommand> {
+        if let Some(command) = self.handle_input_commands() {
             self.input.clear();
-            return;
+            return Some(command);
         }
 
         match std::str::from_utf8(&self.input) {
@@ -404,80 +409,40 @@ impl ChatController {
         }
 
         self.input.clear();
+
+        None
     }
 
-    fn handle_input_commands(&self, connection: &mut Connection) -> bool {
-        use crate::net::packet::Serialize;
-
+    fn handle_input_commands(&self) -> Option<ChatCommand> {
         if self.input.is_empty() {
-            return false;
+            return None;
         }
 
         if self.input[0] == b'=' {
-            // TODO: This should be handled elsewhere so we can check energy.
-            // TODO: Only one command can be handled per input, so we could just return out of the handle key function.
-
             let Ok(msg) = std::str::from_utf8(&self.input[1..]) else {
-                return true;
+                return None;
             };
 
             if let Ok(freq) = msg.parse::<u16>() {
-                let request = crate::net::packet::c2s::FrequencyChangeMessage { frequency: freq };
-
-                if let Err(e) = connection.send_packet(&request.serialize()) {
-                    log::error!("{e}");
-                }
+                return Some(ChatCommand::ChangeFrequency(freq));
             }
 
-            return true;
+            return None;
         }
 
         if self.input[0] == b'?' {
             let Ok(command) = std::str::from_utf8(&self.input[1..]) else {
-                return false;
+                return None;
             };
 
             if command.starts_with("go") {
                 let target = &command[2..].trim();
 
-                if target.is_empty() {
-                    let request = crate::net::packet::c2s::ArenaJoinMessage::new(
-                        crate::ship::ShipKind::Spectator,
-                        1920,
-                        1080,
-                        crate::net::packet::c2s::ArenaRequest::AnyPublic,
-                    );
-
-                    if let Err(e) = connection.send_packet(&request.serialize()) {
-                        log::error!("{e}");
-                    }
-                } else {
-                    let request = if let Ok(number) = target.parse::<u16>() {
-                        crate::net::packet::c2s::ArenaJoinMessage::new(
-                            crate::ship::ShipKind::Spectator,
-                            1920,
-                            1080,
-                            crate::net::packet::c2s::ArenaRequest::SpecificPublic(number),
-                        )
-                    } else {
-                        crate::net::packet::c2s::ArenaJoinMessage::new(
-                            crate::ship::ShipKind::Spectator,
-                            1920,
-                            1080,
-                            crate::net::packet::c2s::ArenaRequest::Name(target.to_string()),
-                        )
-                    };
-
-                    if let Err(e) = connection.send_packet(&request.serialize()) {
-                        log::error!("{e}");
-                    }
-                }
-
-                return true;
+                return Some(ChatCommand::Go(target.to_smolstr()));
             }
         }
 
-        false
+        None
     }
 
     pub fn get_chat_send_kind(&self) -> ChatSendKind {

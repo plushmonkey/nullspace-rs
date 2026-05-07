@@ -206,6 +206,15 @@ impl ShipController {
         let me = player_manager
             .get_self_mut()
             .expect("Ship controller player must exist");
+
+        self.ship.status &= !StatusFlags::Safety;
+
+        if let Some(me_position) = me.position {
+            if map.get_tile_from_position(&me_position) == TILE_ID_SAFE {
+                self.ship.status |= StatusFlags::Safety;
+            }
+        }
+
         me.status = self.ship.status;
         me.bounty = self.ship.bounty;
 

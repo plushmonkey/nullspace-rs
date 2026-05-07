@@ -1,6 +1,7 @@
 use crate::arena_settings::ArenaSettings;
 use crate::attach::AttachKind;
 use crate::attach::can_attach_to;
+use crate::chat::ChatCommand;
 use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
@@ -705,6 +706,112 @@ impl Client {
                 .get_by_id_mut(self.connection.player_id)
             {
                 player.last_position_timestamp = self.last_position_tick;
+            }
+        }
+    }
+
+    pub fn handle_ship_request(&mut self, ship_kind: ShipKind) {
+        if let Some(me) = self.simulation.player_manager.get_self() {
+            if me.ship_kind == ship_kind {
+                if ship_kind != ShipKind::Spectator {
+                    self.notifications
+                        .push_str("You are already in that type of ship.", TextColor::Yellow);
+                }
+
+                return;
+            }
+        }
+
+        if let MovementController::Ship(ship_controller) = &self.controller {
+            if !ship_controller.ship.is_max_energy() {
+                self.notifications.push_str(
+                    "Must have full energy to change ship types.",
+                    TextColor::Yellow,
+                );
+
+                return;
+            }
+        }
+
+        let ship_request = crate::net::packet::c2s::RequestShipMessage { ship_kind };
+
+        if let Err(e) = self.connection.send_reliable(&ship_request) {
+            log::error!("{e}");
+        }
+    }
+
+    pub fn handle_chat_command(&mut self, command: ChatCommand) {
+        match &command {
+            ChatCommand::ChangeFrequency(frequency) => {
+                if let Some(me) = self.simulation.player_manager.get_self() {
+                    if me.frequency == *frequency {
+                        self.notifications
+                            .push_str("You are already on that frequency.", TextColor::Yellow);
+                        return;
+                    }
+                }
+
+                if let MovementController::Ship(ship_controller) = &self.controller {
+                    if ship_controller.ship.status & StatusFlags::Safety == 0
+                        && !ship_controller.ship.is_max_energy()
+                    {
+                        self.notifications.push_str(
+                            "Not enough energy to change frequencies.",
+                            TextColor::Yellow,
+                        );
+                        return;
+                    }
+                }
+
+                let message = crate::net::packet::c2s::FrequencyChangeMessage {
+                    frequency: *frequency,
+                };
+
+                if let Err(e) = self.connection.send_reliable(&message) {
+                    log::error!("{e}");
+                }
+            }
+            ChatCommand::Go(target) => {
+                if let MovementController::Ship(ship_controller) = &self.controller {
+                    if !ship_controller.ship.is_max_energy() {
+                        self.notifications
+                            .push_str("Must have full energy to change arenas.", TextColor::Yellow);
+                        return;
+                    }
+                }
+
+                if target.is_empty() {
+                    let request = crate::net::packet::c2s::ArenaJoinMessage::new(
+                        crate::ship::ShipKind::Spectator,
+                        1920,
+                        1080,
+                        crate::net::packet::c2s::ArenaRequest::AnyPublic,
+                    );
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+                } else {
+                    let request = if let Ok(number) = target.parse::<u16>() {
+                        crate::net::packet::c2s::ArenaJoinMessage::new(
+                            crate::ship::ShipKind::Spectator,
+                            1920,
+                            1080,
+                            crate::net::packet::c2s::ArenaRequest::SpecificPublic(number),
+                        )
+                    } else {
+                        crate::net::packet::c2s::ArenaJoinMessage::new(
+                            crate::ship::ShipKind::Spectator,
+                            1920,
+                            1080,
+                            crate::net::packet::c2s::ArenaRequest::Name(target.to_string()),
+                        )
+                    };
+
+                    if let Err(e) = self.connection.send_reliable(&request) {
+                        log::error!("{e}");
+                    }
+                }
             }
         }
     }
@@ -1617,8 +1724,11 @@ impl Client {
 
                     player.ship_kind = change.ship_kind;
                     player.frequency = change.frequency;
-                    player.position = None;
-                    player.velocity.clear();
+
+                    if player.status & StatusFlags::Safety == 0 {
+                        player.position = None;
+                        player.velocity.clear();
+                    }
 
                     if player.id == self.connection.player_id {
                         if player.ship_kind == ShipKind::Spectator {
@@ -1637,28 +1747,38 @@ impl Client {
                                 }
                             }
 
-                            let rng = VieRng::new(GameTick::now(0).value() as i32);
+                            let mut perform_warp = true;
 
-                            let position = generate_spawn_position(
-                                &self.settings,
-                                &self.map,
-                                player.ship_kind,
-                                change.frequency,
-                                rng,
-                                player_count,
-                            );
+                            if let MovementController::Ship(_) = &self.controller {
+                                if player.status & StatusFlags::Safety != 0 {
+                                    perform_warp = false;
+                                }
+                            }
 
-                            player.position = Some(position);
+                            if perform_warp {
+                                let rng = VieRng::new(GameTick::now(0).value() as i32);
 
-                            let mut ship_controller = ShipController::new();
+                                let position = generate_spawn_position(
+                                    &self.settings,
+                                    &self.map,
+                                    player.ship_kind,
+                                    change.frequency,
+                                    rng,
+                                    player_count,
+                                );
 
-                            ship_controller.reset_ship(
-                                &self.settings,
-                                self.connection.get_game_tick(),
-                                player.ship_kind,
-                            );
+                                player.position = Some(position);
 
-                            self.controller = MovementController::Ship(ship_controller);
+                                let mut ship_controller = ShipController::new();
+
+                                ship_controller.reset_ship(
+                                    &self.settings,
+                                    self.connection.get_game_tick(),
+                                    player.ship_kind,
+                                );
+
+                                self.controller = MovementController::Ship(ship_controller);
+                            }
                         }
                     }
                 }
