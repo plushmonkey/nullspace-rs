@@ -90,7 +90,7 @@ pub struct BurstWeapon {
 }
 
 #[derive(Copy, Clone)]
-struct WeaponPacketParameters {
+pub struct WeaponPacketParameters {
     value: u16,
 }
 

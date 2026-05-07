@@ -252,6 +252,17 @@ impl Radar {
                 Layer::AfterChat,
             );
 
+            game_sprites.colors.draw_border(
+                &mut render_state.sprite_renderer,
+                &render_state.ui_camera,
+                Layer::AfterChat,
+                start_x as i32 - 1,
+                start_y as i32 - 1,
+                bottom_x as i32,
+                bottom_y as i32,
+                false,
+            );
+
             for indicator in &self.indicators {
                 if indicator.flags & IndicatorFlag::FullMap == 0 {
                     continue;
@@ -299,7 +310,7 @@ impl Radar {
             game_sprites.colors.draw_border(
                 &mut render_state.sprite_renderer,
                 &render_state.ui_camera,
-                Layer::Chat,
+                Layer::AfterChat,
                 start_x as i32 - 1,
                 start_y as i32 - 1,
                 bottom_x as i32,

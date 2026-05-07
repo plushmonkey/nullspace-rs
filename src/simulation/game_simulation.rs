@@ -29,6 +29,8 @@ pub enum SimulationEventKind {
     PowerballPickupRequest(u8, GameTick),
     PowerballTimeout(u8),
     DoorWarp,
+    Repel,
+    AttachSync,
 }
 
 pub struct SimulationEvent {
@@ -136,6 +138,13 @@ impl Simulation {
                     let parent_velocity = parent.velocity;
                     let parent_lerp_velocity = parent.lerp_velocity;
                     let parent_lerp_ticks = parent.lerp_remaining_ticks;
+
+                    if *player_id == self.player_manager.self_id {
+                        self.events.push(SimulationEvent {
+                            kind: SimulationEventKind::AttachSync,
+                            tick: self.tick,
+                        });
+                    }
 
                     if let Some(player) = self.player_manager.get_by_id_mut(*player_id) {
                         player.position = Some(parent_position);

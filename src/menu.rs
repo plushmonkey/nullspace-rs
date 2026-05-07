@@ -199,7 +199,7 @@ impl Menu {
             TextAlignment::Center,
         );
 
-        let right_side_x = end_x - 13 * render_state.text_renderer.character_width;
+        let right_side_x = end_x - 13 * render_state.text_renderer.character_width - 1;
         current_y = right_side_y;
 
         render_state.text_renderer.draw(

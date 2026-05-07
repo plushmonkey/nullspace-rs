@@ -147,22 +147,6 @@ impl RenderState {
 
         let map_renderer = MapRenderer::new(&device, &config.format, &depth_texture);
 
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            match crate::web_util::load_image("graphics/tiles.png").await {
-                Ok(img_data) => {
-                    log::info!(
-                        "tiles image data loaded {}, {}",
-                        img_data.width(),
-                        img_data.height()
-                    );
-                }
-                Err(e) => {
-                    log::error!("{e}");
-                }
-            }
-        });
-
         const SPRITE_RENDERER_PUSH_SIZE: usize = 4096 * 8;
 
         let mut sprite_renderer = SpriteRenderer::new(

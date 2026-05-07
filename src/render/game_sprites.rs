@@ -140,6 +140,7 @@ pub enum GameSpriteKind {
     TeamTurret,
     Prize,
     Exhaust,
+    Rocket,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -183,6 +184,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (20, 2),     // TeamTurret
     (10, 1),     // Prize
     (19, 2),     // Exhaust
+    (13, 2),     // Rocket
     (5, 2),      // Repel
 ];
 
@@ -292,7 +294,7 @@ impl GameSpriteLoader {
 
     async fn load_impl(sender: Sender<LoadSet>) {
         let fetches: [(GameSpriteKind, &str); GAME_SPRITE_KIND_SIZE] = [
-            (GameSpriteKind::Ships, "graphics/ships.png"),
+            (GameSpriteKind::Ships, "graphics/ships.bm2"),
             (GameSpriteKind::Bullets, "graphics/bullets.bm2"),
             (GameSpriteKind::Bombs, "graphics/bombs.bm2"),
             (GameSpriteKind::Mines, "graphics/mines.bm2"),
@@ -328,6 +330,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::TeamTurret, "graphics/turret2.bm2"),
             (GameSpriteKind::Prize, "graphics/prizes.bm2"),
             (GameSpriteKind::Exhaust, "graphics/exhaust.bm2"),
+            (GameSpriteKind::Rocket, "graphics/rocket.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

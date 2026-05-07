@@ -30,12 +30,87 @@ pub struct WeaponManager {
     link_removal: Vec<(u32, WeaponSimulateResult)>,
 }
 
+pub enum MineFireError {
+    Proximity,
+    SelfCount,
+    TeamCount,
+}
+
 impl WeaponManager {
     pub fn new() -> Self {
         Self {
             weapons: vec![],
             next_link_id: 0,
             link_removal: vec![],
+        }
+    }
+
+    pub fn get_mine_fire_result(
+        &self,
+        player_id: PlayerId,
+        frequency: u16,
+        position: Position,
+        max_mines: usize,
+        max_team_mines: usize,
+    ) -> Result<(), MineFireError> {
+        let mut self_count = 0;
+        let mut team_count = 0;
+
+        let (x, y) = position.to_pixels();
+
+        for weapon in &self.weapons {
+            if weapon.frequency == frequency {
+                match &weapon.kind {
+                    WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                        if bomb.mine {
+                            team_count += 1;
+
+                            if weapon.player_id == player_id {
+                                self_count += 1;
+                            }
+
+                            if self_count >= max_mines {
+                                return Err(MineFireError::SelfCount);
+                            }
+
+                            if team_count >= max_team_mines {
+                                return Err(MineFireError::TeamCount);
+                            }
+
+                            let (weapon_x, weapon_y) = weapon.position.to_pixels();
+
+                            let dx = weapon_x - x;
+                            let dy = weapon_y - y;
+
+                            const MINE_PROXIMITY: i32 = 2;
+
+                            if dx.abs() < MINE_PROXIMITY && dy.abs() < MINE_PROXIMITY {
+                                return Err(MineFireError::Proximity);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn clear_player_weapons(&mut self, player_id: PlayerId) {
+        let mut weapon_index = 0;
+
+        loop {
+            if weapon_index >= self.weapons.len() {
+                break;
+            }
+
+            if self.weapons[weapon_index].player_id == player_id {
+                self.weapons.swap_remove(weapon_index);
+                continue;
+            }
+
+            weapon_index += 1;
         }
     }
 
@@ -294,6 +369,7 @@ impl WeaponManager {
                     self,
                     weapon_index,
                     current_tick,
+                    events,
                 );
 
                 self.weapons[weapon_index].last_update_tick =
@@ -410,6 +486,7 @@ impl WeaponManager {
         weapon_manager: &mut WeaponManager,
         weapon_index: usize,
         current_tick: GameTick,
+        events: &mut Vec<SimulationEvent>,
     ) -> WeaponSimulateResult {
         let weapon = &mut weapon_manager.weapons[weapon_index];
 
@@ -493,7 +570,15 @@ impl WeaponManager {
                 return WeaponSimulateResult::Continue;
             }
             WeaponKind::Repel => {
-                Self::simulate_repel(map, settings, player_manager, weapon_manager, weapon_index);
+                Self::simulate_repel(
+                    map,
+                    settings,
+                    player_manager,
+                    weapon_manager,
+                    weapon_index,
+                    current_tick,
+                    events,
+                );
 
                 return WeaponSimulateResult::Continue;
             }
@@ -731,6 +816,8 @@ impl WeaponManager {
         player_manager: &mut PlayerManager,
         weapon_manager: &mut WeaponManager,
         weapon_index: usize,
+        current_tick: GameTick,
+        events: &mut Vec<SimulationEvent>,
     ) {
         let effect_radius = settings.repel_distance as i32;
         let effect_speed = settings.repel_speed;
@@ -784,6 +871,13 @@ impl WeaponManager {
             if collider.contains(player_position) {
                 if map.get_tile_from_position(&player_position) == TILE_ID_SAFE {
                     continue;
+                }
+
+                if player.id == player_manager.self_id {
+                    events.push(SimulationEvent {
+                        kind: SimulationEventKind::Repel,
+                        tick: current_tick,
+                    })
                 }
 
                 let dx = player_position.x.0 - repel_position.x.0;

@@ -9,8 +9,8 @@ use crate::{
 };
 
 const FRAME_COUNT: u32 = 19;
-const TICKS_PER_FRAME: u32 = 4;
-const MOVE_DURATION: u32 = TICKS_PER_FRAME * 8;
+const TICKS_PER_FRAME: u32 = 2;
+const MOVE_DURATION: u32 = TICKS_PER_FRAME * 5;
 const DURATION: u32 = FRAME_COUNT * TICKS_PER_FRAME;
 
 pub struct ExhaustAnimation {
@@ -18,6 +18,7 @@ pub struct ExhaustAnimation {
     pub position: Position,
     pub velocity: Velocity,
     pub heading: glam::Vec2,
+    pub thrust: glam::Vec2,
     pub rocket: bool,
 }
 
@@ -27,7 +28,8 @@ impl ExhaustAnimation {
         let move_percent = elapsed_ticks as f32 / MOVE_DURATION as f32;
 
         let side = self.heading.perp();
-        let spread = 3.0f32 + move_percent * 5.0f32;
+        let spread_amount = if self.rocket { 9.0f32 } else { 4.0f32 };
+        let spread = 3.0f32 + move_percent * spread_amount;
 
         let center = self.position;
 
@@ -41,7 +43,12 @@ impl ExhaustAnimation {
             PositionUnit(center.y.0 + ((side.y * spread) * 1000.0f32) as i32),
         );
 
-        (left_position, right_position, center)
+        let center_position = Position::new(
+            PositionUnit(center.x.0 + (self.thrust.x * 0.75f32) as i32),
+            PositionUnit(center.y.0 + (self.thrust.y * 0.75f32) as i32),
+        );
+
+        (left_position, right_position, center_position)
     }
 }
 
@@ -114,14 +121,14 @@ impl ExhaustController {
             return;
         }
 
-        self.exhaust_cooldown_ticks = TICKS_PER_FRAME * 2;
+        self.exhaust_cooldown_ticks = 8;
 
         let x = position.x.0 / 1000;
         let y = position.y.0 / 1000;
 
         let center_back = glam::Vec2::new(
-            x as f32 - (heading.x * (radius - 1) as f32),
-            y as f32 - (heading.y * (radius - 1) as f32),
+            x as f32 - (heading.x * (radius + 1) as f32),
+            y as f32 - (heading.y * (radius + 1) as f32),
         );
 
         let start_position = Position::from_pixels(
@@ -129,7 +136,7 @@ impl ExhaustController {
             PixelUnit(center_back.y as i32),
         );
 
-        let mut thrust = heading * -350.0f32 * (100.0f32 / MOVE_DURATION as f32);
+        let mut thrust = heading * -1600.0f32 * (TICKS_PER_FRAME as f32);
 
         if reverse {
             thrust = -thrust;
@@ -145,6 +152,7 @@ impl ExhaustController {
             position: start_position,
             velocity,
             heading,
+            thrust,
             rocket,
         });
     }
@@ -154,13 +162,23 @@ impl ExhaustController {
             return;
         };
 
+        let Some(rocket_sprites) = sprites.get_set(GameSpriteKind::Rocket) else {
+            return;
+        };
+
         for animation in &self.exhaust_animations {
-            let (left_position, right_position, _) = animation.get_positions();
+            let (left_position, right_position, center_position) = animation.get_positions();
             let elapsed = DURATION - animation.remaining_ticks;
 
-            let frame = (elapsed / TICKS_PER_FRAME).min(18);
+            let renderable = if animation.rocket {
+                let frame = (elapsed / TICKS_PER_FRAME).min(25);
 
-            let renderable = &exhaust_sprites.renderables[frame as usize];
+                &rocket_sprites.renderables[frame as usize]
+            } else {
+                let frame = (elapsed / TICKS_PER_FRAME).min(18);
+
+                &exhaust_sprites.renderables[frame as usize]
+            };
 
             Self::draw(
                 render_state,
@@ -174,6 +192,15 @@ impl ExhaustController {
                 right_position,
                 animation.remaining_ticks,
             );
+
+            if animation.rocket {
+                Self::draw(
+                    render_state,
+                    renderable,
+                    center_position,
+                    animation.remaining_ticks,
+                );
+            }
         }
     }
 

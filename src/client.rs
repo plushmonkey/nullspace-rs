@@ -256,6 +256,7 @@ impl Client {
                             input_state,
                             &mut self.connection,
                             &mut self.simulation.player_manager,
+                            &self.simulation.weapon_manager,
                             &mut self.simulation.powerball_manager,
                             &self.map,
                             &self.radar,
@@ -371,6 +372,20 @@ impl Client {
                                 me.status |= StatusFlags::Flash;
                                 ship_controller.ship.status |= StatusFlags::Flash;
                                 me.velocity.clear();
+                            }
+                        }
+                        SimulationEventKind::Repel => {
+                            ship_controller.ship.repel_effect_remaining_ticks =
+                                self.settings.repel_time as u32;
+                        }
+                        SimulationEventKind::AttachSync => {
+                            if let Some(_) = ship_controller.pending_attach_target {
+                                ship_controller.ship.current_energy /= 3;
+
+                                ship_controller.ship.fake_antiwarp_remaining_ticks =
+                                    self.settings.antiwarp_settle_delay as u32;
+
+                                ship_controller.pending_attach_target = None;
                             }
                         }
                     }
@@ -494,10 +509,7 @@ impl Client {
                         .player_manager
                         .attach_player(self_id, target_id);
 
-                    ship_controller.ship.current_energy /= 3;
-
-                    ship_controller.ship.fake_antiwarp_remaining_ticks =
-                        self.settings.antiwarp_settle_delay as u32;
+                    ship_controller.pending_attach_target = Some(target_id);
                 }
             },
             Err(e) => {
@@ -1055,6 +1067,10 @@ impl Client {
                     .player_manager
                     .detach_all_children(leaving.player_id);
 
+                self.simulation
+                    .weapon_manager
+                    .clear_player_weapons(leaving.player_id);
+
                 if let Some(player) = self
                     .simulation
                     .player_manager
@@ -1443,21 +1459,29 @@ impl Client {
                     {
                         log::debug!("{} killed by {}", killed.name, killer.name);
 
-                        let color = if killer.id == self.simulation.player_manager.self_id
-                            || killed.id == self.simulation.player_manager.self_id
-                        {
+                        let self_involved = killer.id == self.simulation.player_manager.self_id
+                            || killed.id == self.simulation.player_manager.self_id;
+
+                        let color = if self_involved {
                             TextColor::Yellow
                         } else {
                             TextColor::Green
                         };
 
-                        self.notifications.push(
-                            format!(
-                                "{}({}) killed by: {}",
-                                killed.name, killed.bounty, killer.name
-                            ),
-                            color,
-                        );
+                        // Only display notifications involving us for now.
+                        // TODO: Add setting for toggling this.
+                        if self_involved {
+                            let bounty = if killer.frequency == killed.frequency {
+                                0
+                            } else {
+                                killed.bounty
+                            };
+
+                            self.notifications.push(
+                                format!("{}({}) killed by: {}", killed.name, bounty, killer.name),
+                                color,
+                            );
+                        }
                     }
                 }
 
@@ -1556,6 +1580,10 @@ impl Client {
             }
             GameServerMessage::PlayerTeamAndShipChange(change) => {
                 let player_count = self.simulation.player_manager.players.len();
+
+                self.simulation
+                    .weapon_manager
+                    .clear_player_weapons(change.player_id);
 
                 if let Some(player) = self
                     .simulation
@@ -2432,7 +2460,7 @@ impl Client {
                         let mut text_x = name_x;
 
                         if let Some(banner_renderable) =
-                            render_state.banner_manager.get_banner(player.id)
+                            render_state.banner_manager.get_banner(child.id)
                         {
                             render_state.sprite_renderer.draw(
                                 &render_state.camera,

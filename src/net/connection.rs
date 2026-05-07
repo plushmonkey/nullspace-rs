@@ -12,6 +12,7 @@ use crate::net::packet::sequencer::*;
 use crate::net::packet::{MAX_PACKET_SIZE, Packet, Serialize};
 use crate::net::udp_socket::UdpSocket;
 use crate::player::PlayerId;
+use crate::weapon::WeaponPacketParameters;
 use thiserror::Error;
 
 use std::net::AddrParseError;
@@ -469,7 +470,9 @@ impl Connection {
                     }
                 }
                 GameServerMessage::LargePosition(message) => {
-                    if message.weapon != 0 {
+                    let weapon_params = WeaponPacketParameters::new(message.weapon);
+
+                    if weapon_params.kind() != 0 {
                         self.weapons_recv = self.weapons_recv.wrapping_add(1);
                     }
                 }

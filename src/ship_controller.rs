@@ -8,7 +8,7 @@ use crate::{
     map::{AnimatedTileKind, Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
     notification::NotificationManager,
-    player::{Player, PlayerManager, StatusFlags},
+    player::{Player, PlayerId, PlayerManager, StatusFlags},
     powerball::PowerballManager,
     prize::{PRIZE_COUNT, apply_prize_id},
     radar::Radar,
@@ -23,7 +23,9 @@ use crate::{
     rng::VieRng,
     ship::{Ship, ShipCapabilityFlag, ShipKind},
     simulation::{
-        game_simulation::WeaponExplosionEvent, player_simulation::PLAYER_EXPLOSION_DURATION,
+        game_simulation::WeaponExplosionEvent,
+        player_simulation::PLAYER_EXPLOSION_DURATION,
+        weapon_simulation::{MineFireError, WeaponManager},
     },
     spawn::generate_spawn_position,
     weapon::{BombWeapon, BulletWeapon, BurstWeapon, DecoyWeapon, WeaponKind},
@@ -32,6 +34,8 @@ use crate::{
 pub struct ShipController {
     pub ship: Ship,
     pub exhaust: ExhaustController,
+    pub notification_cooldown: u32,
+    pub pending_attach_target: Option<PlayerId>,
 }
 
 impl ShipController {
@@ -41,6 +45,8 @@ impl ShipController {
         Self {
             ship: Ship::new(),
             exhaust: ExhaustController::new(),
+            notification_cooldown: 0,
+            pending_attach_target: None,
         }
     }
 
@@ -49,6 +55,7 @@ impl ShipController {
         input_state: &InputState,
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
+        weapon_manager: &WeaponManager,
         powerball_manager: &mut PowerballManager,
         map: &Map,
         radar: &Radar,
@@ -57,17 +64,24 @@ impl ShipController {
         current_tick: GameTick,
         render_state: &mut Option<&mut RenderState>,
     ) {
+        if self.notification_cooldown > 0 {
+            self.notification_cooldown -= 1;
+        }
+
         let player_count = player_manager.players.len();
 
         let me = player_manager
             .get_self_mut()
             .expect("Ship controller player must exist");
 
+        self.exhaust.tick();
+
         if me.enter_delay > 0 && settings.enter_delay > 0 {
             // Clear velocity after explosion.
             if me.enter_delay < settings.enter_delay as u16 {
                 me.velocity.clear();
             }
+            self.pending_attach_target = None;
             return;
         }
 
@@ -87,12 +101,11 @@ impl ShipController {
             me.velocity.clear();
 
             self.reset_ship(settings, current_tick, me.ship_kind);
+            self.pending_attach_target = None;
             return;
         }
 
         let ship_settings = settings.get_ship_settings(me.ship_kind);
-
-        self.exhaust.tick();
 
         self.tick_effects();
         self.perform_rotation(input_state, player_manager);
@@ -144,18 +157,21 @@ impl ShipController {
         }
         self.tick_status(StatusFlags::Antiwarp, ship_settings.antiwarp_energy as u32);
 
-        self.fire_weapons(
-            input_state,
-            connection,
-            player_manager,
-            powerball_manager,
-            map,
-            radar,
-            settings,
-            notifications,
-            current_tick,
-            afterburners_enabled,
-        );
+        if self.pending_attach_target.is_none() {
+            self.fire_weapons(
+                input_state,
+                connection,
+                player_manager,
+                weapon_manager,
+                powerball_manager,
+                map,
+                radar,
+                settings,
+                notifications,
+                current_tick,
+                afterburners_enabled,
+            );
+        }
 
         if let Some(me) = player_manager.get_self_mut() {
             if me.ship_kind != ShipKind::Spectator && !me.is_dead() {
@@ -338,7 +354,9 @@ impl ShipController {
                 self.ship.thrust
             };
 
-            // TODO: Turret penalty
+            if !me.children.is_empty() {
+                thrust = thrust.saturating_sub(ship_settings.turret_thrust_penalty as u32);
+            }
 
             if engine_shutdown {
                 thrust = 0;
@@ -376,7 +394,7 @@ impl ShipController {
                 }
             }
 
-            if input_state.is_down(InputAction::MoveBackward) {
+            if !rocket_enabled && input_state.is_down(InputAction::MoveBackward) {
                 let heading = -me.get_heading();
 
                 me.velocity.x.0 = me.velocity.x.0 + (heading.x * thrust as f32) as i32;
@@ -565,6 +583,7 @@ impl ShipController {
         input_state: &InputState,
         connection: &mut Connection,
         player_manager: &mut PlayerManager,
+        weapon_manager: &WeaponManager,
         powerball_manager: &mut PowerballManager,
         map: &Map,
         radar: &Radar,
@@ -586,6 +605,7 @@ impl ShipController {
 
         let me_ship_kind = me.ship_kind;
         let me_frequency = me.frequency;
+        let me_id = me.id;
 
         let in_safe = map.get_tile_from_position(&me_position) == TILE_ID_SAFE;
         let can_fast_shoot = !afterburners_enabled || !ship_settings.disable_fast_shooting;
@@ -903,64 +923,96 @@ impl ShipController {
                 }
             }
 
-            // TODO: Limit mine count and mine placement
-            // notifications.push_str("", TextColor::Yellow);
-            let mut level = self.ship.bombs - 1;
+            let mine_result = weapon_manager.get_mine_fire_result(
+                me_id,
+                me_frequency,
+                me_position,
+                ship_settings.max_mines as usize,
+                settings.team_max_mines as usize,
+            );
 
-            if flagger_settings && settings.flagger_gun_upgrade {
-                level += 1;
-            }
+            match mine_result {
+                Ok(_) => {
+                    let mut level = self.ship.bombs - 1;
 
-            let mut bomb_weapon = BombWeapon {
-                level,
-                shrapnel_count: 0,
-                shrapnel_level: 0,
-                shrapnel_bouncing: false,
-                mine: true,
-                emp: ship_settings.emp_bomb,
-                remaining_bounces: 0,
-                rng_seed: 0,
-                active_prox: None,
-            };
+                    if flagger_settings && settings.flagger_gun_upgrade {
+                        level += 1;
+                    }
 
-            if self.ship.guns > 0 {
-                bomb_weapon.shrapnel_count = self.ship.shrapnel;
-                bomb_weapon.shrapnel_level = self.ship.guns - 1;
-                bomb_weapon.shrapnel_bouncing =
-                    self.ship.capability & ShipCapabilityFlag::BouncingBullets != 0;
-            }
+                    let mut bomb_weapon = BombWeapon {
+                        level,
+                        shrapnel_count: 0,
+                        shrapnel_level: 0,
+                        shrapnel_bouncing: false,
+                        mine: true,
+                        emp: ship_settings.emp_bomb,
+                        remaining_bounces: 0,
+                        rng_seed: 0,
+                        active_prox: None,
+                    };
 
-            if let Some(me) = player_manager.get_self() {
-                bomb_weapon.initialize_rng_seed(
-                    me_position,
-                    me.velocity,
-                    me.get_heading(),
-                    0,
-                    me.frequency,
-                );
-            }
+                    if self.ship.guns > 0 {
+                        bomb_weapon.shrapnel_count = self.ship.shrapnel;
+                        bomb_weapon.shrapnel_level = self.ship.guns - 1;
+                        bomb_weapon.shrapnel_bouncing =
+                            self.ship.capability & ShipCapabilityFlag::BouncingBullets != 0;
+                    }
 
-            if self.ship.capability & ShipCapabilityFlag::Proximity != 0 {
-                weapon_kind = WeaponKind::ProximityBomb(bomb_weapon);
-            } else {
-                weapon_kind = WeaponKind::Bomb(bomb_weapon);
-            }
+                    if let Some(me) = player_manager.get_self() {
+                        bomb_weapon.initialize_rng_seed(
+                            me_position,
+                            me.velocity,
+                            me.get_heading(),
+                            0,
+                            me.frequency,
+                        );
+                    }
 
-            energy_cost = ship_settings.mine_fire_energy as i32
-                + ship_settings.mine_fire_energy_upgrade as i32 * level as i32;
+                    if self.ship.capability & ShipCapabilityFlag::Proximity != 0 {
+                        weapon_kind = WeaponKind::ProximityBomb(bomb_weapon);
+                    } else {
+                        weapon_kind = WeaponKind::Bomb(bomb_weapon);
+                    }
 
-            if flagger_settings {
-                energy_cost = energy_cost * (settings.flagger_fire_cost_percent / 1000) as i32
-            }
+                    energy_cost = ship_settings.mine_fire_energy as i32
+                        + ship_settings.mine_fire_energy_upgrade as i32 * level as i32;
 
-            if has_super || self.ship.current_energy >= energy_cost as u32 {
-                let delay = (ship_settings.mine_fire_delay as i32).max(bomb_fire_delay);
+                    if flagger_settings {
+                        energy_cost =
+                            energy_cost * (settings.flagger_fire_cost_percent / 1000) as i32
+                    }
 
-                self.ship.next_bullet_tick = current_tick + delay as i32;
-                self.ship.next_bomb_tick = current_tick + delay as i32;
-                self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
-            } else {
-                weapon_kind = WeaponKind::None;
+                    if has_super || self.ship.current_energy >= energy_cost as u32 {
+                        let delay = (ship_settings.mine_fire_delay as i32).max(bomb_fire_delay);
+
+                        self.ship.next_bullet_tick = current_tick + delay as i32;
+                        self.ship.next_bomb_tick = current_tick + delay as i32;
+                        self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                    } else {
+                        weapon_kind = WeaponKind::None;
+                    }
+                }
+                Err(e) => {
+                    if self.notification_cooldown == 0 {
+                        match e {
+                            MineFireError::Proximity => {
+                                notifications.push_str(
+                                    "You cannot lay mines on top of each other.",
+                                    TextColor::Yellow,
+                                );
+                            }
+                            MineFireError::SelfCount => {
+                                notifications
+                                    .push_str("You have too many mines.", TextColor::Yellow);
+                            }
+                            MineFireError::TeamCount => {
+                                notifications
+                                    .push_str("Team has too many mines.", TextColor::Yellow);
+                            }
+                        }
+                        self.notification_cooldown = 100;
+                    }
+                }
             }
         }
 

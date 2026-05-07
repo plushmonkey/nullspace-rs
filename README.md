@@ -1,8 +1,8 @@
 # nullspace-rs
-Subspace client implementation in Rust. Only connects and spectates a random person.  
+Subspace client implementation in Rust.  
 
 ## Running
-Requires the graphics folder from Continuum to be in the same directory. All of the graphics files must be bm2, except ships and tiles must be png.  
+Requires the graphics folder from Continuum to be in the same directory. All of the graphics files must be bm2.  
 If running this on the web, the graphics folder should be in the root directory of the web server. The client will fetch these from `https://server/graphics/`.  
 
 There's no login screen implemented yet, so the login details have to be configured depending on the platform.  
@@ -18,7 +18,7 @@ WebGPU has limited browser support currently. It will run on major browsers, but
 It also requires running the proxy to handle the WebTransport connection. Run this on the same server as the game server.  
 This requires public and private keys. If running this locally, specific openssl generation settings are required for a temporary certificate with the correct curve. See the proxy readme for more info.  
 
-Modify `www/index.html` to setup the proxy info and login details.  
+Modify `www/index.html` to setup the proxy info.  
 
 ## Building
 ### Web
