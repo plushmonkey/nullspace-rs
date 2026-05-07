@@ -290,6 +290,7 @@ impl Client {
                                 &mut self.connection,
                                 &self.settings,
                                 explosion_event,
+                                Some(&mut self.notifications),
                             );
 
                             if took_damage {
@@ -1666,6 +1667,7 @@ impl Client {
                                     self.connection.get_game_tick(),
                                     message.prize_id as i32,
                                     Some(&mut self.notifications),
+                                    false,
                                 ) {
                                     log::error!("{e}");
                                 }
@@ -1683,22 +1685,25 @@ impl Client {
                             self.connection.get_game_tick(),
                             message.prize_id as i32,
                             Some(&mut self.notifications),
+                            false,
                         ) {
                             log::error!("{e}");
                         }
+
+                        ship_controller.ship.bounty = ship_controller.ship.bounty.wrapping_add(1);
                     }
 
                     if message.prize_id == Prize::Warp as i16 {
                         let player_count = self.simulation.player_manager.players.len();
 
                         if let Some(me) = self.simulation.player_manager.get_self_mut() {
-                            ship_controller.warp_with_energy_loss(
+                            ship_controller.warp(
                                 me,
                                 &self.settings,
                                 &self.map,
                                 self.connection.get_game_tick(),
                                 player_count,
-                                1000,
+                                None,
                             );
                         }
                     }

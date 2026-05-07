@@ -9,6 +9,7 @@ use crate::{
     notification::NotificationManager,
     player::{Player, PlayerManager, StatusFlags},
     powerball::PowerballManager,
+    prize::{PRIZE_COUNT, apply_prize_id},
     radar::Radar,
     render::{
         animation_renderer::get_animation_index,
@@ -155,24 +156,10 @@ impl ShipController {
                     let tile_id = map.get_tile_from_position(&me_position);
 
                     if tile_id == TILE_ID_THOR_KILLER {
-                        self.warp_with_energy_loss(
-                            me,
-                            settings,
-                            map,
-                            current_tick,
-                            player_count,
-                            1000,
-                        );
+                        self.warp(me, settings, map, current_tick, player_count, Some(1000));
                     } else if tile_id == TILE_ID_ANIMATED_ENEMY_BRICK {
                         if current_tick.value() % 200 == 0 {
-                            self.warp_with_energy_loss(
-                                me,
-                                settings,
-                                map,
-                                current_tick,
-                                player_count,
-                                1000,
-                            );
+                            self.warp(me, settings, map, current_tick, player_count, Some(1000));
                         }
                     }
                 }
@@ -297,13 +284,13 @@ impl ShipController {
 
                 if distance_sq < wormhole_radius_sq {
                     let new_energy = (self.ship.current_energy as f32 * 0.2f32) as u32;
-                    self.warp_with_energy_loss(
+                    self.warp(
                         me,
                         settings,
                         map,
                         current_tick,
                         player_count,
-                        new_energy,
+                        Some(new_energy),
                     );
                     return false;
                 }
@@ -450,14 +437,14 @@ impl ShipController {
         }
     }
 
-    pub fn warp_with_energy_loss(
+    pub fn warp(
         &mut self,
         me: &mut Player,
         settings: &ArenaSettings,
         map: &Map,
         current_tick: GameTick,
         player_count: usize,
-        new_energy: u32,
+        new_energy: Option<u32>,
     ) {
         let rng = VieRng::new(current_tick.value() as i32);
         let new_position =
@@ -469,7 +456,10 @@ impl ShipController {
         // TODO: watchdamage - This should generate a wormhole damage event (all warp events are considered wormhole in watchdamage)
 
         self.ship.status |= StatusFlags::Flash;
-        self.ship.current_energy = new_energy;
+
+        if let Some(new_energy) = new_energy {
+            self.ship.current_energy = new_energy;
+        }
     }
 
     pub fn reset_ship(
@@ -1113,6 +1103,7 @@ impl ShipController {
         connection: &mut Connection,
         settings: &ArenaSettings,
         event: &WeaponExplosionEvent,
+        notifications: Option<&mut NotificationManager>,
     ) -> bool {
         if self.ship.current_energy == 0 {
             return false;
@@ -1288,6 +1279,45 @@ impl ShipController {
 
                         if let Err(e) = connection.send_reliable(&death) {
                             log::error!("{e}");
+                        }
+                    }
+                } else {
+                    let damage_factor =
+                        settings.get_ship_settings(me.ship_kind).damage_factor as i32;
+
+                    if me.bounty > 0 && damage_factor > 0 {
+                        let current_tick = connection.get_game_tick();
+
+                        let chance = (((damage_factor * 200000) / damage) + 1) as u32;
+                        let mut rng = VieRng::xorshift(
+                            (me_position.x.0 ^ me_position.y.0 ^ current_tick.value() as i32)
+                                as u32,
+                        );
+
+                        if rng % chance == 0 {
+                            let mut prize_id = 7;
+
+                            while prize_id == 7
+                                || prize_id == 13
+                                || prize_id == 14
+                                || prize_id == 17
+                                || prize_id == 18
+                                || prize_id == 25
+                            {
+                                rng = VieRng::xorshift(rng);
+                                prize_id = (rng % PRIZE_COUNT as u32) as i32;
+                            }
+
+                            if let Err(e) = apply_prize_id(
+                                settings,
+                                &mut self.ship,
+                                current_tick,
+                                -prize_id,
+                                notifications,
+                                true,
+                            ) {
+                                log::error!("{e}");
+                            }
                         }
                     }
                 }

@@ -5,22 +5,23 @@ pub struct VieRng {
 
 impl VieRng {
     pub fn new(seed: i32) -> Self {
-        Self {
-            seed,
-        }
+        Self { seed }
     }
 
     // Computes next value and mutates seed.
     pub fn next(&mut self) -> u32 {
         self.seed = self.peek_next();
-        
+
         self.seed as u32
     }
 
     // Computes next value without mutating seed.
     pub fn peek_next(&self) -> i32 {
         let new_seed = self.seed as u32;
-        let mut new_seed = (new_seed % 0x1F31D).wrapping_mul(0x41A7).wrapping_sub((new_seed / 0x1F31D).wrapping_mul(0xB14)).wrapping_add(0x7B);
+        let mut new_seed = (new_seed % 0x1F31D)
+            .wrapping_mul(0x41A7)
+            .wrapping_sub((new_seed / 0x1F31D).wrapping_mul(0xB14))
+            .wrapping_add(0x7B);
 
         if (new_seed >> 31) > 0 {
             new_seed = new_seed.wrapping_add(0x7FFFFFFF);
@@ -36,7 +37,10 @@ impl VieRng {
         let new_seed = new_seed.wrapping_add(new_seed >> 31);
 
         let old_seed = self.seed as u32;
-        let mut new_seed = (old_seed % 0x1F31D).wrapping_mul(0x41A7).wrapping_sub(new_seed.wrapping_mul(0xB14)).wrapping_add(0x7B);
+        let mut new_seed = (old_seed % 0x1F31D)
+            .wrapping_mul(0x41A7)
+            .wrapping_sub(new_seed.wrapping_mul(0xB14))
+            .wrapping_add(0x7B);
 
         if (new_seed >> 31) > 0 {
             new_seed = new_seed.wrapping_add(0x7FFFFFFF);
@@ -45,5 +49,15 @@ impl VieRng {
         self.seed = new_seed as i32;
 
         self.seed as u16
+    }
+
+    pub fn xorshift(seed: u32) -> u32 {
+        let mut seed = seed;
+
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+
+        seed
     }
 }

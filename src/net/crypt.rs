@@ -139,8 +139,8 @@ impl VieEncrypt {
         let edx = GameTick::now(0).value().wrapping_mul(0xCCCCCCCD);
 
         let seed = GameTick::now(0).value();
-        let r1 = VieEncrypt::xorshift(seed) & 0xFFFF;
-        let r2 = VieEncrypt::xorshift(seed ^ 0x12345678) & 0xFFFF;
+        let r1 = VieRng::xorshift(seed) & 0xFFFF;
+        let r2 = VieRng::xorshift(seed ^ 0x12345678) & 0xFFFF;
 
         let mut res = (r1 << 16).wrapping_add(edx >> 3).wrapping_add(r2);
 
@@ -155,15 +155,5 @@ impl VieEncrypt {
         server_key == self.session_key
             || server_key == self.client_key
             || server_key == ((!self.client_key).wrapping_add(1))
-    }
-
-    fn xorshift(seed: u32) -> u32 {
-        let mut seed = seed;
-
-        seed ^= seed << 13;
-        seed ^= seed >> 17;
-        seed ^= seed << 5;
-
-        seed
     }
 }

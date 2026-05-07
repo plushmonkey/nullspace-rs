@@ -55,6 +55,8 @@ pub enum Prize {
     Portal,
 }
 
+pub const PRIZE_COUNT: usize = 29;
+
 #[derive(Error, Debug)]
 pub enum PrizeError {
     #[error("invalid prize id")]
@@ -196,6 +198,7 @@ impl PrizeManager {
                                 current_tick,
                                 green.prize_id,
                                 Some(notifications),
+                                false,
                             ) {
                                 log::error!("{e}");
                             }
@@ -204,13 +207,13 @@ impl PrizeManager {
                                 ship_controller.ship.bounty.wrapping_add(1);
 
                             if green.prize_id == Prize::Warp as i32 {
-                                ship_controller.warp_with_energy_loss(
+                                ship_controller.warp(
                                     player,
                                     settings,
                                     map,
                                     current_tick,
                                     player_count,
-                                    1000,
+                                    None,
                                 );
                             }
 
@@ -415,7 +418,7 @@ pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: Game
         let random_prize = generate_prize_id(settings, &mut rng, false);
 
         if is_valid_multiprize_id(random_prize) {
-            if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize, None) {
+            if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize, None, false) {
                 applied += 1;
             }
         }
@@ -496,6 +499,7 @@ pub fn apply_prize_id(
     tick: GameTick,
     prize_id: i32,
     notifications: Option<&mut NotificationManager>,
+    damage: bool,
 ) -> Result<(Prize, bool), PrizeError> {
     let mut prize = Prize::try_from(prize_id)?;
     let negative = prize_id < 0;
@@ -512,7 +516,7 @@ pub fn apply_prize_id(
                 let random_prize = generate_prize_id(settings, &mut rng, false);
 
                 if is_valid_multiprize_id(random_prize) {
-                    apply_prize_id(settings, ship, tick, random_prize, None)?;
+                    apply_prize_id(settings, ship, tick, random_prize, None, damage)?;
                     break;
                 }
             }
@@ -868,7 +872,7 @@ pub fn apply_prize_id(
                     let random_prize = generate_prize_id(settings, &mut rng, false);
 
                     if is_valid_multiprize_id(random_prize) {
-                        apply_prize_id(settings, ship, tick, random_prize, None)?;
+                        apply_prize_id(settings, ship, tick, random_prize, None, false)?;
                         break;
                     }
                 }
@@ -943,9 +947,13 @@ pub fn apply_prize_id(
                 POSITIVE_NOTIFICATIONS[prize as usize]
             };
 
-            // TODO: Damage
+            let (damage_str, text_color) = if damage {
+                ("DAMAGE: ", TextColor::Yellow)
+            } else {
+                ("", TextColor::Green)
+            };
 
-            notifications.push(format!("{}{}", mesg, max_str), TextColor::Green);
+            notifications.push(format!("{}{}{}", damage_str, mesg, max_str), text_color);
         }
     }
 
