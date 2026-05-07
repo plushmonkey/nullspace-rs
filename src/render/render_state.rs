@@ -44,6 +44,7 @@ pub enum HudTimerKind {
     Super,
     Flag,
     Portal,
+    Crown,
 }
 
 // Holds the window render state and the game renderers that have custom shaders.
@@ -463,6 +464,10 @@ impl RenderState {
             }
             HudTimerKind::Portal => {
                 let ui_y = top_y + renderable_height * 3;
+                (ui_x, ui_y)
+            }
+            HudTimerKind::Crown => {
+                let ui_y = top_y + renderable_height * 4;
                 (ui_x, ui_y)
             }
         }

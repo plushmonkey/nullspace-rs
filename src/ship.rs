@@ -89,6 +89,8 @@ pub struct Ship {
     pub flag_remaining_ticks: u32,
     pub repel_effect_remaining_ticks: u32,
 
+    pub crown_remaining_ticks: u32,
+
     pub portal_position: Option<Position>,
 
     pub multifire: bool,
@@ -132,6 +134,7 @@ impl Ship {
             portal_remaining_ticks: 0,
             flag_remaining_ticks: 0,
             repel_effect_remaining_ticks: 0,
+            crown_remaining_ticks: 0,
             portal_position: None,
             multifire: false,
             status: 0,
@@ -147,6 +150,18 @@ impl Ship {
 
     pub fn is_max_energy(&self) -> bool {
         self.current_energy >= self.max_energy
+    }
+
+    pub fn set_crown_timer(&mut self, timer: Option<u32>) {
+        if let Some(timer) = timer {
+            if timer == 0 {
+                self.crown_remaining_ticks = 0xFFFFFFFF;
+            } else {
+                self.crown_remaining_ticks = timer;
+            }
+        } else {
+            self.crown_remaining_ticks = 0;
+        }
     }
 
     pub fn reset(&mut self, settings: &ArenaSettings, current_tick: GameTick, ship_kind: ShipKind) {

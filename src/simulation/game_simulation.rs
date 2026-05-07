@@ -28,6 +28,7 @@ pub enum SimulationEventKind {
     WeaponExplosion(WeaponExplosionEvent),
     PowerballPickupRequest(u8, GameTick),
     PowerballTimeout(u8),
+    PowerballGoal(u8),
     DoorWarp,
     Repel,
     AttachSync,
@@ -187,12 +188,20 @@ impl Simulation {
 
             if powerball.state == PowerballState::World {
                 for _ in 0..sim_ticks {
-                    integrate_powerball(
+                    let in_goal = integrate_powerball(
                         map,
                         settings.powerball_mode,
                         settings.powerball_bounce,
                         powerball,
                     );
+
+                    if in_goal && powerball.carrier_id == self.player_manager.self_id {
+                        self.events.push(SimulationEvent {
+                            kind: SimulationEventKind::PowerballGoal(ball_id as u8),
+                            tick: self.tick,
+                        });
+                        break;
+                    }
 
                     if powerball.velocity.x.0 == 0 && powerball.velocity.y.0 == 0 {
                         break;

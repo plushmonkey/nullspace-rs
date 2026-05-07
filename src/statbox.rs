@@ -749,24 +749,50 @@ impl Statbox {
         render_spectator: bool,
     ) {
         if let Some(spectate_sprites) = game_sprites.get_set(GameSpriteKind::Spectate) {
-            let spectating = if let Some(player) = player_manager.get_by_id(self.sorted_players[i])
-            {
-                player.ship_kind == ShipKind::Spectator
+            let player_id = self.sorted_players[i];
+            let mut attached = false;
+
+            if let Some(me) = player_manager.get_self() {
+                for child_id in &me.children {
+                    if player_id == *child_id {
+                        attached = true;
+                        break;
+                    }
+                }
+            }
+
+            let (spectating, crown) = if let Some(player) = player_manager.get_by_id(player_id) {
+                (
+                    player.ship_kind == ShipKind::Spectator && render_spectator,
+                    player.has_crown,
+                )
             } else {
-                false
-            } && render_spectator;
+                (false, false)
+            };
 
             let selected = i == self.selected_index;
 
-            if spectating || selected {
+            // This should never happen, but just in case.
+            if spectating && attached {
+                attached = false;
+            }
+
+            let mut index = -1 + selected as i32 + (spectating as i32 * 2) + (attached as i32 * 4);
+
+            if crown {
+                index += 6;
+            }
+        
+            if index >= 0 {
+                /*
                 let index = match (spectating, selected) {
                     (false, false) => 0,
                     (false, true) => 0,
                     (true, false) => 1,
                     (true, true) => 2,
-                };
+                };*/
 
-                let renderable = &spectate_sprites.renderables[index];
+                let renderable = &spectate_sprites.renderables[index as usize];
 
                 render_state.sprite_renderer.draw(
                     &render_state.ui_camera,

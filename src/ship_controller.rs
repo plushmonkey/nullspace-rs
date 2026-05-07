@@ -76,6 +76,20 @@ impl ShipController {
 
         self.exhaust.tick();
 
+        if self.ship.crown_remaining_ticks > 0 && self.ship.crown_remaining_ticks != 0xFFFFFFFF {
+            self.ship.crown_remaining_ticks -= 1;
+
+            if self.ship.crown_remaining_ticks == 0 {
+                let message = crate::net::packet::c2s::KothEndMessage {};
+
+                if let Err(e) = connection.send_reliable(&message) {
+                    log::info!("{e}");
+                }
+
+                me.has_crown = false;
+            }
+        }
+
         if me.enter_delay > 0 && settings.enter_delay > 0 {
             // Clear velocity after explosion.
             if me.enter_delay < settings.enter_delay as u16 {
@@ -1535,6 +1549,41 @@ impl ShipController {
                     TextColor::Yellow,
                     TextAlignment::Right,
                 );
+            }
+        }
+
+        if self.ship.crown_remaining_ticks > 0 {
+            if let Some(crown_indicator_sprites) = sprites.get_set(GameSpriteKind::CrownIndicator) {
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+                let renderable = &crown_indicator_sprites.renderables[animation_index];
+
+                let (ui_x, ui_y) = render_state
+                    .get_hud_timer_position(crate::render::render_state::HudTimerKind::Crown);
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    ui_x as i32,
+                    ui_y,
+                    Layer::Gauges,
+                );
+
+                if self.ship.crown_remaining_ticks != 0xFFFFFFFF {
+                    let remaining_time = self.ship.crown_remaining_ticks as f32 / 100.0f32;
+                    let text_y = ui_y + renderable.size[1] as i32
+                        - render_state.text_renderer.character_height;
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        &format_smolstr!("{:.1}", remaining_time),
+                        ui_x as i32,
+                        text_y,
+                        Layer::Gauges,
+                        TextColor::Yellow,
+                        TextAlignment::Right,
+                    );
+                }
             }
         }
     }

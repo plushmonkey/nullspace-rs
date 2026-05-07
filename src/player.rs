@@ -133,6 +133,7 @@ pub struct Player {
     pub flash_remaining_ticks: u32,
 
     pub carrying_ball: bool,
+    pub has_crown: bool,
 }
 
 impl Player {
@@ -144,6 +145,7 @@ impl Player {
         frequency: u16,
         flag_points: i32,
         kill_points: i32,
+        has_crown: bool,
     ) -> Self {
         Self {
             id,
@@ -186,6 +188,7 @@ impl Player {
             flash_remaining_ticks: 0,
 
             carrying_ball: false,
+            has_crown,
         }
     }
 

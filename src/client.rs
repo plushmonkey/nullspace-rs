@@ -355,6 +355,16 @@ impl Client {
                                 log::error!("{e}");
                             }
                         }
+                        SimulationEventKind::PowerballGoal(ball_id) => {
+                            let message = crate::net::packet::c2s::PowerballScoreMessage {
+                                ball_id: *ball_id,
+                                timestamp: self.connection.get_game_tick(),
+                            };
+
+                            if let Err(e) = self.connection.send_reliable(&message) {
+                                log::error!("{e}");
+                            }
+                        }
                         SimulationEventKind::DoorWarp => {
                             let player_count = self.simulation.player_manager.players.len();
                             let rng = VieRng::new(self.connection.get_game_tick().value() as i32);
@@ -539,6 +549,14 @@ impl Client {
                     rockets: ship_controller.ship.rockets,
                     portals: ship_controller.ship.portals,
                 };
+
+                if flag_timer == 0 {
+                    if ship_controller.ship.crown_remaining_ticks > 0
+                        && ship_controller.ship.crown_remaining_ticks != 0xFFFFFFFF
+                    {
+                        flag_timer = (ship_controller.ship.crown_remaining_ticks / 100) as u16;
+                    }
+                }
 
                 let data = ExtraPositionData {
                     energy: (ship_controller.ship.current_energy / 1000) as u16,
@@ -1013,6 +1031,7 @@ impl Client {
                         entry.frequency,
                         entry.flag_points,
                         entry.kill_points,
+                        entry.has_koth,
                     );
 
                     player.wins = entry.kills;
@@ -1882,6 +1901,61 @@ impl Client {
                     }
                 }
             }
+            GameServerMessage::KothAddTime(message) => {
+                if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                    me.has_crown = true;
+                }
+
+                if let MovementController::Ship(ship_controller) = &mut self.controller {
+                    if ship_controller.ship.crown_remaining_ticks == 0xFFFFFFFF {
+                        ship_controller.ship.crown_remaining_ticks = message.added_time;
+                    } else {
+                        ship_controller.ship.crown_remaining_ticks += message.added_time;
+                    }
+                }
+            }
+            GameServerMessage::KothSetTimer(message) => {
+                if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                    me.has_crown = true;
+                }
+
+                if let MovementController::Ship(ship_controller) = &mut self.controller {
+                    ship_controller.ship.set_crown_timer(Some(message.timer));
+                }
+            }
+            GameServerMessage::KothReset(message) => {
+                if !message.player_id.valid() {
+                    for player in &mut self.simulation.player_manager.players {
+                        player.has_crown = message.add_crown;
+                    }
+
+                    if let MovementController::Ship(ship_controller) = &mut self.controller {
+                        if message.add_crown {
+                            ship_controller.ship.set_crown_timer(Some(message.timer));
+                        } else {
+                            ship_controller.ship.set_crown_timer(None);
+                        }
+                    }
+                } else {
+                    if let Some(player) = self
+                        .simulation
+                        .player_manager
+                        .get_by_id_mut(message.player_id)
+                    {
+                        player.has_crown = message.add_crown;
+                    }
+
+                    if message.player_id == self.simulation.player_manager.self_id {
+                        if let MovementController::Ship(ship_controller) = &mut self.controller {
+                            if message.add_crown {
+                                ship_controller.ship.set_crown_timer(Some(message.timer));
+                            } else {
+                                ship_controller.ship.set_crown_timer(None);
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -2147,6 +2221,21 @@ impl Client {
         }
     }
 
+    fn get_highest_points_player_id(&self) -> PlayerId {
+        let mut highest_points_player = PlayerId::invalid();
+        let mut highest_points = 0;
+
+        for player in &self.simulation.player_manager.players {
+            let points = player.get_points();
+            if points > highest_points {
+                highest_points = points;
+                highest_points_player = player.id;
+            }
+        }
+
+        highest_points_player
+    }
+
     fn render_players(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         let self_position = Position::new(
             PositionUnit(render_state.camera.position.x as i32 * 16000),
@@ -2158,6 +2247,8 @@ impl Client {
         } else {
             self.connection.player_id
         };
+
+        let highest_points_player_id = self.get_highest_points_player_id();
 
         if let Some(player) = self.simulation.player_manager.get_by_id(self_view_id) {
             let color_kind = if player.flag_count > 0 {
@@ -2188,6 +2279,7 @@ impl Client {
         };
 
         let view_freq = self.get_freq();
+        let current_tick = self.connection.get_game_tick();
 
         for player in &self.simulation.player_manager.players {
             if player.ship_kind == ShipKind::Spectator {
@@ -2370,32 +2462,16 @@ impl Client {
                     }
                 }
 
-                let (player_name_view, name_color) =
-                    Self::get_player_name_view(player, self.get_freq());
-
                 if visible {
-                    let mut text_x = name_x;
-
-                    if let Some(banner_renderable) =
-                        render_state.banner_manager.get_banner(player.id)
-                    {
-                        render_state.sprite_renderer.draw(
-                            &render_state.camera,
-                            &banner_renderable,
-                            name_x,
-                            name_y + 1,
-                            Layer::AfterShips,
-                        );
-                        text_x += 16;
-                    }
-
-                    render_state.draw_world_text(
-                        &player_name_view,
-                        text_x,
+                    Self::render_player_name(
+                        render_state,
+                        sprites,
+                        player,
+                        name_x,
                         name_y,
-                        Layer::AfterShips,
-                        name_color,
-                        TextAlignment::Left,
+                        self.get_freq(),
+                        current_tick,
+                        player.id == highest_points_player_id,
                     );
                 }
 
@@ -2454,36 +2530,91 @@ impl Client {
                             }
                         }
 
-                        let (child_name_view, child_name_color) =
-                            Self::get_player_name_view(child, self.get_freq());
-
-                        let mut text_x = name_x;
-
-                        if let Some(banner_renderable) =
-                            render_state.banner_manager.get_banner(child.id)
-                        {
-                            render_state.sprite_renderer.draw(
-                                &render_state.camera,
-                                &banner_renderable,
-                                name_x,
-                                child_y + 1,
-                                Layer::AfterShips,
-                            );
-                            text_x += 16;
-                        }
-
-                        render_state.draw_world_text(
-                            &child_name_view,
-                            text_x,
+                        Self::render_player_name(
+                            render_state,
+                            sprites,
+                            child,
+                            name_x,
                             child_y,
-                            Layer::AfterShips,
-                            child_name_color,
-                            TextAlignment::Left,
+                            self.get_freq(),
+                            current_tick,
+                            child.id == highest_points_player_id,
                         );
                     }
 
                     child_y += render_state.text_renderer.character_height;
                 }
+            }
+        }
+    }
+
+    fn render_player_name(
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        player: &Player,
+        name_x: i32,
+        name_y: i32,
+        view_freq: u16,
+        current_tick: GameTick,
+        highest_score: bool,
+    ) {
+        let (player_name_view, name_color) = Self::get_player_name_view(player, view_freq);
+
+        let mut text_x = name_x;
+
+        if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
+            render_state.sprite_renderer.draw(
+                &render_state.camera,
+                &banner_renderable,
+                name_x,
+                name_y + 1,
+                Layer::AfterShips,
+            );
+            text_x += 16;
+        }
+
+        let name_width = player_name_view.len() as i32 * render_state.text_renderer.character_width;
+
+        render_state.draw_world_text(
+            &player_name_view,
+            text_x,
+            name_y,
+            Layer::AfterShips,
+            name_color,
+            TextAlignment::Left,
+        );
+
+        let mut x = text_x + name_width + 3;
+
+        if player.has_crown {
+            if let Some(crown_sprites) = sprites.get_set(GameSpriteKind::Crown) {
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+                let renderable = &crown_sprites.renderables[animation_index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.camera,
+                    renderable,
+                    x,
+                    name_y - 5,
+                    Layer::AfterShips,
+                );
+
+                x += renderable.size[0] as i32 + 3;
+            }
+        }
+
+        if highest_score {
+            if let Some(points_shield_sprites) = sprites.get_set(GameSpriteKind::PointsShield) {
+                let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
+                let renderable = &points_shield_sprites.renderables[animation_index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.camera,
+                    renderable,
+                    x,
+                    name_y - 2,
+                    Layer::AfterShips,
+                );
             }
         }
     }
@@ -2549,6 +2680,8 @@ impl Client {
 
     fn render_weapons(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         let tick_value = self.connection.get_game_tick().value();
+
+        let highest_points_player_id = self.get_highest_points_player_id();
 
         for weapon in &self.simulation.weapon_manager.weapons {
             let x_pixels = weapon.position.x.0 / 1000;
@@ -2716,31 +2849,15 @@ impl Client {
                             let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                             let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                            let (player_name_view, name_color) =
-                                Self::get_player_name_view(player, self.get_freq());
-
-                            let mut text_x = name_x;
-
-                            if let Some(banner_renderable) =
-                                render_state.banner_manager.get_banner(player.id)
-                            {
-                                render_state.sprite_renderer.draw(
-                                    &render_state.camera,
-                                    &banner_renderable,
-                                    name_x,
-                                    name_y + 1,
-                                    Layer::AfterShips,
-                                );
-                                text_x += 16;
-                            }
-
-                            render_state.draw_world_text(
-                                &player_name_view,
-                                text_x,
+                            Self::render_player_name(
+                                render_state,
+                                sprites,
+                                player,
+                                name_x,
                                 name_y,
-                                Layer::Ships,
-                                name_color,
-                                TextAlignment::Left,
+                                self.get_freq(),
+                                self.connection.get_game_tick(),
+                                player.id == highest_points_player_id,
                             );
                         }
                     }
