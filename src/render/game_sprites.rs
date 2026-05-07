@@ -139,6 +139,7 @@ pub enum GameSpriteKind {
     Shield,
     TeamTurret,
     Prize,
+    Exhaust,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -181,6 +182,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (10, 1),     // Shield
     (20, 2),     // TeamTurret
     (10, 1),     // Prize
+    (19, 2),     // Exhaust
     (5, 2),      // Repel
 ];
 
@@ -247,7 +249,7 @@ impl GameSpriteLoader {
             let index = kind as usize;
             let (cols, rows) = GAME_SPRITE_SHEET_DEFINITIONS[index];
 
-            let linear_sampler = kind == GameSpriteKind::Ships;
+            let linear_sampler = kind == GameSpriteKind::Ships || kind == GameSpriteKind::Exhaust;
 
             sprites.sprites[index] = SpriteSet::new(render_state, &img, cols, rows, linear_sampler);
         }
@@ -325,6 +327,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::Shield, "graphics/shield.bm2"),
             (GameSpriteKind::TeamTurret, "graphics/turret2.bm2"),
             (GameSpriteKind::Prize, "graphics/prizes.bm2"),
+            (GameSpriteKind::Exhaust, "graphics/exhaust.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

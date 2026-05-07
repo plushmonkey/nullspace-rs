@@ -3,6 +3,7 @@ use smol_str::format_smolstr;
 use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
+    exhaust::ExhaustController,
     input::{InputAction, InputState},
     map::{AnimatedTileKind, Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
@@ -30,13 +31,17 @@ use crate::{
 
 pub struct ShipController {
     pub ship: Ship,
+    pub exhaust: ExhaustController,
 }
 
 impl ShipController {
     const REPEL_DELAY_TICKS: i32 = 50;
 
     pub fn new() -> Self {
-        Self { ship: Ship::new() }
+        Self {
+            ship: Ship::new(),
+            exhaust: ExhaustController::new(),
+        }
     }
 
     pub fn tick(
@@ -86,6 +91,8 @@ impl ShipController {
         }
 
         let ship_settings = settings.get_ship_settings(me.ship_kind);
+
+        self.exhaust.tick();
 
         self.tick_effects();
         self.perform_rotation(input_state, player_manager);
@@ -356,13 +363,35 @@ impl ShipController {
 
                 me.velocity.x.0 = me.velocity.x.0 + (heading.x * thrust as f32) as i32;
                 me.velocity.y.0 = me.velocity.y.0 + (heading.y * thrust as f32) as i32;
+
+                if let Some(me_position) = me.position {
+                    self.exhaust.drop_exhaust(
+                        heading,
+                        me_position,
+                        me.velocity,
+                        ship_settings.get_radius() as i32,
+                        rocket_enabled,
+                        false,
+                    );
+                }
             }
 
             if input_state.is_down(InputAction::MoveBackward) {
-                let heading = me.get_heading();
+                let heading = -me.get_heading();
 
-                me.velocity.x.0 = me.velocity.x.0 - (heading.x * thrust as f32) as i32;
-                me.velocity.y.0 = me.velocity.y.0 - (heading.y * thrust as f32) as i32;
+                me.velocity.x.0 = me.velocity.x.0 + (heading.x * thrust as f32) as i32;
+                me.velocity.y.0 = me.velocity.y.0 + (heading.y * thrust as f32) as i32;
+
+                if let Some(me_position) = me.position {
+                    self.exhaust.drop_exhaust(
+                        me.get_heading(),
+                        me_position,
+                        me.velocity,
+                        ship_settings.get_radius() as i32,
+                        rocket_enabled,
+                        true,
+                    );
+                }
             }
         }
 
@@ -1337,6 +1366,8 @@ impl ShipController {
         settings: &ArenaSettings,
         current_tick: GameTick,
     ) {
+        self.exhaust.render(render_state, sprites);
+
         self.render_energy(render_state, sprites);
         self.render_energybar(render_state, sprites, settings, current_tick);
 
