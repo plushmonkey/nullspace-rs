@@ -175,7 +175,7 @@ impl SpectateController {
             "      "
         };
 
-        let shields_string = if extra.items.super_active {
+        let shields_string = if extra.items.shield_active {
             "Shields"
         } else {
             ""
