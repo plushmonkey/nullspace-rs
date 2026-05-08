@@ -486,6 +486,12 @@ impl Client {
         let self_id = self.simulation.player_manager.self_id;
         let target_id = self.statbox.get_selected_player_id();
 
+        if let Some(me) = self.simulation.player_manager.get_self() {
+            if me.carrying_ball {
+                return;
+            }
+        }
+
         match can_attach_to(
             &self.simulation.player_manager,
             ship_controller,
@@ -756,8 +762,14 @@ impl Client {
     pub fn handle_chat_command(&mut self, command: ChatCommand) {
         match &command {
             ChatCommand::ChangeFrequency(frequency) => {
+                if *frequency > 0xFFFF {
+                    return;
+                }
+
+                let frequency = *frequency as u16;
+
                 if let Some(me) = self.simulation.player_manager.get_self() {
-                    if me.frequency == *frequency {
+                    if me.frequency == frequency {
                         self.notifications
                             .push_str("You are already on that frequency.", TextColor::Yellow);
                         return;
@@ -765,9 +777,7 @@ impl Client {
                 }
 
                 if let MovementController::Ship(ship_controller) = &self.controller {
-                    if ship_controller.ship.status & StatusFlags::Safety == 0
-                        && !ship_controller.ship.is_max_energy()
-                    {
+                    if !ship_controller.ship.is_max_energy() {
                         self.notifications.push_str(
                             "Not enough energy to change frequencies.",
                             TextColor::Yellow,
@@ -776,9 +786,7 @@ impl Client {
                     }
                 }
 
-                let message = crate::net::packet::c2s::FrequencyChangeMessage {
-                    frequency: *frequency,
-                };
+                let message = crate::net::packet::c2s::FrequencyChangeMessage { frequency };
 
                 if let Err(e) = self.connection.send_reliable(&message) {
                     log::error!("{e}");
@@ -1664,6 +1672,7 @@ impl Client {
                     killed.losses = killed.losses.wrapping_add(1);
                     killed.flag_count = 0;
                     killed.flag_remaining_ticks = 0;
+                    killed.carrying_ball = false;
 
                     if let Some(killed_position) = killed.position {
                         let was_moving = killed.velocity.x.0 != 0 || killed.velocity.y.0 != 0;
@@ -1702,12 +1711,52 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerFrequencyChange(change) => {
+                self.simulation
+                    .weapon_manager
+                    .clear_player_weapons(change.player_id);
+
                 if let Some(player) = self
                     .simulation
                     .player_manager
                     .get_by_id_mut(change.player_id)
                 {
                     player.frequency = change.frequency;
+                    player.flag_count = 0;
+                    player.flag_remaining_ticks = 0;
+                    player.carrying_ball = false;
+                }
+
+                if change.player_id == self.simulation.player_manager.self_id {
+                    self.simulation.powerball_manager.carry_state = None;
+
+                    if let MovementController::Ship(ship_controller) = &mut self.controller {
+                        let current_tick = self.connection.get_game_tick();
+
+                        if ship_controller.ship.status & StatusFlags::Safety == 0 {
+                            let player_count = self.simulation.player_manager.players.len();
+
+                            if let Some(me) = self.simulation.player_manager.get_self_mut() {
+                                ship_controller.reset_ship(
+                                    &self.settings,
+                                    current_tick,
+                                    me.ship_kind,
+                                );
+
+                                ship_controller.warp(
+                                    me,
+                                    &self.settings,
+                                    &self.map,
+                                    current_tick,
+                                    player_count,
+                                    None,
+                                );
+                            }
+                        }
+
+                        ship_controller.ship.current_energy = 1000;
+                        ship_controller.ship.portal_position = None;
+                        ship_controller.ship.portal_remaining_ticks = 0;
+                    }
                 }
 
                 if self
@@ -1746,13 +1795,16 @@ impl Client {
 
                     player.ship_kind = change.ship_kind;
                     player.frequency = change.frequency;
+                    player.flag_count = 0;
+                    player.flag_remaining_ticks = 0;
+                    player.carrying_ball = false;
 
-                    if player.status & StatusFlags::Safety == 0 {
-                        player.position = None;
-                        player.velocity.clear();
-                    }
+                    player.position = None;
+                    player.velocity.clear();
 
                     if player.id == self.connection.player_id {
+                        self.simulation.powerball_manager.carry_state = None;
+
                         if player.ship_kind == ShipKind::Spectator {
                             player.position = Some(previous_position);
                             self.controller =
@@ -1769,38 +1821,28 @@ impl Client {
                                 }
                             }
 
-                            let mut perform_warp = true;
+                            let rng = VieRng::new(GameTick::now(0).value() as i32);
 
-                            if let MovementController::Ship(_) = &self.controller {
-                                if player.status & StatusFlags::Safety != 0 {
-                                    perform_warp = false;
-                                }
-                            }
+                            let position = generate_spawn_position(
+                                &self.settings,
+                                &self.map,
+                                player.ship_kind,
+                                change.frequency,
+                                rng,
+                                player_count,
+                            );
 
-                            if perform_warp {
-                                let rng = VieRng::new(GameTick::now(0).value() as i32);
+                            player.position = Some(position);
 
-                                let position = generate_spawn_position(
-                                    &self.settings,
-                                    &self.map,
-                                    player.ship_kind,
-                                    change.frequency,
-                                    rng,
-                                    player_count,
-                                );
+                            let mut ship_controller = ShipController::new();
 
-                                player.position = Some(position);
+                            ship_controller.reset_ship(
+                                &self.settings,
+                                self.connection.get_game_tick(),
+                                player.ship_kind,
+                            );
 
-                                let mut ship_controller = ShipController::new();
-
-                                ship_controller.reset_ship(
-                                    &self.settings,
-                                    self.connection.get_game_tick(),
-                                    player.ship_kind,
-                                );
-
-                                self.controller = MovementController::Ship(ship_controller);
-                            }
+                            self.controller = MovementController::Ship(ship_controller);
                         }
                     }
                 }

@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub enum ChatCommand {
-    ChangeFrequency(u16),
+    ChangeFrequency(u32),
     Go(SmolStr),
 }
 
@@ -418,22 +418,28 @@ impl ChatController {
             return None;
         }
 
-        if self.input[0] == b'=' {
-            let Ok(msg) = std::str::from_utf8(&self.input[1..]) else {
-                return None;
-            };
+        let Ok(input) = std::str::from_utf8(&self.input) else {
+            return None;
+        };
 
-            if let Ok(freq) = msg.parse::<u16>() {
-                return Some(ChatCommand::ChangeFrequency(freq));
-            }
+        let input = input.trim();
 
+        if input.len() < 2 {
             return None;
         }
 
-        if self.input[0] == b'?' {
-            let Ok(command) = std::str::from_utf8(&self.input[1..]) else {
-                return None;
-            };
+        let invoker = input.as_bytes()[0];
+
+        if invoker == b'=' {
+            if let Ok(freq) = input[1..].parse::<u16>() {
+                return Some(ChatCommand::ChangeFrequency(freq as u32));
+            }
+
+            return Some(ChatCommand::ChangeFrequency(0xFFFFFFFF));
+        }
+
+        if invoker == b'?' {
+            let command = &input[1..];
 
             if command.starts_with("go") {
                 let target = &command[2..].trim();

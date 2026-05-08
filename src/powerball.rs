@@ -147,7 +147,6 @@ impl PowerballManager {
         message: &PowerballPositionMessage,
     ) -> bool {
         if message.ball_id >= 8 {
-            log::warn!("Got ball position for invalid ball {}", message.ball_id);
             return false;
         }
 

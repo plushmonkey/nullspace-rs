@@ -238,7 +238,7 @@ impl SpectateController {
                 row,
                 x,
                 y,
-                Layer::AfterChat,
+                Layer::Gauges,
                 TextColor::White,
                 TextAlignment::Left,
             );
