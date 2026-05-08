@@ -552,10 +552,8 @@ impl Client {
                 };
 
                 if flag_timer == 0 {
-                    if ship_controller.ship.crown_remaining_ticks > 0
-                        && ship_controller.ship.crown_remaining_ticks != 0xFFFFFFFF
-                    {
-                        flag_timer = (ship_controller.ship.crown_remaining_ticks / 100) as u16;
+                    if ship_controller.crown_remaining_ticks > 0 {
+                        flag_timer = (ship_controller.crown_remaining_ticks / 100) as u16;
                     }
                 }
 
@@ -2027,11 +2025,7 @@ impl Client {
                 }
 
                 if let MovementController::Ship(ship_controller) = &mut self.controller {
-                    if ship_controller.ship.crown_remaining_ticks == 0xFFFFFFFF {
-                        ship_controller.ship.crown_remaining_ticks = message.added_time;
-                    } else {
-                        ship_controller.ship.crown_remaining_ticks += message.added_time;
-                    }
+                    ship_controller.crown_remaining_ticks += message.added_time;
                 }
             }
             GameServerMessage::KothSetTimer(message) => {
@@ -2040,7 +2034,7 @@ impl Client {
                 }
 
                 if let MovementController::Ship(ship_controller) = &mut self.controller {
-                    ship_controller.ship.set_crown_timer(Some(message.timer));
+                    ship_controller.crown_remaining_ticks = message.timer;
                 }
             }
             GameServerMessage::KothReset(message) => {
@@ -2050,11 +2044,7 @@ impl Client {
                     }
 
                     if let MovementController::Ship(ship_controller) = &mut self.controller {
-                        if message.add_crown {
-                            ship_controller.ship.set_crown_timer(Some(message.timer));
-                        } else {
-                            ship_controller.ship.set_crown_timer(None);
-                        }
+                        ship_controller.crown_remaining_ticks = message.timer;
                     }
                 } else {
                     if let Some(player) = self
@@ -2067,11 +2057,7 @@ impl Client {
 
                     if message.player_id == self.simulation.player_manager.self_id {
                         if let MovementController::Ship(ship_controller) = &mut self.controller {
-                            if message.add_crown {
-                                ship_controller.ship.set_crown_timer(Some(message.timer));
-                            } else {
-                                ship_controller.ship.set_crown_timer(None);
-                            }
+                            ship_controller.crown_remaining_ticks = message.timer;
                         }
                     }
                 }
@@ -2324,6 +2310,10 @@ impl Client {
                 ColorRenderableKind::RadarEnemyFlagCarry
             } else {
                 let mut color = ColorRenderableKind::RadarEnemyTarget;
+
+                if player.has_crown {
+                    color = ColorRenderableKind::RadarEnemyCrown;
+                }
 
                 if !is_decoy {
                     for child_id in &player.children {

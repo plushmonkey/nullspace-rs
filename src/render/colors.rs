@@ -27,6 +27,7 @@ pub enum ColorRenderableKind {
     RadarTeammateFlagCarry = 30,
 
     RadarEnemyFlagCarry = 31,
+    RadarEnemyCrown = 32,
     RadarEnemyTarget = 33,
     RadarEnemy = 34,
     RadarBomb = 35,

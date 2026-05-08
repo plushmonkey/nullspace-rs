@@ -36,6 +36,7 @@ pub struct ShipController {
     pub exhaust: ExhaustController,
     pub notification_cooldown: u32,
     pub pending_attach_target: Option<PlayerId>,
+    pub crown_remaining_ticks: u32,
 }
 
 impl ShipController {
@@ -47,6 +48,7 @@ impl ShipController {
             exhaust: ExhaustController::new(),
             notification_cooldown: 0,
             pending_attach_target: None,
+            crown_remaining_ticks: 0,
         }
     }
 
@@ -76,10 +78,10 @@ impl ShipController {
 
         self.exhaust.tick();
 
-        if self.ship.crown_remaining_ticks > 0 && self.ship.crown_remaining_ticks != 0xFFFFFFFF {
-            self.ship.crown_remaining_ticks -= 1;
+        if self.crown_remaining_ticks > 0 {
+            self.crown_remaining_ticks -= 1;
 
-            if self.ship.crown_remaining_ticks == 0 {
+            if self.crown_remaining_ticks == 0 {
                 let message = crate::net::packet::c2s::KothEndMessage {};
 
                 if let Err(e) = connection.send_reliable(&message) {
@@ -1561,7 +1563,13 @@ impl ShipController {
             }
         }
 
-        if self.ship.crown_remaining_ticks > 0 {
+        let has_crown = if let Some(me) = player_manager.get_self() {
+            me.has_crown
+        } else {
+            false
+        };
+
+        if has_crown {
             if let Some(crown_indicator_sprites) = sprites.get_set(GameSpriteKind::CrownIndicator) {
                 let animation_index = get_animation_index(current_tick.value(), 10, 10 * 10);
                 let renderable = &crown_indicator_sprites.renderables[animation_index];
@@ -1577,8 +1585,8 @@ impl ShipController {
                     Layer::Gauges,
                 );
 
-                if self.ship.crown_remaining_ticks != 0xFFFFFFFF {
-                    let remaining_time = self.ship.crown_remaining_ticks as f32 / 100.0f32;
+                if self.crown_remaining_ticks > 0 {
+                    let remaining_time = self.crown_remaining_ticks as f32 / 100.0f32;
                     let text_y = ui_y + renderable.size[1] as i32
                         - render_state.text_renderer.character_height;
 

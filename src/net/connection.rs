@@ -418,8 +418,13 @@ impl Connection {
                         (rtt / 2 + server_timestamp).wrapping_sub(current_timestamp);
 
                     let first_sync = self.sync_history.is_empty();
+                    // Discard timings that come in while downloading so the delay doesn't create timer jitter.
+                    let acceptable_stat = first_sync || self.sequencer.huge_chunk_data.is_empty();
 
-                    self.sync_history.insert(current_ping, current_time_diff);
+                    if acceptable_stat {
+                        self.sync_history.insert(current_ping, current_time_diff);
+                    }
+
                     let new_tick_diff = self.sync_history.get_average_time_diff();
 
                     if first_sync {
