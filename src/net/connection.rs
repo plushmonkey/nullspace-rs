@@ -44,6 +44,15 @@ pub enum ConnectionError {
 
     #[error("{0}")]
     RecvError(#[from] PacketError),
+
+    #[error("No data received (timeout)")]
+    Timeout,
+
+    #[error("Failed to connect to proxy.")]
+    ProxyConnect,
+
+    #[error("Failed to receive data from proxy.")]
+    ProxyRecv,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -161,10 +170,14 @@ pub struct Connection {
     pub packets_sent: u32,
     pub packets_recv: u32,
 
+    pub ticks_since_recv: u32,
+
     pub send_extra_position_info: bool,
 }
 
 impl Connection {
+    const TIMEOUT_TICKS: u32 = 4500;
+
     pub fn new(socket: SocketKind) -> Result<Self, ConnectionError> {
         let client_key = VieEncrypt::generate_key();
 
@@ -183,6 +196,7 @@ impl Connection {
             weapons_recv: 0,
             packets_sent: 0,
             packets_recv: 0,
+            ticks_since_recv: 0,
             send_extra_position_info: false,
         };
 
@@ -195,6 +209,7 @@ impl Connection {
 
     pub fn tick(&mut self) {
         self.current_tick = self.current_tick + 1;
+        self.ticks_since_recv = self.ticks_since_recv.saturating_add(1);
 
         if self.current_tick > self.last_sync_req + 500 {
             let sync_request = ClockSyncRequestMessage::new(
@@ -338,8 +353,21 @@ impl Connection {
     }
 
     pub fn receive_message(&mut self) -> Result<Option<ServerMessage>, ConnectionError> {
+        if self.state == ConnectionState::Disconnected {
+            return Ok(None);
+        }
+
         if let Some(message) = self.sequencer.tick(self.current_tick) {
             self.send_packet(&message)?;
+        }
+
+        if self.state != ConnectionState::Disconnected
+            && self.ticks_since_recv > Self::TIMEOUT_TICKS
+        {
+            self.state = ConnectionState::Disconnected;
+            let disconnect = crate::net::packet::bi::DisconnectMessage {};
+            if let Err(_) = self.send(&disconnect) {}
+            return Err(ConnectionError::Timeout);
         }
 
         let packet = self.recv_packet()?;
@@ -347,6 +375,7 @@ impl Connection {
         // If we received a packet and it got processed into a complete message, return it.
         if let Some(packet) = packet {
             log::trace!("Recv {:?}", &packet.data[..packet.size]);
+            self.ticks_since_recv = 0;
 
             let result = ServerMessage::parse(&packet.data[..packet.size])?;
 
@@ -508,22 +537,33 @@ impl Connection {
         }
     }
 
-    fn recv_packet(&mut self) -> Result<Option<Packet>, std::io::Error> {
+    fn recv_packet(&mut self) -> Result<Option<Packet>, ConnectionError> {
         let packet = match &mut self.socket {
-            SocketKind::Udp(socket) => socket.try_recv(),
-            #[cfg(target_arch = "wasm32")]
-            SocketKind::WebTransport(socket) => socket.try_recv(),
-        };
+            SocketKind::Udp(socket) => match socket.try_recv() {
+                Ok(packet) => packet,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        return Ok(None);
+                    }
 
-        let packet = match packet {
-            Ok(packet) => packet,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    return Ok(None);
+                    if self.state == ConnectionState::Playing {
+                        self.state = ConnectionState::Disconnected;
+                    }
+
+                    return Err(e.into());
                 }
+            },
+            #[cfg(target_arch = "wasm32")]
+            SocketKind::WebTransport(socket) => match socket.try_recv() {
+                Ok(packet) => packet,
+                Err(e) => {
+                    if self.state == ConnectionState::Playing {
+                        self.state = ConnectionState::Disconnected;
+                    }
 
-                return Err(e);
-            }
+                    return Err(e);
+                }
+            },
         };
 
         let Some(mut packet) = packet else {

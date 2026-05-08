@@ -122,7 +122,7 @@ impl RenderState {
             }
         }
 
-        log::info!("Using present mode {:?}", req_present_mode);
+        log::debug!("Using present mode {:?}", req_present_mode);
 
         let surface_format = surface_caps
             .formats
@@ -130,7 +130,7 @@ impl RenderState {
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
-        log::info!("Surface format {:?}", surface_format);
+        log::debug!("Surface format {:?}", surface_format);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,

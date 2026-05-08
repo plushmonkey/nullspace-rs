@@ -17,9 +17,13 @@ use winit::platform::web::EventLoopExtWebSys;
 
 use crate::{
     client::Client,
+    game_view::render_game,
     input::{InputMapping, InputState, is_input_keycode},
     menu::MenuAction,
-    net::packet::c2s::{RegistrationFormMessage, RegistrationSex},
+    net::{
+        connection::{ConnectionError, ConnectionState},
+        packet::c2s::{RegistrationFormMessage, RegistrationSex},
+    },
 };
 use crate::{
     menu::Menu,
@@ -38,6 +42,7 @@ pub mod client;
 pub mod clock;
 pub mod exhaust;
 pub mod flag;
+pub mod game_view;
 pub mod input;
 pub mod map;
 pub mod math;
@@ -141,6 +146,30 @@ impl ApplicationLoadingState {
     }
 }
 
+struct ApplicationConnectErrorState {
+    message: String,
+}
+
+impl ApplicationConnectErrorState {
+    pub fn new(message: String) -> Self {
+        Self { message }
+    }
+
+    pub fn render(&self, render_state: &mut RenderState) {
+        let x_pixels = render_state.config.width / 2;
+        let y_pixels = render_state.config.height / 2;
+
+        render_state.draw_ui_text(
+            &self.message,
+            x_pixels as i32,
+            y_pixels as i32,
+            Layer::TopMost,
+            render::text_renderer::TextColor::DarkRed,
+            render::text_renderer::TextAlignment::Center,
+        );
+    }
+}
+
 struct ApplicationPlayingState {
     timer: Timer, // Used for delta time calculations for client update.
     client: Client,
@@ -160,7 +189,7 @@ impl ApplicationPlayingState {
             let ip = config.remote_ip.clone().unwrap_or("127.0.0.1".to_string());
             let port = config.remote_port.unwrap_or(5000);
 
-            log::info!("Connecting to {}:{}", ip, port);
+            log::debug!("Connecting to {}:{}", ip, port);
 
             socket = crate::net::udp_socket::UdpSocket::new(&ip.trim(), port).unwrap();
         }
@@ -217,19 +246,15 @@ impl ApplicationPlayingState {
         }
     }
 
-    pub fn update(&mut self, render_state: &mut RenderState) {
+    pub fn update(&mut self, render_state: &mut RenderState) -> Result<(), ConnectionError> {
         let dt = self.timer.elapsed();
 
         render_state
             .animation_renderer
             .update(self.client.connection.get_game_tick());
 
-        if let Err(e) = self
-            .client
-            .update(Some(render_state), &mut self.input_state, dt)
-        {
-            log::error!("{e}");
-        };
+        self.client
+            .update(Some(render_state), &mut self.input_state, dt)?;
 
         self.sprites
             .colors
@@ -238,11 +263,17 @@ impl ApplicationPlayingState {
         self.menu.handled = false;
         self.client.chat_controller.full_history = self.menu.is_open();
         self.action_input = false;
+
+        Ok(())
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
-        self.client
-            .render(render_state, &self.sprites, self.menu.is_open());
+        render_game(
+            &mut self.client,
+            render_state,
+            &self.sprites,
+            self.menu.is_open(),
+        );
 
         if self.menu.is_open() {
             self.menu.render(render_state, &self.sprites);
@@ -394,6 +425,7 @@ impl ApplicationPlayingState {
 enum ApplicationState {
     Loading(ApplicationLoadingState),
     Playing(ApplicationPlayingState),
+    ConnectError(ApplicationConnectErrorState),
 }
 
 impl ApplicationConfig {
@@ -465,6 +497,7 @@ impl Application {
         match &mut self.state {
             ApplicationState::Playing(playing) => playing.handle_key(event_loop, code, is_pressed),
             ApplicationState::Loading(_) => {}
+            ApplicationState::ConnectError(_) => {}
         }
     }
 
@@ -472,12 +505,26 @@ impl Application {
         match &mut self.state {
             ApplicationState::Playing(playing) => playing.handle_text(c),
             ApplicationState::Loading(_) => {}
+            ApplicationState::ConnectError(_) => {}
         }
     }
 
     pub fn update(&mut self) {
         match &mut self.state {
-            ApplicationState::Playing(playing) => playing.update(&mut self.render_state),
+            ApplicationState::Playing(playing) => {
+                if let Err(e) = playing.update(&mut self.render_state) {
+                    match &playing.client.connection.state {
+                        ConnectionState::Playing | ConnectionState::Disconnected => {
+                            //
+                        }
+                        _ => {
+                            self.state = ApplicationState::ConnectError(
+                                ApplicationConnectErrorState::new(e.to_string()),
+                            );
+                        }
+                    }
+                }
+            }
             ApplicationState::Loading(loading) => {
                 let sprites = loading.sprite_loader.try_create(&mut self.render_state);
 
@@ -488,6 +535,7 @@ impl Application {
                     ));
                 }
             }
+            ApplicationState::ConnectError(_) => {}
         }
     }
 
@@ -495,11 +543,13 @@ impl Application {
         match &mut self.state {
             ApplicationState::Playing(playing) => playing.render(&mut self.render_state),
             ApplicationState::Loading(loading) => loading.render(&mut self.render_state),
+            ApplicationState::ConnectError(error) => error.render(&mut self.render_state),
         };
 
         let game_sprites = match &self.state {
             ApplicationState::Playing(playing) => Some(&playing.sprites),
             ApplicationState::Loading(_) => None,
+            ApplicationState::ConnectError(_) => None,
         };
 
         self.render_state.render(window.clone(), game_sprites)

@@ -11,13 +11,18 @@ use std::sync::mpsc::channel;
 
 use wasm_bindgen::JsValue;
 
+enum ProxyMessage {
+    Packet(Option<Packet>),
+    Error(ConnectionError),
+}
+
 pub struct WebTransportSocket {
     _transport: web_sys::WebTransport,
     reader: web_sys::ReadableStreamDefaultReader,
     writer: web_sys::WritableStreamDefaultWriter,
 
-    sender: Sender<Option<Packet>>,
-    receiver: Receiver<Option<Packet>>,
+    sender: Sender<ProxyMessage>,
+    receiver: Receiver<ProxyMessage>,
 }
 
 impl WebTransportSocket {
@@ -33,11 +38,19 @@ impl WebTransportSocket {
             options.set_server_certificate_hashes(&[cert_hash]);
         }
 
-        // The browser or web_sys doesn't seem to handle the error as Err, so just unwrap.
-        let transport = web_sys::WebTransport::new_with_options(url, &options).unwrap();
+        let Ok(transport) = web_sys::WebTransport::new_with_options(url, &options) else {
+            return Err(ConnectionError::ProxyConnect);
+        };
+
         let datagrams = transport.datagrams();
-        let reader = web_sys::ReadableStreamDefaultReader::new(&datagrams.readable()).unwrap();
-        let writer = web_sys::WritableStreamDefaultWriter::new(&datagrams.writable()).unwrap();
+
+        let Ok(reader) = web_sys::ReadableStreamDefaultReader::new(&datagrams.readable()) else {
+            return Err(ConnectionError::ProxyConnect);
+        };
+
+        let Ok(writer) = web_sys::WritableStreamDefaultWriter::new(&datagrams.writable()) else {
+            return Err(ConnectionError::ProxyConnect);
+        };
 
         let (sender, receiver) = channel();
 
@@ -60,7 +73,14 @@ impl WebTransportSocket {
 
         wasm_bindgen_futures::spawn_local(async move {
             loop {
-                let result = JsFuture::from(reader.read()).await.unwrap();
+                let Ok(result) = JsFuture::from(reader.read()).await else {
+                    if let Err(e) = sender.send(ProxyMessage::Error(ConnectionError::ProxyRecv)) {
+                        log::error!("{e}");
+                    }
+
+                    // Unrecoverable error, so terminate task.
+                    return;
+                };
 
                 let chunk_value =
                     js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
@@ -74,27 +94,32 @@ impl WebTransportSocket {
                 packet.data[..size].copy_from_slice(&chunk);
                 packet.size = size;
 
-                if let Err(e) = sender.send(Some(packet)) {
+                if let Err(e) = sender.send(ProxyMessage::Packet(Some(packet))) {
                     log::error!("{e}");
                 }
             }
         });
     }
 
-    pub fn try_recv(&mut self) -> Result<Option<Packet>, std::io::Error> {
-        let Ok(packet) = self.receiver.try_recv() else {
+    pub fn try_recv(&mut self) -> Result<Option<Packet>, ConnectionError> {
+        let Ok(message) = self.receiver.try_recv() else {
             // Nothing in the process queue, so just return.
             return Ok(None);
         };
 
-        let Some(packet) = packet else {
-            // We haven't received any new data, so just return.
-            return Ok(None);
-        };
+        match message {
+            ProxyMessage::Packet(packet) => {
+                let Some(packet) = packet else {
+                    // We haven't received any new data, so just return.
+                    return Ok(None);
+                };
 
-        let packet = packet.clone();
+                let packet = packet.clone();
 
-        Ok(Some(packet))
+                Ok(Some(packet))
+            }
+            ProxyMessage::Error(error) => Err(error),
+        }
     }
 
     pub fn send(&self, data: &[u8]) -> Result<usize, PacketSendError> {

@@ -64,7 +64,7 @@ impl ShipController {
         settings: &ArenaSettings,
         notifications: &mut NotificationManager,
         current_tick: GameTick,
-        render_state: &mut Option<&mut RenderState>,
+        render_state: Option<&mut RenderState>,
     ) {
         if self.notification_cooldown > 0 {
             self.notification_cooldown -= 1;
@@ -85,7 +85,7 @@ impl ShipController {
                 let message = crate::net::packet::c2s::KothEndMessage {};
 
                 if let Err(e) = connection.send_reliable(&message) {
-                    log::info!("{e}");
+                    log::error!("{e}");
                 }
 
                 me.has_crown = false;
@@ -2043,7 +2043,7 @@ impl ShipController {
 
     fn render_emp_trail(
         player_manager: &PlayerManager,
-        render_state: &mut Option<&mut RenderState>,
+        render_state: Option<&mut RenderState>,
         current_tick: GameTick,
     ) {
         let Some(me) = player_manager.get_self() else {
