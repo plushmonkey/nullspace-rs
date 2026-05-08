@@ -58,36 +58,47 @@ pub fn render_game(
                 render_state.camera.position.y += y_jitter;
             }
 
-            if let MovementController::Ship(ship_controller) = &client.controller {
-                ship_controller.render(
-                    &client.simulation.player_manager,
-                    render_state,
-                    sprites,
-                    &client.settings,
-                    client.connection.get_game_tick(),
-                );
-
-                if let Some(portal_position) = ship_controller.ship.portal_position {
-                    let remaining_ticks = ship_controller.ship.portal_remaining_ticks;
-                    let t = (remaining_ticks as f32 * 1.5f32) as u32 % 100;
-
-                    let mut position = portal_position;
-
-                    if t < 25 {
-                        position.y.0 += 16000;
-                    } else if t < 50 {
-                        position.x.0 += 16000;
-                        position.y.0 += 16000;
-                    } else if t < 75 {
-                        position.x.0 += 16000;
-                    }
-
-                    client.radar.add_indicator(
-                        ColorRenderableKind::RadarPortal,
-                        position,
+            match &client.controller {
+                MovementController::Spectate(spectate_controller) => {
+                    spectate_controller.render(
+                        render_state,
+                        sprites,
+                        &client.simulation.player_manager,
+                        &client.settings,
                         client.connection.get_game_tick(),
-                        IndicatorFlag::SmallMap,
                     );
+                }
+                MovementController::Ship(ship_controller) => {
+                    ship_controller.render(
+                        &client.simulation.player_manager,
+                        render_state,
+                        sprites,
+                        &client.settings,
+                        client.connection.get_game_tick(),
+                    );
+
+                    if let Some(portal_position) = ship_controller.ship.portal_position {
+                        let remaining_ticks = ship_controller.ship.portal_remaining_ticks;
+                        let t = (remaining_ticks as f32 * 1.5f32) as u32 % 100;
+
+                        let mut position = portal_position;
+
+                        if t < 25 {
+                            position.y.0 += 16000;
+                        } else if t < 50 {
+                            position.x.0 += 16000;
+                            position.y.0 += 16000;
+                        } else if t < 75 {
+                            position.x.0 += 16000;
+                        }
+
+                        client.radar.add_indicator(
+                            ColorRenderableKind::RadarPortal,
+                            position,
+                            client.connection.get_game_tick(),
+                            IndicatorFlag::SmallMap,
+                        );
+                    }
                 }
             }
 

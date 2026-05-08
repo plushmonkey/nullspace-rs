@@ -1,4 +1,8 @@
+use smol_str::format_smolstr;
+
 use crate::{
+    arena_settings::ArenaSettings,
+    clock::GameTick,
     input::{InputAction, InputState},
     math::MAX_POSITION,
     net::{
@@ -8,7 +12,13 @@ use crate::{
             s2c::{PlayerLeavingMessage, PlayerTeamAndShipChangeMessage},
         },
     },
-    player::{PlayerId, PlayerManager},
+    player::{Player, PlayerId, PlayerManager},
+    render::{
+        game_sprites::{GameSpriteKind, GameSprites},
+        layer::Layer,
+        render_state::RenderState,
+        text_renderer::{TextAlignment, TextColor},
+    },
     ship::ShipKind,
     statbox::Statbox,
 };
@@ -17,7 +27,6 @@ pub struct SpectateController {
     pub spectate_player_id: Option<PlayerId>,
     pub last_spectate_freq: u16,
     freecam: bool,
-    // TODO: Render and handle input if enabled in settings.
     pub xradar: bool,
 }
 
@@ -27,7 +36,7 @@ impl SpectateController {
             spectate_player_id: None,
             last_spectate_freq: 0xFFFF,
             freecam: false,
-            xradar: true,
+            xradar: false,
         }
     }
 
@@ -37,6 +46,7 @@ impl SpectateController {
         player_manager: &mut PlayerManager,
         connection: &mut Connection,
         statbox: &Statbox,
+        settings: &ArenaSettings,
     ) {
         if let Some(spectate_id) = self.spectate_player_id {
             if let Some(player) = player_manager.get_by_id(spectate_id) {
@@ -96,6 +106,115 @@ impl SpectateController {
                     self.spectate_player(Some(selected_player_id), player_manager, connection);
                 }
             }
+        }
+
+        if input_state.is_triggered(InputAction::XRadar) {
+            self.xradar = !self.xradar;
+        }
+
+        if settings.no_spec_xradar {
+            self.xradar = false;
+        }
+    }
+
+    pub fn render(
+        &self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        player_manager: &PlayerManager,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
+    ) {
+        if let Some(spectate_player_id) = self.spectate_player_id {
+            if let Some(spectate_player) = player_manager.get_by_id(spectate_player_id) {
+                Self::render_extra_data(render_state, spectate_player, current_tick);
+            }
+        }
+
+        if !settings.no_spec_xradar {
+            if let Some(icon_sprites) = sprites.get_set(GameSpriteKind::Icons) {
+                let icon_width = icon_sprites.renderables[0].size[0] as i32;
+                let icon_height = icon_sprites.renderables[0].size[1] as i32;
+
+                let x = render_state.config.width as i32 - icon_width;
+                let y = (render_state.config.height / 2) as i32 - 26 * 2 + icon_height * 4;
+
+                let index = if self.xradar { 36 } else { 37 };
+
+                let renderable = &icon_sprites.renderables[index];
+
+                render_state.sprite_renderer.draw(
+                    &render_state.ui_camera,
+                    renderable,
+                    x,
+                    y,
+                    Layer::Gauges,
+                );
+            }
+        }
+    }
+
+    fn render_extra_data(render_state: &mut RenderState, player: &Player, current_tick: GameTick) {
+        const EXTRA_DATA_TIMEOUT: i32 = 300;
+
+        let Some(last_extra_tick) = player.last_extra_data_timestamp else {
+            return;
+        };
+
+        let Some(extra) = player.extra_position_data else {
+            return;
+        };
+
+        if current_tick.diff(&last_extra_tick) > EXTRA_DATA_TIMEOUT {
+            return;
+        }
+
+        let super_string = if extra.items.super_active {
+            "Super!"
+        } else {
+            "      "
+        };
+
+        let shields_string = if extra.items.super_active {
+            "Shields"
+        } else {
+            ""
+        };
+
+        let rows = [
+            format_smolstr!("Engy:{}  S2CLatency:{}ms", extra.energy, extra.s2c_latency),
+            format_smolstr!(
+                "Brst:{}  Repl:{}  Prtl:{}",
+                extra.items.bursts,
+                extra.items.repels,
+                extra.items.portals
+            ),
+            format_smolstr!("Decy:{}  Thor:{}", extra.items.decoys, extra.items.thors),
+            format_smolstr!("Wall:{}  Rckt:{}", extra.items.bricks, extra.items.rockets),
+            format_smolstr!("{}  {}", super_string, shields_string),
+            format_smolstr!("Timer:{}", extra.flag_timer),
+        ];
+
+        let x = ((render_state.config.width / 2) & !1) as i32;
+        let mut y = 0;
+
+        let row_count = 5 + (extra.flag_timer > 0) as usize;
+
+        for i in 0..row_count {
+            let row = &rows[i];
+
+            render_state.text_renderer.draw(
+                &mut render_state.sprite_renderer,
+                &render_state.ui_camera,
+                row,
+                x,
+                y,
+                Layer::AfterChat,
+                TextColor::White,
+                TextAlignment::Left,
+            );
+
+            y += render_state.text_renderer.character_height;
         }
     }
 

@@ -307,6 +307,7 @@ impl Client {
                             &mut self.simulation.player_manager,
                             &mut self.connection,
                             &self.statbox,
+                            &self.settings,
                         );
 
                         self.prize_manager.tick(
