@@ -806,7 +806,8 @@ impl Serialize for PowerballRequestMessage {
 // 0x21
 pub struct PowerballScoreMessage {
     pub ball_id: u8,
-    pub timestamp: GameTick,
+    pub x: i16,
+    pub y: i16,
 }
 
 impl Serialize for PowerballScoreMessage {
@@ -814,7 +815,8 @@ impl Serialize for PowerballScoreMessage {
         Packet::empty()
             .concat_u8(0x21)
             .concat_u8(self.ball_id)
-            .concat_u32(self.timestamp.value())
+            .concat_i16(self.x)
+            .concat_i16(self.y)
     }
 }
 

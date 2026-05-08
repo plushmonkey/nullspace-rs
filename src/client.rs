@@ -428,10 +428,11 @@ impl Client {
                             log::error!("{e}");
                         }
                     }
-                    SimulationEventKind::PowerballGoal(ball_id) => {
+                    SimulationEventKind::PowerballGoal(ball_id, x, y) => {
                         let message = crate::net::packet::c2s::PowerballScoreMessage {
                             ball_id: *ball_id,
-                            timestamp: self.connection.get_game_tick(),
+                            x: *x,
+                            y: *y,
                         };
 
                         if let Err(e) = self.connection.send_reliable(&message) {
