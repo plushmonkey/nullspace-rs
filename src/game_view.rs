@@ -861,19 +861,21 @@ fn render_weapons(client: &mut Client, render_state: &mut RenderState, sprites: 
                             Layer::Ships,
                         );
 
-                        let name_x = x_pixels + (renderable.size[0] as i32) / 2;
-                        let name_y = y_pixels + (renderable.size[1] as i32) / 2;
+                        if player.id != client.simulation.player_manager.self_id {
+                            let name_x = x_pixels + (renderable.size[0] as i32) / 2;
+                            let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                        render_player_name(
-                            render_state,
-                            sprites,
-                            player,
-                            name_x,
-                            name_y,
-                            client.get_freq(),
-                            client.connection.get_game_tick(),
-                            player.id == highest_points_player_id,
-                        );
+                            render_player_name(
+                                render_state,
+                                sprites,
+                                player,
+                                name_x,
+                                name_y,
+                                client.get_freq(),
+                                client.connection.get_game_tick(),
+                                player.id == highest_points_player_id,
+                            );
+                        }
                     }
                 }
             }

@@ -12,7 +12,7 @@ use crate::{
             s2c::{PlayerLeavingMessage, PlayerTeamAndShipChangeMessage},
         },
     },
-    player::{Player, PlayerId, PlayerManager},
+    player::{Player, PlayerId, PlayerManager, StatusFlags},
     render::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
@@ -181,6 +181,24 @@ impl SpectateController {
             ""
         };
 
+        let stealth_string = if player.status & StatusFlags::Stealth != 0 {
+            "Stealth"
+        } else {
+            "       "
+        };
+
+        let cloak_string = if player.status & StatusFlags::Cloak != 0 {
+            "Cloak"
+        } else {
+            ""
+        };
+
+        let antiwarp_string = if player.status & StatusFlags::Antiwarp != 0 {
+            "Antiwarp"
+        } else {
+            ""
+        };
+
         let rows = [
             format_smolstr!("Engy:{}  S2CLatency:{}ms", extra.energy, extra.s2c_latency),
             format_smolstr!(
@@ -189,8 +207,19 @@ impl SpectateController {
                 extra.items.repels,
                 extra.items.portals
             ),
-            format_smolstr!("Decy:{}  Thor:{}", extra.items.decoys, extra.items.thors),
-            format_smolstr!("Wall:{}  Rckt:{}", extra.items.bricks, extra.items.rockets),
+            format_smolstr!(
+                "Decy:{}  Thor:{}  {} {}",
+                extra.items.decoys,
+                extra.items.thors,
+                stealth_string,
+                cloak_string
+            ),
+            format_smolstr!(
+                "Wall:{}  Rckt:{}  {}",
+                extra.items.bricks,
+                extra.items.rockets,
+                antiwarp_string
+            ),
             format_smolstr!("{}  {}", super_string, shields_string),
             format_smolstr!("Timer:{}", extra.flag_timer),
         ];
