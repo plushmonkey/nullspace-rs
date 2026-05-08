@@ -363,11 +363,13 @@ impl ApplicationPlayingState {
                         self.client.chat_controller.input.push(*c);
                     }
 
-                    self.client.chat_controller.send_input(
+                    if let Some(command) = self.client.chat_controller.send_input(
                         &mut self.client.connection,
                         &self.client.statbox,
                         &self.client.simulation.player_manager,
-                    );
+                    ) {
+                        self.client.handle_chat_command(command);
+                    }
                 }
                 return;
             }
