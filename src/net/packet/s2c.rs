@@ -197,7 +197,7 @@ pub struct ScoreUpdateMessage {
     pub deaths: u16,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum LoginResponse {
     Ok,
     Unregistered,

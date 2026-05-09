@@ -417,7 +417,7 @@ pub fn apply_random_prizes(settings: &ArenaSettings, ship: &mut Ship, tick: Game
     for _ in 0..9999 {
         let random_prize = generate_prize_id(settings, &mut rng, false);
 
-        if is_valid_multiprize_id(random_prize) {
+        if is_valid_multiprize_id(random_prize) && random_prize != Prize::Brick as i32 {
             if let Ok(_) = apply_prize_id(settings, ship, tick, random_prize, None, false) {
                 applied += 1;
             }

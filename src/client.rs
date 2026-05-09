@@ -1014,7 +1014,13 @@ impl Client {
                     }
                     _ => {
                         log::debug!("Failed to login: {:?}", password_response.response);
-                        self.connection.state = ConnectionState::Disconnected;
+
+                        let disconnect = crate::net::packet::bi::DisconnectMessage {};
+                        if let Err(e) = self.connection.send(&disconnect) {
+                            log::error!("{e}");
+                        }
+
+                        return Err(ConnectionError::LoginFailure(password_response.response));
                     }
                 }
             }

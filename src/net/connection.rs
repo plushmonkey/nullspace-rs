@@ -53,6 +53,9 @@ pub enum ConnectionError {
 
     #[error("Failed to receive data from proxy.")]
     ProxyRecv,
+
+    #[error("Login failure: {0}")]
+    LoginFailure(LoginResponse),
 }
 
 #[derive(Copy, Clone, Debug)]
