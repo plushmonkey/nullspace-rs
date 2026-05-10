@@ -406,11 +406,14 @@ pub struct SmallPositionMessage {
     pub extra: Option<ExtraPositionData>,
 }
 
-// 0x29
-pub struct MapInformationMessage {
+pub struct DownloadInformation {
     pub filename: String,
     pub checksum: u32,
     pub filesize: Option<u32>,
+}
+// 0x29
+pub struct MapInformationMessage {
+    pub downloads: Vec<DownloadInformation>,
 }
 
 // 0x2A
@@ -1387,22 +1390,35 @@ impl ServerMessage {
                     return Err(PacketError::InvalidGamePacketSize(kind));
                 }
 
-                let mut terminated_str = [0; 17];
+                let mut data = &packet[1..];
+                let mut message = MapInformationMessage { downloads: vec![] };
 
-                terminated_str[0..16].copy_from_slice(&packet[1..17]);
+                while data.len() >= 20 {
+                    let mut terminated_str = [0; 17];
 
-                let filename = CStr::from_bytes_until_nul(&terminated_str)?.to_str()?;
-                let mut filesize = None;
+                    terminated_str[0..16].copy_from_slice(&data[..16]);
 
-                if packet.len() >= 25 {
-                    filesize = Some(u32::from_le_bytes(packet[21..25].try_into().unwrap()));
+                    let filename = CStr::from_bytes_until_nul(&terminated_str)?.to_str()?;
+                    let checksum = u32::from_le_bytes(data[16..20].try_into().unwrap());
+
+                    let mut filesize = None;
+
+                    if data.len() >= 24 {
+                        filesize = Some(u32::from_le_bytes(data[20..24].try_into().unwrap()));
+                    }
+
+                    message.downloads.push(DownloadInformation {
+                        filename: filename.to_string(),
+                        checksum,
+                        filesize,
+                    });
+
+                    if filesize.is_none() {
+                        break;
+                    } else {
+                        data = &data[24..];
+                    }
                 }
-
-                let message = MapInformationMessage {
-                    filename: filename.to_owned(),
-                    checksum: u32::from_le_bytes(packet[17..21].try_into().unwrap()),
-                    filesize,
-                };
 
                 return Ok(Some(ServerMessage::Game(
                     GameServerMessage::MapInformation(message),

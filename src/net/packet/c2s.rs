@@ -380,11 +380,17 @@ impl Serialize for SubspaceExeRequestMessage {
 }
 
 // 0x0C
-pub struct MapRequestMessage {}
+pub struct MapRequestMessage {
+    pub index: u16,
+}
 
 impl Serialize for MapRequestMessage {
     fn serialize(&self) -> Packet {
-        Packet::empty().concat_u8(0x0C)
+        if self.index != 0 {
+            Packet::empty().concat_u8(0x0C).concat_u16(self.index)
+        } else {
+            Packet::empty().concat_u8(0x0C)
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use miniz_oxide::deflate::compress_to_vec_zlib;
 use tokio::net::UdpSocket;
 use wtransport::{
     Endpoint, Identity, RecvStream, SendStream, ServerConfig, VarInt, config::IpBindConfig,
-    endpoint::IncomingSession,
+    endpoint::IncomingSession, error::StreamReadError,
 };
 
 use clap::Parser;
@@ -139,6 +139,50 @@ async fn send_to_server(socket: &UdpSocket, _from: &SocketAddr, data: &[u8]) {
     }
 }
 
+// This is not a high performance buffer, but it's probably good enough.
+pub struct ReceiveBuffer {
+    pub buffer: Vec<u8>,
+    pub offset: usize,
+}
+
+impl ReceiveBuffer {
+    pub fn new() -> Self {
+        let mut buffer = vec![];
+
+        buffer.resize(4096, 0);
+
+        Self { buffer, offset: 0 }
+    }
+
+    pub fn get_insert_slice(&mut self) -> &mut [u8] {
+        &mut self.buffer[self.offset..]
+    }
+
+    pub fn process(&mut self, bytes_recv: usize) -> Option<Vec<u8>> {
+        self.offset += bytes_recv;
+
+        if self.offset < 5 {
+            return None;
+        }
+
+        let payload_size = u32::from_le_bytes(self.buffer[..4].try_into().unwrap()) as usize;
+        let required_buffer_size = payload_size + 5;
+
+        if self.offset < required_buffer_size {
+            return None;
+        }
+
+        let result_size = self.offset;
+
+        let mut result = self.buffer.clone();
+        result.resize(result_size, 0);
+
+        self.offset = 0;
+
+        return Some(result);
+    }
+}
+
 async fn handle_connection(
     incoming_session: IncomingSession,
     game_server_addr: String,
@@ -182,8 +226,8 @@ async fn handle_connection(
     let mut buffer = [0; 1024];
     let mut last_activity = Instant::now();
 
-    let mut download_list: Vec<(String, u32, u32)> = vec![];
     let mut bi_stream: Option<(SendStream, RecvStream)> = None;
+    let mut bi_buffer = ReceiveBuffer::new();
 
     loop {
         // Perform timeout manually because Firefox doesn't always close the connection and wtransport doesn't seem to consider it inactive either.
@@ -208,42 +252,27 @@ async fn handle_connection(
 
                 last_activity = Instant::now();
 
-                if let Some((download_request, reliable_id)) = get_packet_kind(0x0C, &dgram, 0xFFFFFFFF) {
-                     let index = if download_request.len() >= 3 {
-                        u16::from_le_bytes(download_request[1..3].try_into().unwrap()) as usize
-                    } else {
-                        0
-                    };
-
-                    if let Some((send_stream, _)) = &mut bi_stream {
-                        if index < download_list.len() {
-                            let (filename, checksum, _) = &download_list[index];
-
-                            let path = map_path.clone() + filename;
-
-                            if let Some((data, map_checksum)) = read_map(path) {
-                                if map_checksum == *checksum {
-                                    send_map_data(send_stream, &data, filename).await;
-
-                                    // The client requested this reliably, so we need to send something to the server so it responds with an ack.
-                                    if reliable_id != 0xFFFFFFFF {
-                                        let mut msg = [0, 3, 0, 0, 0, 0, 0x00, 0x0E];
-                                        msg[2..6].copy_from_slice(&reliable_id.to_le_bytes());
-
-                                        send_to_server(&socket, &remote_addr, &msg).await;
-                                    }
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-
                 send_to_server(&socket, &remote_addr, &dgram).await;
             }
             stream = connection.accept_bi() => {
                 if let Ok((send_stream, recv_stream)) = stream {
                     bi_stream = Some((send_stream, recv_stream));
+                }
+            }
+            bytes_recv = receive_bi(bi_stream.as_mut(), &mut bi_buffer) => {
+                let bytes_recv = match bytes_recv {
+                    Ok(bytes_recv) => bytes_recv,
+                    Err(_) => {
+                        continue;
+                    }
+                };
+
+                if let Some(bytes_recv) = bytes_recv {
+                    if let Some(packet) = bi_buffer.process(bytes_recv) {
+                        if packet.len() >= 5 && packet[4] == 0x01 {
+                            process_map_request(&packet[5..], &map_path, bi_stream.as_mut(), &socket, &remote_addr).await;
+                        }
+                    }
                 }
             }
             bytes_recv = socket.recv(&mut buffer) => {
@@ -255,10 +284,6 @@ async fn handle_connection(
                     }
                 };
 
-                if let Some((map_info, _)) = get_packet_kind(0x29, &buffer[..bytes_recv], 0xFFFFFFFF) {
-                    download_list = get_download_list(map_info);
-                }
-
                 if let Err(_) = connection.send_datagram(&buffer[..bytes_recv]) {
                     send_to_server(&socket, &remote_addr, &[0, 7]).await;
                     return;
@@ -267,6 +292,54 @@ async fn handle_connection(
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {}
         }
     }
+}
+
+async fn process_map_request(
+    packet: &[u8],
+    map_path: &String,
+    streams: Option<&mut (SendStream, RecvStream)>,
+    socket: &UdpSocket,
+    remote_addr: &SocketAddr,
+) {
+    let Some((send_stream, _)) = streams else {
+        return;
+    };
+
+    let filename = &packet[0..16];
+    let checksum = u32::from_le_bytes(packet[16..20].try_into().unwrap());
+    let fallback = &packet[20..];
+
+    let mut terminated_str = [0; 17];
+    terminated_str[0..16].copy_from_slice(&filename[0..16]);
+
+    if let Ok(filename) = CStr::from_bytes_until_nul(&terminated_str) {
+        if let Ok(filename) = filename.to_str() {
+            let path = map_path.clone() + filename;
+
+            if let Some((data, map_checksum)) = read_map(path) {
+                if map_checksum == checksum {
+                    send_map_data(send_stream, &data, filename).await;
+                    return;
+                }
+            }
+        }
+    }
+
+    // We failed to load the map, so send the fallback request to the server.
+    send_to_server(socket, remote_addr, fallback).await;
+}
+
+async fn receive_bi(
+    streams: Option<&mut (SendStream, RecvStream)>,
+    buffer: &mut ReceiveBuffer,
+) -> Result<Option<usize>, StreamReadError> {
+    let Some((_, recv_stream)) = streams else {
+        return Ok(None);
+    };
+
+    let slice = buffer.get_insert_slice();
+
+    recv_stream.read(slice).await
 }
 
 async fn send_map_data(stream: &mut SendStream, raw_data: &[u8], filename: &str) {
@@ -302,73 +375,4 @@ fn read_map(path: String) -> Option<(Vec<u8>, u32)> {
     }
 
     None
-}
-
-// This is a hacky way of intercepting simple packet kinds.
-// Doesn't work with chunked data.
-fn get_packet_kind(kind: u8, buffer: &[u8], reliable_id: u32) -> Option<(&[u8], u32)> {
-    if buffer.is_empty() {
-        return None;
-    }
-
-    if buffer[0] == kind {
-        return Some((&buffer, reliable_id));
-    }
-
-    // Reliable
-    if buffer.len() > 6 && buffer[0] == 0x00 && buffer[1] == 0x03 {
-        let reliable_id = u32::from_le_bytes(buffer[2..6].try_into().unwrap());
-        return get_packet_kind(kind, &buffer[6..], reliable_id);
-    }
-
-    // Cluster
-    if buffer.len() > 3 && buffer[0] == 0x00 && buffer[1] == 0x0E {
-        let mut buffer = &buffer[2..];
-
-        while buffer.len() > 1 {
-            let len = buffer[0] as usize;
-            let subpacket = &buffer[1..len + 1];
-
-            if let Some(packet) = get_packet_kind(kind, subpacket, reliable_id) {
-                return Some(packet);
-            }
-
-            buffer = &buffer[len + 1..];
-        }
-    }
-
-    None
-}
-
-fn get_download_list(buffer: &[u8]) -> Vec<(String, u32, u32)> {
-    let mut info_data = &buffer[1..];
-    let mut download_list = vec![];
-
-    while info_data.len() >= 20 {
-        let mut terminated_str = [0; 17];
-        terminated_str[0..16].copy_from_slice(&buffer[1..17]);
-
-        if let Ok(filename) = CStr::from_bytes_until_nul(&terminated_str) {
-            if let Ok(filename) = filename.to_str() {
-                let filename = filename.to_owned();
-
-                let checksum = u32::from_le_bytes(info_data[16..20].try_into().unwrap());
-                let size = if info_data.len() >= 24 {
-                    u32::from_le_bytes(info_data[20..24].try_into().unwrap())
-                } else {
-                    0
-                };
-
-                download_list.push((filename, checksum, size));
-            }
-        }
-
-        if info_data.len() < 24 {
-            return download_list;
-        }
-
-        info_data = &info_data[24..];
-    }
-
-    download_list
 }

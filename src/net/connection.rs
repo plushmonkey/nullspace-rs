@@ -7,6 +7,7 @@ use crate::net::packet::bi::ClockSyncResponseMessage;
 use crate::net::packet::bi::HugeChunkCancelAckMessage;
 use crate::net::packet::bi::ReliableDataMessage;
 use crate::net::packet::c2s::EncryptionRequestMessage;
+use crate::net::packet::c2s::MapRequestMessage;
 use crate::net::packet::s2c::*;
 use crate::net::packet::sequencer::*;
 use crate::net::packet::{MAX_PACKET_SIZE, Packet, Serialize};
@@ -205,28 +206,10 @@ impl Connection {
 
     pub fn tick(&mut self) {
         match &self.state {
-            ConnectionState::Initialization => {
-                match &self.socket {
-                    #[cfg(target_arch = "wasm32")]
-                    SocketKind::WebTransport(web_transport) => {
-                        if web_transport.ready() {
-                            // We don't need encryption on wasm target since the proxy uses tls.
-                            // We also want the proxy to be able to read the data so it can intercept downloads.
-                            // This won't allow us to connect to subgame servers since it doesn't seem to allow 0 key.
-                            let client_key = 0;
-
-                            self.crypt = VieEncrypt::new(client_key);
-
-                            let encrypt_request = EncryptionRequestMessage::new(client_key);
-                            self.state = ConnectionState::EncryptionHandshake;
-
-                            if let Err(e) = self.send(&encrypt_request) {
-                                log::error!("{e}");
-                                self.state = ConnectionState::Disconnected;
-                            }
-                        }
-                    }
-                    _ => {
+            ConnectionState::Initialization => match &self.socket {
+                #[cfg(target_arch = "wasm32")]
+                SocketKind::WebTransport(web_transport) => {
+                    if web_transport.ready() {
                         let client_key = VieEncrypt::generate_key();
 
                         self.crypt = VieEncrypt::new(client_key);
@@ -240,7 +223,20 @@ impl Connection {
                         }
                     }
                 }
-            }
+                _ => {
+                    let client_key = VieEncrypt::generate_key();
+
+                    self.crypt = VieEncrypt::new(client_key);
+
+                    let encrypt_request = EncryptionRequestMessage::new(client_key);
+                    self.state = ConnectionState::EncryptionHandshake;
+
+                    if let Err(e) = self.send(&encrypt_request) {
+                        log::error!("{e}");
+                        self.state = ConnectionState::Disconnected;
+                    }
+                }
+            },
             _ => {
                 self.current_tick = self.current_tick + 1;
                 self.ticks_since_recv = self.ticks_since_recv.saturating_add(1);
@@ -574,9 +570,9 @@ impl Connection {
     }
 
     fn recv_packet(&mut self) -> Result<Option<Packet>, ConnectionError> {
-        let packet = match &mut self.socket {
+        let result = match &mut self.socket {
             SocketKind::Udp(socket) => match socket.try_recv() {
-                Ok(packet) => packet,
+                Ok(result) => result,
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
                         return Ok(None);
@@ -591,7 +587,7 @@ impl Connection {
             },
             #[cfg(target_arch = "wasm32")]
             SocketKind::WebTransport(socket) => match socket.try_recv() {
-                Ok(packet) => packet,
+                Ok(result) => result,
                 Err(e) => {
                     if self.state == ConnectionState::Playing {
                         self.state = ConnectionState::Disconnected;
@@ -602,13 +598,54 @@ impl Connection {
             },
         };
 
-        let Some(mut packet) = packet else {
+        let Some((mut packet, encrypted)) = result else {
             return Ok(None);
         };
 
-        self.crypt.decrypt(&mut packet.data[..packet.size]);
+        if encrypted {
+            self.crypt.decrypt(&mut packet.data[..packet.size]);
+        }
+
         self.packets_recv = self.packets_recv.wrapping_add(1);
 
         Ok(Some(packet))
+    }
+
+    pub fn send_map_request(&mut self, filename: &str, checksum: u32, index: u16) {
+        match &mut self.socket {
+            SocketKind::Udp(_) => {
+                let _ = filename;
+                let _ = checksum;
+
+                let map_request = MapRequestMessage { index };
+
+                if let Err(e) = self.send_reliable(&map_request) {
+                    log::error!("{e}");
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            SocketKind::WebTransport(web_transport) => {
+                if web_transport.has_extended_protocol() {
+                    let map_request = MapRequestMessage { index };
+                    let fallback = map_request.serialize();
+
+                    let mut encrypted = Packet::empty();
+
+                    self.crypt.encrypt(
+                        &fallback.data[..fallback.size],
+                        &mut encrypted.data[..fallback.size],
+                    );
+                    let fallback = &encrypted.data[..fallback.size];
+
+                    web_transport.request_map(filename, checksum, fallback);
+                } else {
+                    let map_request = MapRequestMessage { index };
+
+                    if let Err(e) = self.send_reliable(&map_request) {
+                        log::error!("{e}");
+                    }
+                }
+            }
+        }
     }
 }

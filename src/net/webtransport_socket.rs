@@ -169,9 +169,8 @@ impl WebTransportSocket {
         });
     }
 
-    pub fn try_recv(&mut self) -> Result<Option<Packet>, ConnectionError> {
+    pub fn try_recv(&mut self) -> Result<Option<(Packet, bool)>, ConnectionError> {
         let Ok(message) = self.receiver.try_recv() else {
-            // Nothing in the process queue, so just return.
             return Ok(self.process_stream_data());
         };
 
@@ -184,7 +183,7 @@ impl WebTransportSocket {
 
                 let packet = packet.clone();
 
-                Ok(Some(packet))
+                Ok(Some((packet, true)))
             }
             ProxyMessage::Error(error) => Err(error),
             ProxyMessage::WebTransportReady => {
@@ -249,9 +248,13 @@ impl WebTransportSocket {
         }
     }
 
-    fn process_stream_data(&mut self) -> Option<Packet> {
+    fn process_stream_data(&mut self) -> Option<(Packet, bool)> {
         if !self.stream_packet_queue.is_empty() {
-            return self.stream_packet_queue.pop_front();
+            if let Some(packet) = self.stream_packet_queue.pop_front() {
+                return Some((packet, false));
+            }
+            
+            return None;
         }
 
         if self.stream_data.len() < 5 {
@@ -290,7 +293,7 @@ impl WebTransportSocket {
                     remaining_size -= packet_size;
                 }
 
-                result = self.stream_packet_queue.pop_front();
+                result = Some((self.stream_packet_queue.pop_front().unwrap(), false));
             }
             _ => {
                 log::error!("WebTransport: Unknown control value in stream data.");
@@ -306,5 +309,33 @@ impl WebTransportSocket {
 
         let _ = self.writer.write_with_chunk(&buffer);
         Ok(data.len())
+    }
+
+    pub fn has_extended_protocol(&self) -> bool {
+        self.bi_writer.is_some() && self.bi_reader.is_some()
+    }
+
+    pub fn request_map(&mut self, filename: &str, checksum: u32, fallback: &[u8]) {
+        if let Some(writer) = &self.bi_writer {
+            let mut data = Vec::with_capacity(256);
+            let mut full_name = [0; 16];
+
+            for i in 0..filename.as_bytes().len() {
+                full_name[i] = filename.as_bytes()[i];
+            }
+
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.push(0x01); // RequestMap
+            data.extend_from_slice(&full_name);
+            data.extend_from_slice(&checksum.to_le_bytes());
+            data.extend_from_slice(fallback);
+
+            let payload_size = data.len() as u32 - 5;
+
+            data[..4].copy_from_slice(&payload_size.to_le_bytes());
+
+            let buffer = js_sys::Uint8Array::new_from_slice(&data);
+            let _ = writer.write_with_chunk(&buffer);
+        }
     }
 }

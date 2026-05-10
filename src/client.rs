@@ -1968,27 +1968,29 @@ impl Client {
                 }
             }
             GameServerMessage::MapInformation(info) => {
-                log::debug!("Map name: {}", info.filename);
+                let map_info = &info.downloads[0];
+
+                log::debug!("Map name: {}", map_info.filename);
 
                 self.connection.state = ConnectionState::MapDownload;
 
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let map_path = get_zone_path(&self.zone, &info.filename);
+                    let map_path = get_zone_path(&self.zone, &map_info.filename);
                     let map_data = std::fs::read(map_path);
 
                     if let Ok(map_data) = map_data {
                         let checksum = checksum::crc32(&map_data);
 
-                        if checksum == info.checksum {
+                        if checksum == map_info.checksum {
                             if let Ok(new_map) =
-                                Map::new(&info.filename, &map_data, self.map.door_rng)
+                                Map::new(&map_info.filename, &map_data, self.map.door_rng)
                             {
                                 if let Some(render_state) = render_state {
                                     render_state.on_map_change(&new_map, &map_data);
                                 }
 
-                                self.handle_map_load(new_map, info.checksum);
+                                self.handle_map_load(new_map, map_info.checksum);
                             } else {
                                 log::debug!("Map read error: failed to load tiles");
                                 self.connection.state = ConnectionState::Disconnected;
@@ -1999,13 +2001,13 @@ impl Client {
 
                 if matches!(self.connection.state, ConnectionState::MapDownload) {
                     // Request
-                    let map_request = MapRequestMessage {};
-                    self.connection.send_reliable(&map_request)?;
+                    self.connection
+                        .send_map_request(&map_info.filename, map_info.checksum, 0);
 
                     self.connection.state = ConnectionState::MapDownload;
 
-                    self.map = Map::empty(&info.filename);
-                    self.map.checksum = info.checksum;
+                    self.map = Map::empty(&map_info.filename);
+                    self.map.checksum = map_info.checksum;
                 }
             }
             GameServerMessage::CompressedMap(compressed) => {

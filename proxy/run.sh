@@ -1,1 +1,1 @@
-cargo run --release -- --map-path "../../../src/playground/SubspaceServer-4.0.0-win-x64/maps"
+cargo run --release -- --map-path "../../../src/playground/SubspaceServer-4.0.0-win-x64/maps/"

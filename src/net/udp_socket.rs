@@ -26,7 +26,7 @@ impl UdpSocket {
         })
     }
 
-    pub fn try_recv(&self) -> Result<Option<Packet>, std::io::Error> {
+    pub fn try_recv(&self) -> Result<Option<(Packet, bool)>, std::io::Error> {
         let mut packet: Packet = Packet::empty();
 
         let (size, _) = match self.socket.recv_from(&mut packet.data[..]) {
@@ -42,7 +42,7 @@ impl UdpSocket {
 
         packet.size = size;
 
-        Ok(Some(packet))
+        Ok(Some((packet, true)))
     }
 
     pub fn send(&self, data: &[u8]) -> Result<usize, PacketSendError> {
