@@ -22,6 +22,7 @@ use crate::net::webtransport_socket::WebTransportSocket;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum ConnectionState {
+    Initialization,
     EncryptionHandshake,
     Authentication,
     Registering,
@@ -181,16 +182,14 @@ pub struct Connection {
 impl Connection {
     const TIMEOUT_TICKS: u32 = 4500;
 
-    pub fn new(socket: SocketKind) -> Result<Self, ConnectionError> {
-        let client_key = VieEncrypt::generate_key();
-
-        let mut result = Self {
+    pub fn new(socket: SocketKind) -> Self {
+        Self {
             socket,
-            state: ConnectionState::Disconnected,
+            state: ConnectionState::Initialization,
             sequencer: PacketSequencer::new(),
             player_id: PlayerId::invalid(),
             player_name: String::new(),
-            crypt: VieEncrypt::new(client_key),
+            crypt: VieEncrypt::new(0),
             sync_history: ClockSyncHistory::new(),
             tick_diff: 0,
             current_tick: GameTick::empty(),
@@ -201,31 +200,65 @@ impl Connection {
             packets_recv: 0,
             ticks_since_recv: 0,
             send_extra_position_info: false,
-        };
-
-        let encrypt_request = EncryptionRequestMessage::new(client_key);
-        result.state = ConnectionState::EncryptionHandshake;
-        result.send(&encrypt_request)?;
-
-        Ok(result)
+        }
     }
 
     pub fn tick(&mut self) {
-        self.current_tick = self.current_tick + 1;
-        self.ticks_since_recv = self.ticks_since_recv.saturating_add(1);
+        match &self.state {
+            ConnectionState::Initialization => {
+                match &self.socket {
+                    #[cfg(target_arch = "wasm32")]
+                    SocketKind::WebTransport(web_transport) => {
+                        if web_transport.ready() {
+                            // We don't need encryption on wasm target since the proxy uses tls.
+                            // We also want the proxy to be able to read the data so it can intercept downloads.
+                            // This won't allow us to connect to subgame servers since it doesn't seem to allow 0 key.
+                            let client_key = 0;
 
-        if self.current_tick > self.last_sync_req + 500 {
-            let sync_request = ClockSyncRequestMessage::new(
-                GameTick::now(0),
-                self.packets_sent,
-                self.packets_recv,
-            );
+                            self.crypt = VieEncrypt::new(client_key);
 
-            if let Err(e) = self.send(&sync_request) {
-                log::error!("{e}");
+                            let encrypt_request = EncryptionRequestMessage::new(client_key);
+                            self.state = ConnectionState::EncryptionHandshake;
+
+                            if let Err(e) = self.send(&encrypt_request) {
+                                log::error!("{e}");
+                                self.state = ConnectionState::Disconnected;
+                            }
+                        }
+                    }
+                    _ => {
+                        let client_key = VieEncrypt::generate_key();
+
+                        self.crypt = VieEncrypt::new(client_key);
+
+                        let encrypt_request = EncryptionRequestMessage::new(client_key);
+                        self.state = ConnectionState::EncryptionHandshake;
+
+                        if let Err(e) = self.send(&encrypt_request) {
+                            log::error!("{e}");
+                            self.state = ConnectionState::Disconnected;
+                        }
+                    }
+                }
             }
+            _ => {
+                self.current_tick = self.current_tick + 1;
+                self.ticks_since_recv = self.ticks_since_recv.saturating_add(1);
 
-            self.last_sync_req = self.current_tick;
+                if self.current_tick > self.last_sync_req + 500 {
+                    let sync_request = ClockSyncRequestMessage::new(
+                        GameTick::now(0),
+                        self.packets_sent,
+                        self.packets_recv,
+                    );
+
+                    if let Err(e) = self.send(&sync_request) {
+                        log::error!("{e}");
+                    }
+
+                    self.last_sync_req = self.current_tick;
+                }
+            }
         }
     }
 

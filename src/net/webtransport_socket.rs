@@ -5,6 +5,7 @@ use crate::net::{
     connection::ConnectionError,
     packet::{MAX_PACKET_SIZE, Packet, PacketSendError},
 };
+use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::channel;
@@ -14,15 +15,31 @@ use wasm_bindgen::JsValue;
 enum ProxyMessage {
     Packet(Option<Packet>),
     Error(ConnectionError),
+    WebTransportReady,
+    CreateStream(
+        Option<(
+            web_sys::ReadableStreamDefaultReader,
+            web_sys::WritableStreamDefaultWriter,
+        )>,
+    ),
+    StreamData(Vec<u8>),
 }
 
 pub struct WebTransportSocket {
-    _transport: web_sys::WebTransport,
+    transport: web_sys::WebTransport,
     reader: web_sys::ReadableStreamDefaultReader,
     writer: web_sys::WritableStreamDefaultWriter,
 
+    bi_reader: Option<web_sys::ReadableStreamDefaultReader>,
+    bi_writer: Option<web_sys::WritableStreamDefaultWriter>,
+
     sender: Sender<ProxyMessage>,
     receiver: Receiver<ProxyMessage>,
+
+    stream_data: Vec<u8>,
+    stream_packet_queue: VecDeque<Packet>,
+
+    ready: bool,
 }
 
 impl WebTransportSocket {
@@ -54,17 +71,41 @@ impl WebTransportSocket {
 
         let (sender, receiver) = channel();
 
+        let ready_sender = sender.clone();
+
+        let ready_promise = transport.ready();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let Ok(_) = JsFuture::from(ready_promise).await else {
+                log::error!("WebTransport: Failed to create WebTransport connection.");
+                return;
+            };
+
+            if let Err(e) = ready_sender.send(ProxyMessage::WebTransportReady) {
+                log::error!("{e}");
+            }
+        });
+
         let mut result = Self {
-            _transport: transport,
+            transport,
             reader,
             writer,
             sender,
             receiver,
+            bi_reader: None,
+            bi_writer: None,
+            stream_data: vec![],
+            stream_packet_queue: VecDeque::new(),
+            ready: false,
         };
 
         result.spawn_recv_task();
 
         Ok(result)
+    }
+
+    pub fn ready(&self) -> bool {
+        self.ready
     }
 
     fn spawn_recv_task(&mut self) {
@@ -101,10 +142,37 @@ impl WebTransportSocket {
         });
     }
 
+    fn spawn_bi_recv_task(&mut self) {
+        let Some(reader) = &mut self.bi_reader else {
+            return;
+        };
+
+        let reader = reader.clone();
+        let sender = self.sender.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                let Ok(result) = JsFuture::from(reader.read()).await else {
+                    // Unrecoverable error, so terminate task.
+                    return;
+                };
+
+                let chunk_value =
+                    js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
+                let chunk_array: js_sys::Uint8Array = chunk_value.dyn_into().unwrap();
+                let chunk = chunk_array.to_vec();
+
+                if let Err(e) = sender.send(ProxyMessage::StreamData(chunk)) {
+                    log::error!("{e}");
+                }
+            }
+        });
+    }
+
     pub fn try_recv(&mut self) -> Result<Option<Packet>, ConnectionError> {
         let Ok(message) = self.receiver.try_recv() else {
             // Nothing in the process queue, so just return.
-            return Ok(None);
+            return Ok(self.process_stream_data());
         };
 
         match message {
@@ -119,7 +187,118 @@ impl WebTransportSocket {
                 Ok(Some(packet))
             }
             ProxyMessage::Error(error) => Err(error),
+            ProxyMessage::WebTransportReady => {
+                let create_promise = self.transport.create_bidirectional_stream();
+                let stream_sender = self.sender.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    let mut result = None;
+
+                    let Ok(stream) = JsFuture::from(create_promise).await else {
+                        log::error!("WebTransport: Failed to create bidirectional stream.");
+                        if let Err(e) = stream_sender.send(ProxyMessage::CreateStream(result)) {
+                            log::error!("{e}");
+                        }
+                        return;
+                    };
+
+                    let Ok(reader) = web_sys::ReadableStreamDefaultReader::new(&stream.readable())
+                    else {
+                        if let Err(e) = stream_sender.send(ProxyMessage::CreateStream(result)) {
+                            log::error!("{e}");
+                        }
+                        return;
+                    };
+
+                    let Ok(writer) = web_sys::WritableStreamDefaultWriter::new(&stream.writable())
+                    else {
+                        if let Err(e) = stream_sender.send(ProxyMessage::CreateStream(result)) {
+                            log::error!("{e}");
+                        }
+                        return;
+                    };
+
+                    result = Some((reader, writer));
+
+                    if let Err(e) = stream_sender.send(ProxyMessage::CreateStream(result)) {
+                        log::error!("{e}");
+                    }
+                });
+
+                Ok(None)
+            }
+            ProxyMessage::CreateStream(stream) => {
+                if let Some((bi_reader, bi_writer)) = stream {
+                    self.bi_reader = Some(bi_reader);
+                    self.bi_writer = Some(bi_writer);
+
+                    self.spawn_bi_recv_task();
+                } else {
+                    log::error!("Failed to create bi-directional stream.");
+                }
+
+                self.ready = true;
+
+                Ok(None)
+            }
+            ProxyMessage::StreamData(mut data) => {
+                self.stream_data.append(&mut data);
+
+                Ok(self.process_stream_data())
+            }
         }
+    }
+
+    fn process_stream_data(&mut self) -> Option<Packet> {
+        if !self.stream_packet_queue.is_empty() {
+            return self.stream_packet_queue.pop_front();
+        }
+
+        if self.stream_data.len() < 5 {
+            return None;
+        }
+
+        let payload_size = u32::from_le_bytes(self.stream_data[..4].try_into().unwrap()) as usize;
+        if self.stream_data.len() < payload_size + 5 {
+            return None;
+        }
+
+        let control = self.stream_data[4];
+
+        let mut result = None;
+
+        match control {
+            // Raw subspace packet
+            0 => {
+                let mut data = &self.stream_data[5..];
+                let mut remaining_size = payload_size;
+
+                while remaining_size > 0 {
+                    let packet_size = remaining_size.min(MAX_PACKET_SIZE - 6);
+
+                    let mut packet = Packet::empty();
+
+                    packet.data[0] = 0x00;
+                    packet.data[1] = 0x0A;
+                    packet.data[2..6].copy_from_slice(&payload_size.to_le_bytes());
+                    packet.data[6..packet_size + 6].copy_from_slice(&data[..packet_size]);
+                    packet.size = packet_size + 6;
+
+                    self.stream_packet_queue.push_back(packet);
+
+                    data = &data[packet_size..];
+                    remaining_size -= packet_size;
+                }
+
+                result = self.stream_packet_queue.pop_front();
+            }
+            _ => {
+                log::error!("WebTransport: Unknown control value in stream data.");
+            }
+        }
+
+        self.stream_data.drain(..payload_size + 5);
+        result
     }
 
     pub fn send(&self, data: &[u8]) -> Result<usize, PacketSendError> {

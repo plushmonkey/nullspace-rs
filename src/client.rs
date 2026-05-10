@@ -142,7 +142,7 @@ impl Client {
         socket: SocketKind,
         registration: RegistrationFormMessage,
     ) -> Result<Client, ConnectionError> {
-        let connection = Connection::new(socket)?;
+        let connection = Connection::new(socket);
 
         Ok(Client {
             connection,
@@ -2040,7 +2040,7 @@ impl Client {
                             }
                         }
                         Err(e) => {
-                            log::debug!("Error: {}", e);
+                            log::debug!("DecompressError: {}", e);
                         }
                     }
                 }

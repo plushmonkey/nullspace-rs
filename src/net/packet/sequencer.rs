@@ -151,7 +151,7 @@ impl PacketSequencer {
         let data = &chunk.data.data[..chunk.data.size];
         self.huge_chunk_data.extend(data.iter());
 
-        log::debug!(
+        log::trace!(
             "Downloading {}/{}",
             self.huge_chunk_data.len(),
             chunk.total_size
