@@ -672,13 +672,13 @@ impl WeaponManager {
                         let wh_x = (wormhole.x() as i32 + 2) * 16 + 8;
                         let wh_y = (wormhole.y() as i32 + 2) * 16 + 8;
 
-                        let dx = wh_x - w_x;
-                        let dy = wh_y - w_y;
+                        let dx = (wh_x - w_x) as i64;
+                        let dy = (wh_y - w_y) as i64;
 
                         let distance_sq = (dx * dx + dy * dy) + 1;
 
-                        if distance_sq < gravity.abs() * 1000 {
-                            let gravity_thrust = (gravity * 1000) / distance_sq;
+                        if distance_sq < gravity.abs() as i64 * 1000 {
+                            let gravity_thrust = (gravity as i64 * 1000) / distance_sq;
                             let direction = glam::Vec2::new(dx as f32, dy as f32).normalize();
                             let apply = direction * gravity_thrust as f32;
 
