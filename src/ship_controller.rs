@@ -370,7 +370,9 @@ impl ShipController {
         let afterburners_cost = ship_settings.afterburner_energy as u32;
 
         let afterburners_enabled = input_state.is_down(InputAction::Afterburner)
-            && self.ship.current_energy > afterburners_cost;
+            && self.ship.current_energy > afterburners_cost
+            && (input_state.is_down(InputAction::MoveForward)
+                || input_state.is_down(InputAction::MoveBackward));
 
         if !me.attach_parent.valid() {
             let mut thrust = if afterburners_enabled {
