@@ -349,13 +349,20 @@ impl Map {
 
     pub fn can_fit(&self, x: u16, y: u16, radius: u16, frequency: u16) -> bool {
         let radius = radius as i16;
-        for y_offset in -radius..radius {
-            for x_offset in -radius..radius {
-                if self.is_solid(
-                    x.saturating_add_signed(x_offset),
-                    y.saturating_add_signed(y_offset),
-                    frequency,
-                ) {
+
+        let left_x = (x as i32 * 16).saturating_sub(radius as i32);
+        let right_x = (x as i32 * 16).saturating_add(radius as i32);
+        let top_y = (y as i32 * 16).saturating_sub(radius as i32);
+        let bottom_y = (y as i32 * 16).saturating_add(radius as i32);
+
+        let top_y = (top_y / 16) as u16;
+        let bottom_y = (bottom_y / 16) as u16;
+        let left_x = (left_x / 16) as u16;
+        let right_x = (right_x / 16) as u16;
+
+        for check_y in top_y..=bottom_y {
+            for check_x in left_x..=right_x {
+                if self.is_solid(check_x, check_y, frequency) {
                     return false;
                 }
             }
