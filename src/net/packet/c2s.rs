@@ -59,6 +59,7 @@ pub struct ArenaJoinMessage {
     pub resolution_x: u16,
     pub resolution_y: u16,
     pub arena_request: ArenaRequest,
+    pub request_lvz: bool,
 }
 
 impl ArenaJoinMessage {
@@ -67,12 +68,14 @@ impl ArenaJoinMessage {
         resolution_x: u16,
         resolution_y: u16,
         arena_request: ArenaRequest,
+        request_lvz: bool,
     ) -> Self {
         Self {
             ship_kind,
             resolution_x,
             resolution_y,
             arena_request,
+            request_lvz,
         }
     }
 }
@@ -105,6 +108,7 @@ impl Serialize for ArenaJoinMessage {
             .concat_u16(self.resolution_y)
             .concat_u16(arena_number)
             .concat_bytes(&arena_name)
+            .concat_u8(self.request_lvz as u8)
     }
 }
 

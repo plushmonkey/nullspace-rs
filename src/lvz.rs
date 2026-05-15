@@ -4,13 +4,16 @@ use image::EncodableLayout;
 use miniz_oxide::inflate::decompress_to_vec_zlib;
 use thiserror::Error;
 
-use crate::render::{
-    animation_renderer::get_animation_index,
-    game_sprites::GameSprites,
-    layer::Layer,
-    render_state::{ReferencePoint, RenderState},
-    sprite_renderer::{SheetIndex, SpriteRenderable},
-    texture::Texture,
+use crate::{
+    render::{
+        animation_renderer::get_animation_index,
+        game_sprites::{GAME_SPRITE_SHEET_DEFINITIONS, GameSpriteKind, GameSprites, SpriteSet},
+        layer::Layer,
+        render_state::{ReferencePoint, RenderState},
+        sprite_renderer::{SheetIndex, SpriteRenderable},
+        texture::Texture,
+    },
+    ship::ShipKind,
 };
 
 #[derive(Error, Debug)]
@@ -631,6 +634,8 @@ impl LvzController {
         sprites: &mut GameSprites,
         zone_activation: bool,
     ) {
+        sprites.clear_overrides();
+
         for container in &self.containers {
             for file in &container.files {
                 let img = match image::load_from_memory(&file.data) {
@@ -641,9 +646,6 @@ impl LvzController {
                     }
                 };
 
-                // TODO: Determine if this file should override GameSprite
-                let _ = sprites;
-
                 let texture = Texture::new_2d(
                     &render_state.device,
                     img.width(),
@@ -652,6 +654,8 @@ impl LvzController {
                 );
 
                 RenderState::buffer_texture(&render_state.queue, &texture, &img.as_bytes());
+
+                Self::override_graphics(render_state, sprites, &file.filename, &texture);
 
                 let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
                     &render_state.device,
@@ -803,5 +807,115 @@ impl LvzController {
         self.containers.push(container);
 
         Ok(())
+    }
+
+    fn override_graphics(
+        render_state: &mut RenderState,
+        sprites: &mut GameSprites,
+        filename: &str,
+        texture: &Texture,
+    ) {
+        let mut perform_override = |kind: GameSpriteKind, linear| {
+            let index = kind as usize;
+            let sprite = &mut sprites.sprite_overrides[index];
+            let (cols, rows) = GAME_SPRITE_SHEET_DEFINITIONS[index];
+
+            *sprite = SpriteSet::new_with_texture(render_state, texture, cols, rows, linear);
+        };
+
+        if let Some((name, _)) = filename.rsplit_once('.') {
+            match name {
+                "ships" => perform_override(GameSpriteKind::Ships, true),
+                "bullets" => perform_override(GameSpriteKind::Bullets, false),
+                "bombs" => perform_override(GameSpriteKind::Bombs, false),
+                "mines" => perform_override(GameSpriteKind::Mines, false),
+                "shrapnel" => perform_override(GameSpriteKind::Shrapnel, false),
+                "flag" => perform_override(GameSpriteKind::Flag, false),
+                "goal" => perform_override(GameSpriteKind::Goal, false),
+                "over1" => perform_override(GameSpriteKind::AsteroidSmall, false),
+                "over2" => perform_override(GameSpriteKind::AsteroidLarge, false),
+                "over3" => perform_override(GameSpriteKind::AsteroidSmall2, false),
+                "over4" => perform_override(GameSpriteKind::SpaceStation, false),
+                "over5" => perform_override(GameSpriteKind::Wormhole, false),
+                "explode0" => perform_override(GameSpriteKind::BulletExplosion, false),
+                "explode2" => perform_override(GameSpriteKind::BombExplosion, false),
+                "explode1" => perform_override(GameSpriteKind::PlayerExplosion, false),
+                "empburst" => perform_override(GameSpriteKind::EmpExplosion, false),
+                "warp" => perform_override(GameSpriteKind::Flash, false),
+                "colors" => perform_override(GameSpriteKind::Colors, false),
+                "powerb" => perform_override(GameSpriteKind::Powerball, false),
+                "gradient" => perform_override(GameSpriteKind::Gradient, false),
+                "trail" => perform_override(GameSpriteKind::Trail, false),
+                "spectate" => perform_override(GameSpriteKind::Spectate, false),
+                "wall" => perform_override(GameSpriteKind::Brick, false),
+                "turret" => perform_override(GameSpriteKind::Turret, false),
+                "hlthbar" => perform_override(GameSpriteKind::HealthBar, false),
+                "engyfont" => perform_override(GameSpriteKind::EnergyFont, false),
+                "icondoor" => perform_override(GameSpriteKind::IconFont, false),
+                "icons" => perform_override(GameSpriteKind::Icons, false),
+                "warppnt" => perform_override(GameSpriteKind::WarpPoint, false),
+                "spark" => perform_override(GameSpriteKind::Spark, false),
+                "dropflag" => perform_override(GameSpriteKind::DropFlag, false),
+                "super" => perform_override(GameSpriteKind::Super, false),
+                "shield" => perform_override(GameSpriteKind::Shield, false),
+                "turret2" => perform_override(GameSpriteKind::TeamTurret, false),
+                "prizes" => perform_override(GameSpriteKind::Prize, false),
+                "exhaust" => perform_override(GameSpriteKind::Exhaust, false),
+                "rocket" => perform_override(GameSpriteKind::Rocket, false),
+                "king" => perform_override(GameSpriteKind::Crown, false),
+                "kingex" => perform_override(GameSpriteKind::CrownIndicator, false),
+                "ssshield" => perform_override(GameSpriteKind::PointsShield, false),
+                "repel" => perform_override(GameSpriteKind::Repel, false),
+                "ship1" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Warbird, &ship_sprite_set);
+                }
+                "ship2" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Javelin, &ship_sprite_set);
+                }
+                "ship3" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Spider, &ship_sprite_set);
+                }
+                "ship4" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Leviathan, &ship_sprite_set);
+                }
+                "ship5" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Terrier, &ship_sprite_set);
+                }
+                "ship6" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Weasel, &ship_sprite_set);
+                }
+                "ship7" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Lancaster, &ship_sprite_set);
+                }
+                "ship8" => {
+                    let ship_sprite_set =
+                        SpriteSet::new_with_texture(render_state, texture, 10, 4, true);
+
+                    sprites.override_ship(ShipKind::Shark, &ship_sprite_set);
+                }
+                _ => {}
+            }
+        }
     }
 }

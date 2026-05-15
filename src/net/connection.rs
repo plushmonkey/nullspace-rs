@@ -561,11 +561,12 @@ impl Connection {
                     self.cancel_downloads();
                 }
                 GameServerMessage::CompressedMap(message) => {
-                    if let Some(download_index) = self
-                        .download_queue
-                        .iter()
-                        .position(|request| request.filename == message.filename)
-                    {
+                    if let Some(download_index) = self.download_queue.iter().position(|request| {
+                        let request_len = request.filename.len().min(14);
+                        let message_len = request.filename.len().min(14);
+
+                        request.filename[..request_len] == message.filename[..message_len]
+                    }) {
                         self.download_queue.remove(download_index);
                     }
 

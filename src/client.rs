@@ -807,6 +807,7 @@ impl Client {
                         1920,
                         1080,
                         crate::net::packet::c2s::ArenaRequest::AnyPublic,
+                        true,
                     );
 
                     if let Err(e) = self.connection.send_reliable(&request) {
@@ -819,6 +820,7 @@ impl Client {
                             1920,
                             1080,
                             crate::net::packet::c2s::ArenaRequest::SpecificPublic(number),
+                            true,
                         )
                     } else {
                         crate::net::packet::c2s::ArenaJoinMessage::new(
@@ -826,6 +828,7 @@ impl Client {
                             1920,
                             1080,
                             crate::net::packet::c2s::ArenaRequest::Name(target.to_string()),
+                            true,
                         )
                     };
 
@@ -986,6 +989,7 @@ impl Client {
                             1920,
                             1080,
                             ArenaRequest::AnyPublic,
+                            true,
                         );
 
                         self.connection.send_reliable(&arena_request)?;

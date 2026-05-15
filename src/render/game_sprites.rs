@@ -1,13 +1,17 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::render::{
-    colors::Colors,
-    render_state::RenderState,
-    sprite_renderer::{SheetIndex, SpriteRenderable},
-    texture::Texture,
+use crate::{
+    render::{
+        colors::Colors,
+        render_state::RenderState,
+        sprite_renderer::{SheetIndex, SpriteRenderable},
+        texture::Texture,
+    },
+    ship::ShipKind,
 };
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct SpriteSet {
     pub renderables: Vec<SpriteRenderable>,
     pub texture: Option<Texture>,
@@ -46,6 +50,29 @@ impl SpriteSet {
         )
     }
 
+    pub fn new_with_texture(
+        render_state: &mut RenderState,
+        texture: &Texture,
+        cols: u32,
+        rows: u32,
+        linear_sampler: bool,
+    ) -> Self {
+        let width = texture.texture.width();
+        let height = texture.texture.height();
+
+        Self::new_from_slice_with_texture(
+            render_state,
+            texture,
+            0,
+            0,
+            width,
+            height,
+            cols,
+            rows,
+            linear_sampler,
+        )
+    }
+
     pub fn new_from_slice(
         render_state: &mut RenderState,
         img: &image::RgbaImage,
@@ -59,12 +86,6 @@ impl SpriteSet {
     ) -> Self {
         use image::EncodableLayout;
 
-        let width = x_end - x_start;
-        let height = y_end - y_start;
-
-        let renderable_width = width / cols;
-        let renderable_height = height / rows;
-
         let texture = Texture::new_2d(
             &render_state.device,
             img.width(),
@@ -73,6 +94,36 @@ impl SpriteSet {
         );
 
         RenderState::buffer_texture(&render_state.queue, &texture, &img.as_bytes());
+
+        Self::new_from_slice_with_texture(
+            render_state,
+            &texture,
+            x_start,
+            y_start,
+            x_end,
+            y_end,
+            cols,
+            rows,
+            linear_sampler,
+        )
+    }
+
+    pub fn new_from_slice_with_texture(
+        render_state: &mut RenderState,
+        texture: &Texture,
+        x_start: u32,
+        y_start: u32,
+        x_end: u32,
+        y_end: u32,
+        cols: u32,
+        rows: u32,
+        linear_sampler: bool,
+    ) -> Self {
+        let width = x_end - x_start;
+        let height = y_end - y_start;
+
+        let renderable_width = width / cols;
+        let renderable_height = height / rows;
 
         let sheet_index = render_state.sprite_renderer.create_sprite_sheet(
             &render_state.device,
@@ -93,6 +144,8 @@ impl SpriteSet {
                 renderables.push(renderable);
             }
         }
+
+        let texture = (*texture).clone();
 
         Self {
             renderables,
@@ -195,27 +248,54 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
 ];
 
 pub struct GameSprites {
-    pub sprites: [SpriteSet; GAME_SPRITE_KIND_SIZE],
+    sprites: [SpriteSet; GAME_SPRITE_KIND_SIZE],
     pub colors: Colors,
+
+    pub sprite_overrides: [SpriteSet; GAME_SPRITE_KIND_SIZE],
 }
 
 impl GameSprites {
     pub fn new() -> Self {
         let sprites = [(); GAME_SPRITE_KIND_SIZE].map(|_| SpriteSet::empty());
+        let sprite_overrides = [(); GAME_SPRITE_KIND_SIZE].map(|_| SpriteSet::empty());
+
         Self {
             sprites,
             colors: Colors::new(0, 0),
+            sprite_overrides,
         }
     }
 
     pub fn get_set(&self, kind: GameSpriteKind) -> Option<&SpriteSet> {
         let index = kind as usize;
 
+        if !self.sprite_overrides[index].renderables.is_empty() {
+            return Some(&self.sprite_overrides[index]);
+        }
+
         if self.sprites[index].renderables.is_empty() {
             return None;
         }
 
         Some(&self.sprites[index])
+    }
+
+    pub fn clear_overrides(&mut self) {
+        self.sprite_overrides = [(); GAME_SPRITE_KIND_SIZE].map(|_| SpriteSet::empty());
+    }
+
+    pub fn override_ship(&mut self, ship: ShipKind, set: &SpriteSet) {
+        let index = GameSpriteKind::Ships as usize;
+
+        if self.sprite_overrides[index].renderables.is_empty() {
+            self.sprite_overrides[index] = self.sprites[index].clone();
+        }
+
+        for i in 0..40 {
+            let renderable_index = ship.network_value() as usize * 40 + i;
+
+            self.sprite_overrides[index].renderables[renderable_index] = set.renderables[i];
+        }
     }
 }
 
@@ -342,8 +422,6 @@ impl GameSpriteLoader {
             (GameSpriteKind::PointsShield, "graphics/ssshield.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
-
-        assert!(fetches.len() == GAME_SPRITE_KIND_SIZE);
 
         // Kick off each load here, then collect them below
         let results = fetches.map(|(kind, path)| (kind, Self::load_image(path)));

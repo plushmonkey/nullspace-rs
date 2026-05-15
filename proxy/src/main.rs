@@ -313,6 +313,11 @@ async fn process_map_request(
     let mut terminated_str = [0; 17];
     terminated_str[0..16].copy_from_slice(&filename[0..16]);
 
+    terminated_str[15] = 0;
+    if terminated_str[14] == b'.' {
+        terminated_str[14] = 0;
+    }
+
     if let Ok(filename) = CStr::from_bytes_until_nul(&terminated_str) {
         if let Ok(filename) = filename.to_str() {
             let path = map_path.clone() + filename;
