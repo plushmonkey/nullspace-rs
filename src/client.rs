@@ -10,6 +10,7 @@ use crate::game_view::render_explosions;
 use crate::game_view::render_trails;
 use crate::input::InputAction;
 use crate::input::InputState;
+use crate::lvz::LvzController;
 use crate::map::DoorRng;
 use crate::map::Map;
 use crate::math::PixelUnit;
@@ -17,12 +18,14 @@ use crate::math::PositionUnit;
 use crate::math::Rectangle;
 use crate::math::{Position, Velocity};
 use crate::net::connection::ConnectionError;
+use crate::net::connection::DownloadRequest;
 use crate::net::connection::SocketKind;
 use crate::net::connection::{Connection, ConnectionState};
 use crate::net::packet::bi::*;
 use crate::net::packet::c2s::*;
 use crate::net::packet::s2c::*;
 use crate::notification::NotificationManager;
+use crate::platform::Platform;
 use crate::player::*;
 use crate::prize::Prize;
 use crate::prize::PrizeManager;
@@ -48,19 +51,6 @@ use crate::statbox::Statbox;
 use crate::weapon::WeaponKind;
 
 use miniz_oxide::inflate::decompress_to_vec_zlib;
-
-#[cfg(not(target_arch = "wasm32"))]
-fn build_zone_directory(zone: &str) -> Result<(), std::io::Error> {
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .create(format!("zones/{}", zone))?;
-    Ok(())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_zone_path(zone: &str, filename: &str) -> String {
-    format!("zones/{}/{}", zone, filename)
-}
 
 pub enum MovementController {
     Ship(ShipController),
@@ -104,6 +94,7 @@ impl OutboundPositionQueue {
 }
 
 pub struct Client {
+    pub platform: Box<dyn Platform + Send>,
     pub connection: Connection,
     pub map: Map,
     pub settings: Box<ArenaSettings>,
@@ -132,6 +123,9 @@ pub struct Client {
     outbound_position_queue: OutboundPositionQueue,
 
     pub camera_jitter_time: u32,
+
+    pub lvz_controller: LvzController,
+    pub arena_change_count: usize,
 }
 
 impl Client {
@@ -141,10 +135,12 @@ impl Client {
         zone: &str,
         socket: SocketKind,
         registration: RegistrationFormMessage,
+        platform: Box<dyn Platform + Send>,
     ) -> Result<Client, ConnectionError> {
         let connection = Connection::new(socket);
 
         Ok(Client {
+            platform,
             connection,
             map: Map::empty(""),
             settings: Box::new(ArenaSettings::default()),
@@ -164,6 +160,8 @@ impl Client {
             controller: MovementController::Spectate(SpectateController::new()),
             outbound_position_queue: OutboundPositionQueue::new(),
             camera_jitter_time: 0,
+            lvz_controller: LvzController::new(),
+            arena_change_count: 0,
         })
     }
 
@@ -263,6 +261,8 @@ impl Client {
                     }
                 }
             }
+
+            self.lvz_controller.tick();
 
             input_state.clear_triggered();
         }
@@ -1030,6 +1030,7 @@ impl Client {
                 self.flag_controller.clear();
                 self.last_position_tick = self.connection.get_game_tick();
                 self.simulation.player_manager.self_id = message.id;
+                self.lvz_controller.clear(render_state.as_deref_mut());
 
                 self.notifications.clear();
 
@@ -1615,6 +1616,16 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerDeath(message) => {
+                if message.killer_id == self.simulation.player_manager.self_id {
+                    self.lvz_controller
+                        .activate_mode(crate::lvz::DisplayMode::Kill);
+                }
+
+                if message.killed_id == self.simulation.player_manager.self_id {
+                    self.lvz_controller
+                        .activate_mode(crate::lvz::DisplayMode::Death);
+                }
+
                 if let Some(killer) = self.simulation.player_manager.get_by_id(message.killer_id) {
                     if let Some(killed) =
                         self.simulation.player_manager.get_by_id(message.killed_id)
@@ -1970,81 +1981,84 @@ impl Client {
             GameServerMessage::MapInformation(info) => {
                 let map_info = &info.downloads[0];
 
+                self.map = Map::empty(&map_info.filename);
+                self.map.checksum = map_info.checksum;
+
                 log::debug!("Map name: {}", map_info.filename);
 
                 self.connection.state = ConnectionState::MapDownload;
 
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let map_path = get_zone_path(&self.zone, &map_info.filename);
-                    let map_data = std::fs::read(map_path);
+                for index in 0..info.downloads.len() {
+                    let download = &info.downloads[index];
 
-                    if let Ok(map_data) = map_data {
-                        let checksum = checksum::crc32(&map_data);
+                    self.connection.download_queue.push(DownloadRequest {
+                        filename: download.filename.clone(),
+                        checksum: download.checksum,
+                        server_index: index as u16,
+                    });
+                }
 
-                        if checksum == map_info.checksum {
-                            if let Ok(new_map) =
-                                Map::new(&map_info.filename, &map_data, self.map.door_rng)
-                            {
-                                if let Some(render_state) = render_state {
-                                    render_state.on_map_change(&new_map, &map_data);
-                                }
+                for index in 0..info.downloads.len() {
+                    let download = &info.downloads[index];
 
-                                self.handle_map_load(new_map, map_info.checksum);
-                            } else {
-                                log::debug!("Map read error: failed to load tiles");
-                                self.connection.state = ConnectionState::Disconnected;
-                            }
+                    if let Some(data) = self.platform.load_zone_file(&self.zone, &download.filename)
+                    {
+                        let checksum = checksum::crc32(&data);
+
+                        if checksum == download.checksum {
+                            self.connection.remove_download_request(index as u16);
+
+                            self.handle_download_complete(
+                                render_state.as_deref_mut(),
+                                &download.filename,
+                                checksum,
+                                &data,
+                            );
                         }
                     }
                 }
 
-                if matches!(self.connection.state, ConnectionState::MapDownload) {
-                    // Request
-                    self.connection
-                        .send_map_request(&map_info.filename, map_info.checksum, 0);
-
-                    self.connection.state = ConnectionState::MapDownload;
-
-                    self.map = Map::empty(&map_info.filename);
-                    self.map.checksum = map_info.checksum;
+                if !self.connection.download_queue.is_empty() {
+                    self.connection.request_next_download();
                 }
             }
             GameServerMessage::CompressedMap(compressed) => {
                 if compressed.filename == self.map.filename {
-                    let inflated = decompress_to_vec_zlib(compressed.data.as_slice());
+                    match decompress_to_vec_zlib(&compressed.data) {
+                        Ok(data) => {
+                            self.platform
+                                .save_zone_file(&self.zone, &compressed.filename, &data);
 
-                    match inflated {
-                        Ok(inflated) => {
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                let map_path = get_zone_path(&self.zone, &compressed.filename);
+                            let checksum = checksum::crc32(&data);
 
-                                if let Err(e) = build_zone_directory(&self.zone) {
-                                    log::debug!("Error creating zone directory: {}", e);
-                                }
-
-                                if let Err(e) = std::fs::write(map_path, inflated.as_slice()) {
-                                    log::debug!("Error writing map: {}", e);
-                                }
-                            }
-
-                            if let Ok(new_map) =
-                                Map::new(&self.map.filename, &inflated, self.map.door_rng)
-                            {
-                                if let Some(render_state) = render_state {
-                                    render_state.on_map_change(&new_map, &inflated);
-                                }
-
-                                self.handle_map_load(new_map, checksum::crc32(&inflated));
-                            } else {
-                                log::debug!("Map read error: failed to load tiles");
-                            }
+                            self.handle_download_complete(
+                                render_state.as_deref_mut(),
+                                &compressed.filename,
+                                checksum,
+                                &data,
+                            );
                         }
                         Err(e) => {
-                            log::debug!("DecompressError: {}", e);
+                            log::error!("DecompressError: {e}");
+                            self.connection.state = ConnectionState::Disconnected;
+                            return Ok(());
                         }
                     }
+                } else {
+                    self.platform.save_zone_file(
+                        &self.zone,
+                        &compressed.filename,
+                        &compressed.data,
+                    );
+
+                    let checksum = checksum::crc32(&compressed.data);
+
+                    self.handle_download_complete(
+                        render_state.as_deref_mut(),
+                        &compressed.filename,
+                        checksum,
+                        &compressed.data,
+                    );
                 }
             }
             GameServerMessage::ArenaDirectory(directory) => {
@@ -2157,13 +2171,42 @@ impl Client {
         }
     }
 
-    fn handle_map_load(&mut self, map: Map, checksum: u32) {
-        self.map = map;
-        self.map.checksum = checksum;
-        self.connection.state = ConnectionState::Playing;
+    fn handle_download_complete(
+        &mut self,
+        render_state: Option<&mut RenderState>,
+        filename: &str,
+        checksum: u32,
+        data: &[u8],
+    ) {
+        if filename == self.map.filename {
+            if let Ok(new_map) = Map::new(filename, data, self.map.door_rng) {
+                if let Some(render_state) = render_state {
+                    render_state.on_map_change(&new_map, data);
+                }
 
-        self.radar.invalidate();
-        self.simulation.powerball_paused = false;
+                self.map = new_map;
+                self.map.checksum = checksum;
+            } else {
+                log::debug!("Map read error: failed to load tiles");
+                self.connection.state = ConnectionState::Disconnected;
+            }
+        } else {
+            if let Err(e) = self.lvz_controller.handle_download(&data) {
+                log::error!("LvzError: {e}");
+            }
+        }
+
+        if self.connection.download_queue.is_empty() {
+            self.connection.state = ConnectionState::Playing;
+
+            self.radar.invalidate();
+            self.simulation.powerball_paused = false;
+
+            self.arena_change_count += 1;
+
+            self.lvz_controller
+                .on_download_complete(self.arena_change_count == 1);
+        }
     }
 
     fn process_message(

@@ -156,6 +156,12 @@ pub enum SocketKind {
     WebTransport(WebTransportSocket),
 }
 
+pub struct DownloadRequest {
+    pub filename: String,
+    pub checksum: u32,
+    pub server_index: u16,
+}
+
 pub struct Connection {
     pub socket: SocketKind,
     pub state: ConnectionState,
@@ -178,6 +184,8 @@ pub struct Connection {
     pub ticks_since_recv: u32,
 
     pub send_extra_position_info: bool,
+
+    pub download_queue: Vec<DownloadRequest>,
 }
 
 impl Connection {
@@ -201,6 +209,7 @@ impl Connection {
             packets_recv: 0,
             ticks_since_recv: 0,
             send_extra_position_info: false,
+            download_queue: vec![],
         }
     }
 
@@ -551,8 +560,43 @@ impl Connection {
                 GameServerMessage::MapInformation(_) => {
                     self.cancel_downloads();
                 }
+                GameServerMessage::CompressedMap(message) => {
+                    if let Some(download_index) = self
+                        .download_queue
+                        .iter()
+                        .position(|request| request.filename == message.filename)
+                    {
+                        self.download_queue.remove(download_index);
+                    }
+
+                    if !self.download_queue.is_empty() {
+                        self.request_next_download();
+                    }
+                }
                 _ => {}
             },
+        }
+    }
+
+    pub fn request_next_download(&mut self) {
+        if self.download_queue.is_empty() {
+            return;
+        }
+
+        self.send_map_request(
+            &self.download_queue[0].filename.clone(),
+            self.download_queue[0].checksum,
+            self.download_queue[0].server_index,
+        );
+    }
+
+    pub fn remove_download_request(&mut self, server_index: u16) {
+        if let Some(download_index) = self
+            .download_queue
+            .iter()
+            .position(|request| request.server_index == server_index)
+        {
+            self.download_queue.remove(download_index);
         }
     }
 
@@ -567,6 +611,8 @@ impl Connection {
                 log::error!("{e}");
             }
         }
+
+        self.download_queue.clear();
     }
 
     fn recv_packet(&mut self) -> Result<Option<Packet>, ConnectionError> {
@@ -637,7 +683,7 @@ impl Connection {
                     );
                     let fallback = &encrypted.data[..fallback.size];
 
-                    web_transport.request_map(filename, checksum, fallback);
+                    web_transport.request_map(filename, checksum, index, fallback);
                 } else {
                     let map_request = MapRequestMessage { index };
 

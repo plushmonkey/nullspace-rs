@@ -28,7 +28,7 @@ use crate::{
 pub fn render_game(
     client: &mut Client,
     render_state: &mut RenderState,
-    sprites: &GameSprites,
+    sprites: &mut GameSprites,
     menu_open: bool,
 ) {
     client.chat_controller.render(render_state);
@@ -170,6 +170,8 @@ pub fn render_game(
 
                 client.notifications.clear();
             }
+
+            client.lvz_controller.render(render_state, sprites);
         }
         _ => {
             render_state.render_map = false;

@@ -62,6 +62,7 @@ pub struct SpriteRenderer {
     vertex_buffer: wgpu::Buffer,
 
     bind_group_layout: wgpu::BindGroupLayout,
+    empty_bind_group: wgpu::BindGroup,
 
     sampler: wgpu::Sampler,
     linear_sampler: wgpu::Sampler,
@@ -177,11 +178,29 @@ impl SpriteRenderer {
             cache: None,
         });
 
+        let empty_texture = Texture::new_2d(device, 1, 1, *format);
+        let empty_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&empty_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
         Self {
             pipeline,
             vertex_buffer,
 
             bind_group_layout,
+            empty_bind_group,
+
             sampler,
             linear_sampler,
             sprite_sheets: vec![],
@@ -434,7 +453,12 @@ impl SpriteRenderer {
     }
 
     pub fn destroy_sheet(&mut self, index: SheetIndex) {
-        self.free_sheets.push(index.0 as usize);
+        if let Some(sheet) = self.sprite_sheets.get_mut(index.0 as usize) {
+            // Clear the bind group so it gets dropped and the texture reference can be dropped.
+            sheet.bind_group = self.empty_bind_group.clone();
+
+            self.free_sheets.push(index.0 as usize);
+        }
     }
 
     pub fn get_sheet(&mut self, index: SheetIndex) -> Option<&SpriteSheet> {

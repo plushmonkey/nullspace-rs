@@ -44,11 +44,13 @@ pub mod exhaust;
 pub mod flag;
 pub mod game_view;
 pub mod input;
+pub mod lvz;
 pub mod map;
 pub mod math;
 pub mod menu;
 pub mod net;
 pub mod notification;
+pub mod platform;
 pub mod player;
 pub mod powerball;
 pub mod prize;
@@ -210,6 +212,12 @@ impl ApplicationPlayingState {
                 crate::net::webtransport_socket::WebTransportSocket::new(&proxy_url, hash).unwrap();
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let platform = Box::new(crate::platform::NativePlatform {});
+
+        #[cfg(target_arch = "wasm32")]
+        let platform = Box::new(crate::platform::WebPlatform {});
+
         let registration = RegistrationFormMessage::new(
             "nullspace",
             "nullspace@nullspace.com",
@@ -228,6 +236,7 @@ impl ApplicationPlayingState {
             #[cfg(target_arch = "wasm32")]
             net::connection::SocketKind::WebTransport(socket),
             registration,
+            platform,
         )
         .unwrap();
 
@@ -271,7 +280,7 @@ impl ApplicationPlayingState {
         render_game(
             &mut self.client,
             render_state,
-            &self.sprites,
+            &mut self.sprites,
             self.menu.is_open(),
         );
 

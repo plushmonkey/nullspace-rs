@@ -20,6 +20,42 @@ use crate::{
     },
 };
 
+#[derive(Copy, Clone)]
+pub enum ReferencePoint {
+    Normal,
+    ScreenCenter,
+    BottomRight,
+    StatboxBottomRight,
+    SpecialTopRight,
+    SpecialBottomRight,
+    EnergyBelow,
+    ChatTopLeft,
+    RadarTopLeft,
+    RadarTextTopLeft,
+    WeaponsTopLeft,
+    WeaponsBottomLeft,
+}
+
+impl ReferencePoint {
+    pub fn from_value(value: u16) -> Self {
+        match value {
+            0 => Self::Normal,
+            1 => Self::ScreenCenter,
+            2 => Self::BottomRight,
+            3 => Self::StatboxBottomRight,
+            4 => Self::SpecialTopRight,
+            5 => Self::SpecialBottomRight,
+            6 => Self::EnergyBelow,
+            7 => Self::ChatTopLeft,
+            8 => Self::RadarTopLeft,
+            9 => Self::RadarTextTopLeft,
+            10 => Self::WeaponsTopLeft,
+            11 => Self::WeaponsBottomLeft,
+            _ => Self::Normal,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum RenderStateCreateError {
     #[error("{0}")]
@@ -69,6 +105,8 @@ pub struct RenderState {
     pub banner_manager: BannerManager,
 
     pub render_map: bool,
+
+    pub below_energy_y_offset: u32,
 }
 
 impl RenderState {
@@ -208,6 +246,7 @@ impl RenderState {
             animation_renderer,
             banner_manager: BannerManager::new(&surface_format),
             render_map: false,
+            below_energy_y_offset: 0,
         })
     }
 
@@ -316,6 +355,8 @@ impl RenderState {
         self.queue.submit(std::iter::once(encoder.finish()));
         window.pre_present_notify();
         output_texture.present();
+
+        self.below_energy_y_offset = 0;
 
         Ok(true)
     }
@@ -470,6 +511,29 @@ impl RenderState {
                 let ui_y = top_y + renderable_height * 4;
                 (ui_x, ui_y)
             }
+        }
+    }
+
+    pub fn get_screen_reference_point(&self, reference: ReferencePoint) -> (i32, i32) {
+        let width = self.config.width as i32;
+        let height = self.config.height as i32;
+
+        match &reference {
+            ReferencePoint::Normal => (0, 0),
+            ReferencePoint::ScreenCenter => (width / 2, height / 2),
+            ReferencePoint::BottomRight => (width, height),
+            ReferencePoint::StatboxBottomRight => todo!(),
+            ReferencePoint::SpecialTopRight => todo!(),
+            ReferencePoint::SpecialBottomRight => todo!(),
+            ReferencePoint::EnergyBelow => (
+                width / 2,
+                self.below_energy_y_offset as i32 * self.text_renderer.character_height,
+            ),
+            ReferencePoint::ChatTopLeft => todo!(),
+            ReferencePoint::RadarTopLeft => todo!(),
+            ReferencePoint::RadarTextTopLeft => todo!(),
+            ReferencePoint::WeaponsTopLeft => todo!(),
+            ReferencePoint::WeaponsBottomLeft => todo!(),
         }
     }
 }

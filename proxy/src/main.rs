@@ -307,7 +307,8 @@ async fn process_map_request(
 
     let filename = &packet[0..16];
     let checksum = u32::from_le_bytes(packet[16..20].try_into().unwrap());
-    let fallback = &packet[20..];
+    let index = u16::from_le_bytes(packet[20..22].try_into().unwrap());
+    let fallback = &packet[22..];
 
     let mut terminated_str = [0; 17];
     terminated_str[0..16].copy_from_slice(&filename[0..16]);
@@ -318,7 +319,7 @@ async fn process_map_request(
 
             if let Some((data, map_checksum)) = read_map(path) {
                 if map_checksum == checksum {
-                    send_map_data(send_stream, &data, filename).await;
+                    send_map_data(send_stream, &data, filename, index).await;
                     return;
                 }
             }
@@ -342,8 +343,15 @@ async fn receive_bi(
     recv_stream.read(slice).await
 }
 
-async fn send_map_data(stream: &mut SendStream, raw_data: &[u8], filename: &str) {
-    let data = compress_to_vec_zlib(raw_data, 6);
+async fn send_map_data(stream: &mut SendStream, raw_data: &[u8], filename: &str, index: u16) {
+    let compressed_data;
+
+    let mut data = raw_data;
+
+    if index == 0 {
+        compressed_data = compress_to_vec_zlib(raw_data, 6);
+        data = &compressed_data;
+    }
 
     let mut buffer: Vec<u8> = Vec::with_capacity(4 + 1 + 17 + data.len());
     let payload_length = data.len() as u32 + 17;

@@ -253,7 +253,7 @@ impl WebTransportSocket {
             if let Some(packet) = self.stream_packet_queue.pop_front() {
                 return Some((packet, false));
             }
-            
+
             return None;
         }
 
@@ -315,7 +315,7 @@ impl WebTransportSocket {
         self.bi_writer.is_some() && self.bi_reader.is_some()
     }
 
-    pub fn request_map(&mut self, filename: &str, checksum: u32, fallback: &[u8]) {
+    pub fn request_map(&mut self, filename: &str, checksum: u32, index: u16, fallback: &[u8]) {
         if let Some(writer) = &self.bi_writer {
             let mut data = Vec::with_capacity(256);
             let mut full_name = [0; 16];
@@ -328,6 +328,7 @@ impl WebTransportSocket {
             data.push(0x01); // RequestMap
             data.extend_from_slice(&full_name);
             data.extend_from_slice(&checksum.to_le_bytes());
+            data.extend_from_slice(&index.to_le_bytes());
             data.extend_from_slice(fallback);
 
             let payload_size = data.len() as u32 - 5;
