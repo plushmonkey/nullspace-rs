@@ -5,7 +5,7 @@ use crate::{
     player::PlayerManager,
     render::{
         layer::Layer,
-        render_state::RenderState,
+        render_state::{ReferencePoint, RenderState},
         text_renderer::{TextAlignment, TextColor},
     },
     statbox::Statbox,
@@ -183,6 +183,8 @@ impl ChatController {
                 }
             }
         }
+
+        render_state.set_reference_point(ReferencePoint::ChatTopLeft, (0, current_y));
     }
 
     fn get_chat_message_color(kind: ChatKind) -> TextColor {

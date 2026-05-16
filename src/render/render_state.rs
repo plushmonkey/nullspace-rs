@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Copy, Clone)]
 pub enum ReferencePoint {
-    Normal,
+    TopLeft,
     ScreenCenter,
     BottomRight,
     StatboxBottomRight,
@@ -36,10 +36,12 @@ pub enum ReferencePoint {
     WeaponsBottomLeft,
 }
 
+const REFERENCE_POINT_COUNT: usize = 12;
+
 impl ReferencePoint {
     pub fn from_value(value: u16) -> Self {
         match value {
-            0 => Self::Normal,
+            0 => Self::TopLeft,
             1 => Self::ScreenCenter,
             2 => Self::BottomRight,
             3 => Self::StatboxBottomRight,
@@ -51,7 +53,7 @@ impl ReferencePoint {
             9 => Self::RadarTextTopLeft,
             10 => Self::WeaponsTopLeft,
             11 => Self::WeaponsBottomLeft,
-            _ => Self::Normal,
+            _ => Self::TopLeft,
         }
     }
 }
@@ -106,7 +108,7 @@ pub struct RenderState {
 
     pub render_map: bool,
 
-    pub below_energy_y_offset: u32,
+    pub reference_points: [(i32, i32); REFERENCE_POINT_COUNT],
 }
 
 impl RenderState {
@@ -246,7 +248,7 @@ impl RenderState {
             animation_renderer,
             banner_manager: BannerManager::new(&surface_format),
             render_map: false,
-            below_energy_y_offset: 0,
+            reference_points: [(0, 0); REFERENCE_POINT_COUNT],
         })
     }
 
@@ -339,8 +341,8 @@ impl RenderState {
             render_pass.set_viewport(
                 0.0f32,
                 0.0f32,
-                self.camera.surface_dim.x as f32,
-                self.camera.surface_dim.y as f32,
+                (self.camera.surface_dim.x as f32).max(0.0f32),
+                (self.camera.surface_dim.y as f32).max(0.0f32),
                 0.0f32,
                 1.0f32,
             );
@@ -368,7 +370,9 @@ impl RenderState {
         window.pre_present_notify();
         output_texture.present();
 
-        self.below_energy_y_offset = 0;
+        for i in 0..REFERENCE_POINT_COUNT {
+            self.reference_points[i] = (0, 0);
+        }
 
         Ok(true)
     }
@@ -539,21 +543,14 @@ impl RenderState {
         let height = self.height() as i32;
 
         match &reference {
-            ReferencePoint::Normal => (0, 0),
+            ReferencePoint::TopLeft => (0, 0),
             ReferencePoint::ScreenCenter => (width / 2, height / 2),
             ReferencePoint::BottomRight => (width, height),
-            ReferencePoint::StatboxBottomRight => todo!(),
-            ReferencePoint::SpecialTopRight => todo!(),
-            ReferencePoint::SpecialBottomRight => todo!(),
-            ReferencePoint::EnergyBelow => (
-                width / 2,
-                self.below_energy_y_offset as i32 * self.text_renderer.character_height,
-            ),
-            ReferencePoint::ChatTopLeft => todo!(),
-            ReferencePoint::RadarTopLeft => todo!(),
-            ReferencePoint::RadarTextTopLeft => todo!(),
-            ReferencePoint::WeaponsTopLeft => todo!(),
-            ReferencePoint::WeaponsBottomLeft => todo!(),
+            _ => self.reference_points[reference as usize],
         }
+    }
+
+    pub fn set_reference_point(&mut self, reference: ReferencePoint, value: (i32, i32)) {
+        self.reference_points[reference as usize] = value;
     }
 }

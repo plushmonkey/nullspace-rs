@@ -6,7 +6,7 @@ use crate::{
         colors::ColorRenderableKind,
         game_sprites::GameSprites,
         layer::Layer,
-        render_state::RenderState,
+        render_state::{ReferencePoint, RenderState},
         sprite_renderer::{SheetIndex, SpriteRenderable},
         texture::Texture,
     },
@@ -244,6 +244,16 @@ impl Radar {
             let start_x = bottom_x.saturating_sub(size[0]);
             let start_y = bottom_y.saturating_sub(size[1]);
 
+            render_state.set_reference_point(
+                ReferencePoint::RadarTopLeft,
+                (start_x as i32 - 4, start_y as i32 - 4),
+            );
+
+            render_state.set_reference_point(
+                ReferencePoint::RadarTextTopLeft,
+                (start_x as i32 - 4, start_y as i32 - 4),
+            );
+
             render_state.sprite_renderer.draw(
                 &render_state.ui_camera,
                 &self.sprite_entire.renderable,
@@ -298,6 +308,19 @@ impl Radar {
 
             let start_x = bottom_x.saturating_sub(self.view.dim[0]);
             let start_y = bottom_y.saturating_sub(self.view.dim[1]);
+
+            render_state.set_reference_point(
+                ReferencePoint::RadarTopLeft,
+                (start_x as i32 - 4, start_y as i32 - 4),
+            );
+
+            render_state.set_reference_point(
+                ReferencePoint::RadarTextTopLeft,
+                (
+                    bottom_x as i32 + 4,
+                    start_y as i32 - 4 - render_state.text_renderer.character_height,
+                ),
+            );
 
             render_state.sprite_renderer.draw(
                 &render_state.ui_camera,

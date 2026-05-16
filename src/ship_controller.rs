@@ -16,7 +16,7 @@ use crate::{
         animation_renderer::get_animation_index,
         game_sprites::{GameSpriteKind, GameSprites, SpriteSet},
         layer::Layer,
-        render_state::RenderState,
+        render_state::{ReferencePoint, RenderState},
         sprite_renderer::SpriteRenderable,
         text_renderer::{TextAlignment, TextColor},
     },
@@ -1613,6 +1613,26 @@ impl ShipController {
             let icon_width = icon_sprites.renderables[0].size[0];
             let icon_height = icon_sprites.renderables[0].size[1] as i32;
 
+            render_state
+                .set_reference_point(ReferencePoint::SpecialTopRight, (icon_width as i32, y));
+
+            render_state.set_reference_point(
+                ReferencePoint::SpecialBottomRight,
+                (icon_width as i32, y + 7 * icon_height),
+            );
+
+            render_state.set_reference_point(
+                ReferencePoint::WeaponsTopLeft,
+                (render_state.width() as i32 - icon_width as i32, y),
+            );
+            render_state.set_reference_point(
+                ReferencePoint::WeaponsBottomLeft,
+                (
+                    render_state.width() as i32 - icon_width as i32,
+                    y + 6 * icon_height,
+                ),
+            );
+
             let right_side_x = (render_state.width() - icon_width) as i32;
 
             let (gun_index, gun_offset) = if let Some(gun_index) = self.get_gun_renderable_index() {
@@ -1917,6 +1937,14 @@ impl ShipController {
                 x_pixels,
                 y_pixels,
                 energybar_z,
+            );
+
+            render_state.set_reference_point(
+                ReferencePoint::EnergyBelow,
+                (
+                    render_state.width() as i32 / 2,
+                    y_pixels + renderable.size[1] as i32 / 2,
+                ),
             );
         }
 

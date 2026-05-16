@@ -6,7 +6,7 @@ use crate::{
     render::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
-        render_state::RenderState,
+        render_state::{ReferencePoint, RenderState},
         text_renderer::{TextAlignment, TextColor},
     },
     select_box::SelectBox,
@@ -1369,6 +1369,11 @@ impl Statbox {
             window_width + 1,
             current_y + 1,
             true,
+        );
+
+        render_state.set_reference_point(
+            ReferencePoint::StatboxBottomRight,
+            (window_width + 4, current_y + 4),
         );
     }
 

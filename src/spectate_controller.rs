@@ -16,7 +16,7 @@ use crate::{
     render::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
-        render_state::RenderState,
+        render_state::{ReferencePoint, RenderState},
         text_renderer::{TextAlignment, TextColor},
     },
     ship::ShipKind,
@@ -125,6 +125,27 @@ impl SpectateController {
         settings: &ArenaSettings,
         current_tick: GameTick,
     ) {
+        render_state.set_reference_point(
+            ReferencePoint::EnergyBelow,
+            (render_state.width() as i32 / 2, 0),
+        );
+
+        {
+            let y = (render_state.height() / 2) as i32 - 26 * 2;
+
+            render_state.set_reference_point(ReferencePoint::SpecialTopRight, (0, y));
+            render_state.set_reference_point(ReferencePoint::SpecialBottomRight, (0, y));
+
+            render_state.set_reference_point(
+                ReferencePoint::WeaponsTopLeft,
+                (render_state.width() as i32, y),
+            );
+            render_state.set_reference_point(
+                ReferencePoint::WeaponsBottomLeft,
+                (render_state.width() as i32, y),
+            );
+        }
+
         if let Some(spectate_player_id) = self.spectate_player_id {
             if let Some(spectate_player) = player_manager.get_by_id(spectate_player_id) {
                 Self::render_extra_data(render_state, spectate_player, current_tick);
@@ -245,6 +266,11 @@ impl SpectateController {
 
             y += render_state.text_renderer.character_height;
         }
+
+        render_state.set_reference_point(
+            ReferencePoint::EnergyBelow,
+            (render_state.width() as i32 / 2, y),
+        );
     }
 
     pub fn spectate_player(
