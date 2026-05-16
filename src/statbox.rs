@@ -491,7 +491,7 @@ impl Statbox {
             &player.name[..name_len],
             current_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Left,
         );
@@ -527,7 +527,7 @@ impl Statbox {
             &player.name[..name_len],
             current_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Left,
         );
@@ -540,7 +540,7 @@ impl Statbox {
                 &banner_renderable,
                 current_x + name_width + 1,
                 current_y + 1,
-                Layer::AfterGauges,
+                Layer::AfterStatbox,
             );
         }
 
@@ -552,7 +552,7 @@ impl Statbox {
             &format_smolstr!("{}", player.get_points()),
             points_x + points_width_pixels,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -588,7 +588,7 @@ impl Statbox {
             &player.name[..name_len],
             current_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Left,
         );
@@ -601,7 +601,7 @@ impl Statbox {
                 &banner_renderable,
                 current_x + name_width + 1,
                 current_y + 1,
-                Layer::AfterGauges,
+                Layer::AfterStatbox,
             );
         }
 
@@ -611,7 +611,7 @@ impl Statbox {
             &format_smolstr!("{}", player.get_points()),
             points_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -652,7 +652,7 @@ impl Statbox {
             &player.name[..namelen],
             current_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Left,
         );
@@ -665,7 +665,7 @@ impl Statbox {
                 &banner_renderable,
                 current_x + name_width + 1,
                 current_y + 1,
-                Layer::AfterGauges,
+                Layer::AfterStatbox,
             );
         }
 
@@ -683,7 +683,7 @@ impl Statbox {
             &player.squad[..squad_len],
             squad_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Left,
         );
@@ -695,7 +695,7 @@ impl Statbox {
             &format_smolstr!("{}", player.wins),
             wins_x + wins_width_pixels,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -707,7 +707,7 @@ impl Statbox {
             &format_smolstr!("{}", player.losses),
             losses_x + losses_width_pixels,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -719,7 +719,7 @@ impl Statbox {
             &format_smolstr!("{}", player.get_rating()),
             rating_x + rating_width_pixels,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -731,7 +731,7 @@ impl Statbox {
             &format_smolstr!("{:.1}", player.get_average()),
             average_x,
             current_y,
-            Layer::AfterGauges,
+            Layer::AfterStatbox,
             color,
             TextAlignment::Right,
         );
@@ -791,7 +791,7 @@ impl Statbox {
                     renderable,
                     BORDER_LEFT_WIDTH,
                     current_y + renderable.size[1] as i32 / 2 - 1,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                 );
             }
         }
@@ -821,7 +821,7 @@ impl Statbox {
                     &format_smolstr!("{}", player_manager.players.len()),
                     10 + 5 * render_state.text_renderer.character_width,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -895,7 +895,7 @@ impl Statbox {
                     heading_text,
                     heading_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -955,7 +955,7 @@ impl Statbox {
                     "Team Sort",
                     points_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -992,7 +992,7 @@ impl Statbox {
                             &freq_string,
                             BORDER_LEFT_WIDTH + start_spacer_width,
                             current_y,
-                            Layer::AfterGauges,
+                            Layer::AfterStatbox,
                             TextColor::DarkRed,
                             TextAlignment::Left,
                         );
@@ -1003,7 +1003,7 @@ impl Statbox {
                             "-------------",
                             BORDER_LEFT_WIDTH + start_spacer_width + width,
                             current_y,
-                            Layer::AfterGauges,
+                            Layer::AfterStatbox,
                             TextColor::DarkRed,
                             TextAlignment::Left,
                         );
@@ -1023,7 +1023,7 @@ impl Statbox {
                                 + dash_width
                                 + spacer_width,
                             current_y,
-                            Layer::AfterGauges,
+                            Layer::AfterStatbox,
                             TextColor::DarkRed,
                             TextAlignment::Right,
                         );
@@ -1103,7 +1103,7 @@ impl Statbox {
                     "Squad",
                     squad_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Left,
                 );
@@ -1114,7 +1114,7 @@ impl Statbox {
                     "W",
                     wins_x + wins_width_pixels,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1125,7 +1125,7 @@ impl Statbox {
                     "L",
                     losses_x + losses_width_pixels,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1136,7 +1136,7 @@ impl Statbox {
                     "R",
                     rating_x + rating_width_pixels,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1147,7 +1147,7 @@ impl Statbox {
                     "Ave",
                     average_x + average_width_pixels,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1205,7 +1205,7 @@ impl Statbox {
                     "Freq",
                     BORDER_LEFT_WIDTH + TICKER_WIDTH,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Left,
                 );
@@ -1216,7 +1216,7 @@ impl Statbox {
                     "Points",
                     points_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1227,7 +1227,7 @@ impl Statbox {
                     "Win",
                     wins_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1238,7 +1238,7 @@ impl Statbox {
                     "Lose",
                     losses_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1249,7 +1249,7 @@ impl Statbox {
                     "Flag",
                     flags_x,
                     heading_y,
-                    Layer::AfterGauges,
+                    Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
@@ -1292,7 +1292,7 @@ impl Statbox {
                         &freq_str,
                         BORDER_LEFT_WIDTH + TICKER_WIDTH,
                         current_y,
-                        Layer::AfterGauges,
+                        Layer::AfterStatbox,
                         color,
                         TextAlignment::Left,
                     );
@@ -1303,7 +1303,7 @@ impl Statbox {
                         &format_smolstr!("{}", entry.points),
                         points_x,
                         current_y,
-                        Layer::AfterGauges,
+                        Layer::AfterStatbox,
                         color,
                         TextAlignment::Right,
                     );
@@ -1314,7 +1314,7 @@ impl Statbox {
                         &format_smolstr!("{}", entry.wins),
                         wins_x,
                         current_y,
-                        Layer::AfterGauges,
+                        Layer::AfterStatbox,
                         color,
                         TextAlignment::Right,
                     );
@@ -1325,7 +1325,7 @@ impl Statbox {
                         &format_smolstr!("{}", entry.losses),
                         losses_x,
                         current_y,
-                        Layer::AfterGauges,
+                        Layer::AfterStatbox,
                         color,
                         TextAlignment::Right,
                     );
@@ -1336,7 +1336,7 @@ impl Statbox {
                         &format_smolstr!("{}", entry.flags),
                         flags_x,
                         current_y,
-                        Layer::AfterGauges,
+                        Layer::AfterStatbox,
                         color,
                         TextAlignment::Right,
                     );
@@ -1352,7 +1352,7 @@ impl Statbox {
         game_sprites.colors.draw(
             &mut render_state.sprite_renderer,
             &render_state.ui_camera,
-            Layer::Gauges,
+            Layer::Statbox,
             crate::render::colors::ColorRenderableKind::BorderInner,
             3,
             heading_border_y,
@@ -1363,7 +1363,7 @@ impl Statbox {
         game_sprites.colors.draw_border(
             &mut render_state.sprite_renderer,
             &render_state.ui_camera,
-            Layer::Gauges,
+            Layer::Statbox,
             2,
             2,
             window_width + 1,

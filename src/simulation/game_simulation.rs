@@ -234,6 +234,10 @@ impl Simulation {
                             continue;
                         }
 
+                        if player.carrying_ball {
+                            continue;
+                        }
+
                         // Check if this player can pick up the ball. The can't if they shot it and it's still moving.
                         if player.id == powerball.carrier_id
                             && (powerball.velocity.x.0 != 0 || powerball.velocity.y.0 != 0)

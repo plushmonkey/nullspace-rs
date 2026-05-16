@@ -221,7 +221,11 @@ impl SpectateController {
         };
 
         let rows = [
-            format_smolstr!("Engy:{}  S2CLatency:{}ms", extra.energy, extra.s2c_latency),
+            format_smolstr!(
+                "Engy:{}  S2CLatency:{}ms",
+                extra.energy,
+                extra.s2c_latency * 10
+            ),
             format_smolstr!(
                 "Brst:{}  Repl:{}  Prtl:{}",
                 extra.items.bursts,

@@ -14,6 +14,8 @@ pub enum Layer {
     AfterGauges,
     Chat,
     AfterChat,
+    Statbox,
+    AfterStatbox,
     TopMost,
 }
 
@@ -34,11 +36,13 @@ impl Layer {
             Layer::AfterGauges => 11.0f32,
             Layer::Chat => 12.0f32,
             Layer::AfterChat => 13.0f32,
-            Layer::TopMost => 14.0f32,
+            Layer::Statbox => 14.0f32,
+            Layer::AfterStatbox => 15.0f32,
+            Layer::TopMost => 16.0f32,
         }
     }
 
     pub fn get_max_z() -> f32 {
-        15.0f32
+        17.0f32
     }
 }
