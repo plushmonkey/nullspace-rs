@@ -1231,9 +1231,7 @@ impl ShipController {
             return false;
         };
 
-        if me.status & StatusFlags::Safety != 0 {
-            return false;
-        }
+        let in_safe = me.status & StatusFlags::Safety != 0;
 
         let mut damage = match &event.kind {
             WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
@@ -1310,7 +1308,7 @@ impl ShipController {
                         let emp_ticks = (settings.ebomb_shutdown_time as i64 * damage as i64)
                             / full_damage as i64;
 
-                        if emp_ticks > 0 {
+                        if emp_ticks > 0 && !in_safe {
                             self.ship.emped_remaining_ticks = emp_ticks as u32;
                         }
                     }
@@ -1356,7 +1354,8 @@ impl ShipController {
         if damage > 0 {
             // TODO: Watchdamage sending
 
-            let (apply_damage, self_bomb) = if damage as u32 > self.ship.current_energy {
+            let (apply_damage, self_bomb) = if damage as u32 > self.ship.current_energy && !in_safe
+            {
                 match &event.kind {
                     WeaponKind::Bomb(_) | WeaponKind::ProximityBomb(_) | WeaponKind::Thor(_) => {
                         if event.shooter == me.id {
@@ -1372,7 +1371,7 @@ impl ShipController {
                 (true, false)
             };
 
-            if apply_damage {
+            if apply_damage && !in_safe {
                 self.ship.current_energy = self.ship.current_energy.saturating_sub(damage as u32);
 
                 if self.ship.current_energy == 0 {

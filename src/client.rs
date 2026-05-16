@@ -369,6 +369,18 @@ impl Client {
                         );
 
                         if took_damage {
+                            if ship_controller.ship.status & StatusFlags::Safety != 0 {
+                                if let Some(me) = self.simulation.player_manager.get_self() {
+                                    if me.flag_count > 0 {
+                                        let drop = crate::net::packet::c2s::DropFlagsMessage {};
+
+                                        if let Err(e) = self.connection.send_reliable(&drop) {
+                                            log::error!("{e}");
+                                        }
+                                    }
+                                }
+                            }
+
                             match &explosion_event.kind {
                                 WeaponKind::Bomb(_)
                                 | WeaponKind::ProximityBomb(_)
