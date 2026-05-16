@@ -94,7 +94,7 @@ impl Menu {
     }
 
     pub fn render(&self, render_state: &mut RenderState, sprites: &GameSprites) {
-        let x_center = render_state.config.width as i32 / 2;
+        let x_center = render_state.width() as i32 / 2;
         let menu_width = 284;
         let menu_height = 170;
 

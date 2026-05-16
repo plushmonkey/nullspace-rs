@@ -65,7 +65,7 @@ impl ChatController {
         let font_width = render_state.text_renderer.character_width;
         let font_height = render_state.text_renderer.character_height;
 
-        let height = render_state.config.height;
+        let height = render_state.height();
 
         let mut current_y = height.saturating_sub_signed(font_height + 2) as i32;
 

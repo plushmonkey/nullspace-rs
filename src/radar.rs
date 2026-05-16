@@ -221,8 +221,8 @@ impl Radar {
         powerball_mode: u8,
     ) {
         if self.should_recreate(
-            render_state.config.width,
-            render_state.config.height,
+            render_state.width(),
+            render_state.height(),
             mapzoom,
             frequency,
             powerball_mode,
@@ -236,8 +236,8 @@ impl Radar {
 
         const CORNER_INSET: u32 = 6;
 
-        let bottom_x = render_state.config.width.saturating_sub(CORNER_INSET);
-        let bottom_y = render_state.config.height.saturating_sub(CORNER_INSET);
+        let bottom_x = render_state.width().saturating_sub(CORNER_INSET);
+        let bottom_y = render_state.height().saturating_sub(CORNER_INSET);
 
         if self.render_full {
             let size = &self.sprite_entire.renderable.size;
@@ -424,8 +424,8 @@ impl Radar {
         powerball_mode: u8,
     ) {
         let mut mapzoom = mapzoom as u32;
-        let surface_width = render_state.config.width;
-        let surface_height = render_state.config.height;
+        let surface_width = render_state.width();
+        let surface_height = render_state.height();
 
         let (surface_width, surface_height) =
             Self::get_surface_dimensions(surface_width, surface_height);
@@ -451,7 +451,7 @@ impl Radar {
         self.dirty = false;
 
         // Use original width here so we don't get render artifacts.
-        let radar_dim = (render_state.config.width * 8) / mapzoom;
+        let radar_dim = (render_state.width() * 8) / mapzoom;
 
         let entire_texture = Self::render_radar(
             &render_state.device,

@@ -314,12 +314,12 @@ impl FlagController {
                     let x_pixels = state.x_tile as i32 * 16;
                     let y_pixels = state.y_tile as i32 * 16;
 
-                    render_state.sprite_renderer.draw(
+                    render_state.sprite_renderer.draw_with_z(
                         &render_state.camera,
                         renderable,
                         x_pixels,
                         y_pixels,
-                        Layer::AfterTiles,
+                        Layer::AfterTiles.z() + 0.9f32,
                     );
 
                     if owned {

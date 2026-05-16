@@ -136,8 +136,8 @@ impl SpectateController {
                 let icon_width = icon_sprites.renderables[0].size[0] as i32;
                 let icon_height = icon_sprites.renderables[0].size[1] as i32;
 
-                let x = render_state.config.width as i32 - icon_width;
-                let y = (render_state.config.height / 2) as i32 - 26 * 2 + icon_height * 4;
+                let x = render_state.width() as i32 - icon_width;
+                let y = (render_state.height() / 2) as i32 - 26 * 2 + icon_height * 4;
 
                 let index = if self.xradar { 36 } else { 37 };
 
@@ -224,7 +224,7 @@ impl SpectateController {
             format_smolstr!("Timer:{}", extra.flag_timer),
         ];
 
-        let x = ((render_state.config.width / 2) & !1) as i32;
+        let x = ((render_state.width() / 2) & !1) as i32;
         let mut y = 0;
 
         let row_count = 5 + (extra.flag_timer > 0) as usize;

@@ -233,7 +233,7 @@ impl Client {
                 match &self.connection.state {
                     ConnectionState::Playing | ConnectionState::Disconnected => {
                         self.radar.update(
-                            render_state.config.width,
+                            render_state.width(),
                             self.settings.map_zoom_factor as u16,
                             self_position,
                             self.connection.get_game_tick(),

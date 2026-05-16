@@ -49,8 +49,8 @@ impl NotificationManager {
     }
 
     pub fn render(&self, render_state: &mut RenderState) {
-        let mut y = (render_state.config.height as f32 * 0.6f32) as i32;
-        let x = (render_state.config.width as f32 * 0.2f32) as i32;
+        let mut y = (render_state.height() as f32 * 0.6f32) as i32;
+        let x = (render_state.width() as f32 * 0.2f32) as i32;
 
         for notification in &self.notifications {
             if notification.remaining_ticks > 0 {

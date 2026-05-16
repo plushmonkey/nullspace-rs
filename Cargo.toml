@@ -19,7 +19,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 miniz_oxide = "0.9.1"
 thiserror = "2.0.18"
-image = { version = "0.25.10", default-features = false, features = ["bmp", "jpeg", "png"] }
+image = { version = "0.25.10", default-features = false, features = ["bmp", "jpeg", "png", "gif"] }
 winit = "0.30.13"
 log = "0.4.29"
 bytemuck = { version = "1.25.0", features = [ "derive" ] }

@@ -134,8 +134,8 @@ impl ApplicationLoadingState {
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
-        let x_pixels = render_state.config.width / 2;
-        let y_pixels = render_state.config.height / 2;
+        let x_pixels = render_state.width() / 2;
+        let y_pixels = render_state.height() / 2;
 
         render_state.draw_ui_text(
             "Loading",
@@ -158,8 +158,8 @@ impl ApplicationConnectErrorState {
     }
 
     pub fn render(&self, render_state: &mut RenderState) {
-        let x_pixels = render_state.config.width / 2;
-        let y_pixels = render_state.config.height / 2;
+        let x_pixels = render_state.width() / 2;
+        let y_pixels = render_state.height() / 2;
 
         render_state.draw_ui_text(
             &self.message,

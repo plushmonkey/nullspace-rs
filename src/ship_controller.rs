@@ -1608,13 +1608,13 @@ impl ShipController {
     }
 
     fn render_icons(&self, render_state: &mut RenderState, sprites: &GameSprites) {
-        let y = (render_state.config.height / 2) as i32 - 26 * 2;
+        let y = (render_state.height() / 2) as i32 - 26 * 2;
 
         if let Some(icon_sprites) = sprites.get_set(GameSpriteKind::Icons) {
             let icon_width = icon_sprites.renderables[0].size[0];
             let icon_height = icon_sprites.renderables[0].size[1] as i32;
 
-            let right_side_x = (render_state.config.width - icon_width) as i32;
+            let right_side_x = (render_state.width() - icon_width) as i32;
 
             let (gun_index, gun_offset) = if let Some(gun_index) = self.get_gun_renderable_index() {
                 (gun_index, 0)
@@ -1869,7 +1869,7 @@ impl ShipController {
     fn render_energy(&self, render_state: &mut RenderState, sprites: &GameSprites) {
         if let Some(font_sprites) = sprites.get_set(GameSpriteKind::EnergyFont) {
             let mut energy = self.ship.current_energy / 1000;
-            let mut x_pixels = render_state.config.width as i32;
+            let mut x_pixels = render_state.width() as i32;
             let y_pixels = 0;
 
             loop {
@@ -1909,7 +1909,7 @@ impl ShipController {
         if let Some(energybar_sprites) = sprites.get_set(GameSpriteKind::HealthBar) {
             let renderable = &energybar_sprites.renderables[0];
 
-            let x_pixels = (render_state.config.width / 2) as i32;
+            let x_pixels = (render_state.width() / 2) as i32;
             let y_pixels = (renderable.size[1] / 2) as i32;
 
             render_state.sprite_renderer.draw_centered_with_z(
@@ -1927,10 +1927,10 @@ impl ShipController {
                 let mut config_max_energy_renderable = gradient_sprites.renderables[5];
 
                 config_max_energy_renderable.size[0] =
-                    (render_state.config.width as f32 * 0.35f32) as u32;
+                    (render_state.width() as f32 * 0.35f32) as u32;
                 config_max_energy_renderable.size[1] = 2;
 
-                let x_pixels = (render_state.config.width / 2) as i32;
+                let x_pixels = (render_state.width() / 2) as i32;
                 let y_pixels = 10;
 
                 render_state.sprite_renderer.draw_centered_with_z(
@@ -1951,10 +1951,10 @@ impl ShipController {
                 let mut ship_max_energy_renderable = gradient_sprites.renderables[0];
 
                 ship_max_energy_renderable.size[0] =
-                    (render_state.config.width as f32 * 0.35f32 * upgrade_percent) as u32;
+                    (render_state.width() as f32 * 0.35f32 * upgrade_percent) as u32;
                 ship_max_energy_renderable.size[1] = 2;
 
-                let x_pixels = (render_state.config.width / 2) as i32;
+                let x_pixels = (render_state.width() / 2) as i32;
                 let y_pixels = 10;
 
                 render_state.sprite_renderer.draw_centered_with_z(
@@ -1982,7 +1982,7 @@ impl ShipController {
                 };
 
                 let full_energy_width =
-                    (render_state.config.width as f32 * 0.35f32 * upgrade_percent) as u32;
+                    (render_state.width() as f32 * 0.35f32 * upgrade_percent) as u32;
 
                 let mut renderable = gradient_sprites.renderables[start_index + animation_index];
                 renderable.size[0] = (energy_percent * full_energy_width as f32) as u32;
@@ -1999,7 +1999,7 @@ impl ShipController {
                     renderable.uv_start[1] += 1.0f32 / (sheet.height as f32 * 2.0f32);
                 }
 
-                let x_pixels = (render_state.config.width / 2) as i32;
+                let x_pixels = (render_state.width() / 2) as i32;
                 let y_pixels = 16;
 
                 render_state.sprite_renderer.draw_centered(

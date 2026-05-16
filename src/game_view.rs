@@ -154,8 +154,8 @@ pub fn render_game(
             );
 
             if client.connection.state == ConnectionState::Disconnected {
-                let x = (render_state.config.width as f32 * 0.2f32) as i32;
-                let y = (render_state.config.height as f32 * 0.4f32) as i32;
+                let x = (render_state.width() as f32 * 0.2f32) as i32;
+                let y = (render_state.height() as f32 * 0.4f32) as i32;
 
                 render_state.text_renderer.draw(
                     &mut render_state.sprite_renderer,
@@ -177,8 +177,8 @@ pub fn render_game(
             render_state.render_map = false;
 
             let (x_pixels, y_pixels) = (
-                render_state.config.width as i32 / 2,
-                render_state.config.height as i32 - (render_state.config.height as i32 / 4),
+                render_state.width() as i32 / 2,
+                render_state.height() as i32 - (render_state.height() as i32 / 4),
             );
 
             let text = if let ConnectionState::MapDownload = client.connection.state {
@@ -1165,8 +1165,8 @@ pub fn render_map_animations(
 ) {
     const OFFSCREEN_PIXELS: i32 = 8 * 16;
     let (screen_width, screen_height) = (
-        render_state.size().width as i32,
-        render_state.size().height as i32,
+        render_state.width() as i32,
+        render_state.height() as i32,
     );
     let half_width = (screen_width / 2) + OFFSCREEN_PIXELS;
     let half_height = (screen_height / 2) + OFFSCREEN_PIXELS;

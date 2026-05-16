@@ -651,9 +651,8 @@ impl Connection {
 
         if encrypted {
             self.crypt.decrypt(&mut packet.data[..packet.size]);
+            self.packets_recv = self.packets_recv.wrapping_add(1);
         }
-
-        self.packets_recv = self.packets_recv.wrapping_add(1);
 
         Ok(Some(packet))
     }

@@ -32,6 +32,20 @@ impl Camera {
     }
 
     pub fn set_surface_dimensions(&mut self, surface_width: f32, surface_height: f32) {
+        let mut surface_width = surface_width as i32;
+        let mut surface_height = surface_height as i32;
+
+        if surface_width & 1 != 0 {
+            surface_width -= 1;
+        }
+
+        if surface_height & 1 != 0 {
+            surface_height -= 1;
+        }
+
+        let surface_width = surface_width as f32;
+        let surface_height = surface_height as f32;
+
         self.surface_dim = glam::Vec2::new(surface_width, surface_height);
         self.projection = Self::build_projection(surface_width, surface_height, self.scale);
     }
@@ -49,10 +63,7 @@ impl Camera {
         self.position + (screen_offset * self.scale)
     }
 
-    fn build_projection(surface_width: f32, surface_height: f32, scale: f32) -> glam::Mat4 {
-        let width = ((surface_width as u32 + 1) & !1) as f32;
-        let height = ((surface_height as u32 + 1) & !1) as f32;
-
+    fn build_projection(width: f32, height: f32, scale: f32) -> glam::Mat4 {
         // Scale is halved because the orthographic setup is halved.
         let scale = scale * 0.5;
 

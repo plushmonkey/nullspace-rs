@@ -333,6 +333,18 @@ impl RenderState {
                 multiview_mask: None,
             });
 
+            // Limit our rendering to the camera view.
+            // This is important so the camera's projection matrix matches the output size.
+            // The camera's extents can be different from the window because it shrinks width and height by 1 if they are odd.
+            render_pass.set_viewport(
+                0.0f32,
+                0.0f32,
+                self.camera.surface_dim.x as f32,
+                self.camera.surface_dim.y as f32,
+                0.0f32,
+                1.0f32,
+            );
+
             if let Some(game_sprites) = &game_sprites {
                 self.animation_renderer.render(
                     &self.camera,
@@ -359,6 +371,14 @@ impl RenderState {
         self.below_energy_y_offset = 0;
 
         Ok(true)
+    }
+
+    pub fn width(&self) -> u32 {
+        self.camera.surface_dim.x as u32
+    }
+
+    pub fn height(&self) -> u32 {
+        self.camera.surface_dim.y as u32
     }
 
     pub fn size(&self) -> PhysicalSize<u32> {
@@ -487,7 +507,7 @@ impl RenderState {
 
     pub fn get_hud_timer_position(&self, kind: HudTimerKind) -> (i32, i32) {
         let renderable_height = 16;
-        let ui_x = (self.config.width - renderable_height as u32) as i32;
+        let ui_x = (self.width() - renderable_height as u32) as i32;
         let top_y = 64;
 
         match kind {
@@ -515,8 +535,8 @@ impl RenderState {
     }
 
     pub fn get_screen_reference_point(&self, reference: ReferencePoint) -> (i32, i32) {
-        let width = self.config.width as i32;
-        let height = self.config.height as i32;
+        let width = self.width() as i32;
+        let height = self.height() as i32;
 
         match &reference {
             ReferencePoint::Normal => (0, 0),

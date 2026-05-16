@@ -141,7 +141,7 @@ impl SelectBox {
     }
 
     pub fn render(&self, render_state: &mut RenderState, game_sprites: &GameSprites) {
-        let x_center = render_state.config.width as i32 / 2;
+        let x_center = render_state.width() as i32 / 2;
         let inner_width = self.max_length * render_state.text_renderer.character_width;
 
         let start_x = x_center - (inner_width / 2);

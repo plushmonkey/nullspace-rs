@@ -641,7 +641,7 @@ impl LvzController {
                 let img = match image::load_from_memory(&file.data) {
                     Ok(img) => img.to_rgba8(),
                     Err(_) => {
-                        log::warn!("Lvz file not image");
+                        log::debug!("Lvz file '{}' not image.", file.filename);
                         continue;
                     }
                 };
