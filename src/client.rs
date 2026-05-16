@@ -2166,6 +2166,12 @@ impl Client {
                     }
                 }
             }
+            GameServerMessage::LvzToggle(message) => {
+                self.lvz_controller.handle_toggle_message(message);
+            }
+            GameServerMessage::LvzModify(message) => {
+                self.lvz_controller.handle_modify_message(message);
+            }
             _ => {}
         }
 

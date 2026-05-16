@@ -1,5 +1,6 @@
 use crate::arena_settings::ArenaSettings;
 use crate::clock::GameTick;
+use crate::lvz::ObjectDefinition;
 use crate::net::packet::Packet;
 use crate::net::packet::PacketError;
 use crate::net::packet::bi::*;
@@ -82,8 +83,8 @@ pub enum GameServerMessage {
     SetShipCoordinates(SetShipCoordinatesMessage),           // 0x32
     CustomLoginFailure(CustomLoginFailureMessage),           // 0x33
     ContinuumVersion(ContinuumVersionMessage),               // 0x34
-    LvzToggle,                                               // 0x35
-    LvzModify,                                               // 0x36
+    LvzToggle(LvzToggleMessage),                             // 0x35
+    LvzModify(LvzModifyMessage),                             // 0x36
     WatchDamageToggle,                                       // 0x37
     WatchDamage,                                             // 0x38
     BatchedSmallPosition(BatchedPositionMessage),            // 0x39
@@ -487,6 +488,57 @@ pub struct CustomLoginFailureMessage {
 pub struct ContinuumVersionMessage {
     pub version: u16,
     pub checksum: u32,
+}
+
+pub struct LvzObjectToggle {
+    value: u16,
+}
+
+impl LvzObjectToggle {
+    pub fn off(&self) -> bool {
+        (self.value >> 15) != 0
+    }
+
+    pub fn id(&self) -> u16 {
+        self.value & 0x7FFF
+    }
+}
+
+// 0x35
+pub struct LvzToggleMessage {
+    pub toggles: Vec<LvzObjectToggle>,
+}
+
+pub struct LvzModifyBitfield {
+    value: u8,
+}
+
+impl LvzModifyBitfield {
+    pub fn position(&self) -> bool {
+        self.value & 1 != 0
+    }
+
+    pub fn image(&self) -> bool {
+        (self.value >> 1) & 1 != 0
+    }
+
+    pub fn layer(&self) -> bool {
+        (self.value >> 2) & 1 != 0
+    }
+
+    pub fn time(&self) -> bool {
+        (self.value >> 3) & 1 != 0
+    }
+
+    pub fn mode(&self) -> bool {
+        (self.value >> 4) & 1 != 0
+    }
+}
+
+// 0x36
+pub struct LvzModifyMessage {
+    pub bitfield: LvzModifyBitfield,
+    pub data: ObjectDefinition,
 }
 
 pub struct BatchedPosition {
@@ -1610,10 +1662,44 @@ impl ServerMessage {
                 )));
             }
             0x35 => {
-                return Ok(Some(ServerMessage::Game(GameServerMessage::LvzToggle)));
+                let mut message = LvzToggleMessage { toggles: vec![] };
+
+                if packet.len() < 3 {
+                    return Err(PacketError::InvalidGamePacketSize(kind));
+                }
+
+                let mut data = &packet[1..];
+
+                while data.len() >= 2 {
+                    let toggle = LvzObjectToggle {
+                        value: u16::from_le_bytes(data[..2].try_into().unwrap()),
+                    };
+
+                    message.toggles.push(toggle);
+
+                    data = &data[2..];
+                }
+
+                return Ok(Some(ServerMessage::Game(GameServerMessage::LvzToggle(
+                    message,
+                ))));
             }
             0x36 => {
-                return Ok(Some(ServerMessage::Game(GameServerMessage::LvzModify)));
+                if packet.len() < 12 {
+                    return Err(PacketError::InvalidGamePacketSize(kind));
+                }
+
+                let bitfield = LvzModifyBitfield { value: packet[1] };
+
+                let Some((data, _)) = ObjectDefinition::parse(&packet[2..12]) else {
+                    return Err(PacketError::InvalidGamePacketSize(kind));
+                };
+
+                let message = LvzModifyMessage { bitfield, data };
+
+                return Ok(Some(ServerMessage::Game(GameServerMessage::LvzModify(
+                    message,
+                ))));
             }
             0x37 => {
                 return Ok(Some(ServerMessage::Game(

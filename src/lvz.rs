@@ -5,6 +5,7 @@ use miniz_oxide::inflate::decompress_to_vec_zlib;
 use thiserror::Error;
 
 use crate::{
+    net::packet::s2c::{LvzModifyMessage, LvzToggleMessage},
     render::{
         animation_renderer::get_animation_index,
         game_sprites::{GAME_SPRITE_SHEET_DEFINITIONS, GameSpriteKind, GameSprites, SpriteSet},
@@ -361,41 +362,50 @@ pub struct LvzObject {
     pub display_ticks: u32,
     pub display_mode: DisplayMode,
 
-    pub sheet: SheetIndex,
+    pub sheet_index: SheetIndex,
     pub columns: u16,
     pub rows: u16,
     pub duration: u16,
-    pub image_width: u32,
-    pub image_height: u32,
 
     pub remaining_ticks: u32,
+
+    pub container_index: u16,
 }
 
 impl LvzObject {
-    pub fn get_renderable(&self) -> SpriteRenderable {
+    pub fn get_renderable(&self, render_state: &mut RenderState) -> SpriteRenderable {
+        let Some(sheet) = render_state.sprite_renderer.get_sheet(self.sheet_index) else {
+            return SpriteRenderable {
+                uv_start: [0.0f32, 0.0f32],
+                uv_size: [0.0f32, 0.0f32],
+                size: [0, 0],
+                sheet_index: SheetIndex(0xFFFFFFFF),
+            };
+        };
+
         let total_frames = self.columns as usize * self.rows as usize;
         let elapsed_ticks = self.display_ticks.saturating_sub(self.remaining_ticks) as usize;
 
         let frame = get_animation_index(elapsed_ticks as u32, total_frames, self.duration as usize);
 
-        let renderable_width = self.image_width / self.columns.max(1) as u32;
-        let renderable_height = self.image_height / self.rows.max(1) as u32;
+        let renderable_width = sheet.width / self.columns.max(1) as u32;
+        let renderable_height = sheet.height / self.rows.max(1) as u32;
 
         let start_x = (frame as i32 % self.columns as i32) * renderable_width as i32;
         let start_y = (frame as i32 / self.columns as i32) * renderable_height as i32;
         let end_x = start_x + renderable_width as i32;
         let end_y = start_y + renderable_height as i32;
 
-        let uv_start_x = (start_x as f32) / (self.image_width as f32);
-        let uv_start_y = (start_y as f32) / (self.image_height as f32);
-        let uv_end_x = (end_x as f32) / (self.image_width as f32);
-        let uv_end_y = (end_y as f32) / (self.image_height as f32);
+        let uv_start_x = (start_x as f32) / (sheet.width as f32);
+        let uv_start_y = (start_y as f32) / (sheet.height as f32);
+        let uv_end_x = (end_x as f32) / (sheet.width as f32);
+        let uv_end_y = (end_y as f32) / (sheet.height as f32);
 
         SpriteRenderable {
             uv_start: [uv_start_x, uv_start_y],
             uv_size: [uv_end_x - uv_start_x, uv_end_y - uv_start_y],
             size: [renderable_width, renderable_height],
-            sheet_index: self.sheet,
+            sheet_index: self.sheet_index,
         }
     }
 }
@@ -454,7 +464,7 @@ impl LvzController {
 
         for index in &self.active_map_objects {
             let object = &self.objects[*index];
-            let renderable = object.get_renderable();
+            let renderable = object.get_renderable(render_state);
 
             render_state.sprite_renderer.draw(
                 &render_state.camera,
@@ -467,7 +477,7 @@ impl LvzController {
 
         for index in &self.active_screen_objects {
             let object = &self.objects[*index];
-            let renderable = object.get_renderable();
+            let renderable = object.get_renderable(render_state);
 
             let (x_reference, y_reference) = match &object.kind {
                 DefinitionKind::Map => continue,
@@ -667,7 +677,9 @@ impl LvzController {
             }
         }
 
-        for container in &self.containers {
+        for container_index in 0..self.containers.len() {
+            let container = &self.containers[container_index];
+
             for object_defn in &container.objects {
                 let index = object_defn.image_index as usize;
 
@@ -686,10 +698,6 @@ impl LvzController {
                     continue;
                 };
 
-                let Some(sheet) = render_state.sprite_renderer.get_sheet(*sheet_index) else {
-                    continue;
-                };
-
                 let object = LvzObject {
                     kind: object_defn.kind,
                     id: object_defn.id,
@@ -698,13 +706,12 @@ impl LvzController {
                     layer: object_defn.layer,
                     display_ticks: object_defn.display_ticks as u32 * 10,
                     display_mode: object_defn.display_mode,
-                    sheet: *sheet_index,
+                    sheet_index: *sheet_index,
                     columns: image_defn.columns,
                     rows: image_defn.rows,
                     duration: image_defn.duration,
                     remaining_ticks: 0,
-                    image_width: sheet.width,
-                    image_height: sheet.height,
+                    container_index: container_index as u16,
                 };
 
                 let object_index = self.objects.len();
@@ -755,6 +762,115 @@ impl LvzController {
         self.server_objects.clear();
 
         self.state = State::Downloading;
+    }
+
+    pub fn handle_toggle_message(&mut self, message: &LvzToggleMessage) {
+        for toggle in &message.toggles {
+            let id = toggle.id();
+
+            if toggle.off() {
+                self.deactivate(id);
+            } else {
+                self.activate(id);
+            }
+        }
+    }
+
+    pub fn handle_modify_message(&mut self, message: &LvzModifyMessage) {
+        let Some(obj_index) = self.get_object_index_from_id(message.data.id) else {
+            log::warn!(
+                "LvzModifyMessage received with unknown object id {}.",
+                message.data.id
+            );
+            return;
+        };
+
+        if message.bitfield.mode() {
+            self.set_mode(obj_index, message.data.display_mode);
+        }
+
+        let object = &mut self.objects[obj_index];
+
+        if message.bitfield.layer() {
+            object.layer = message.data.layer;
+        }
+
+        if message.bitfield.position() {
+            object.x = message.data.x;
+            object.y = message.data.y;
+
+            if let DefinitionKind::Screen(obj_screen) = &mut object.kind {
+                if let DefinitionKind::Screen(mod_screen) = &message.data.kind {
+                    obj_screen.x_reference_point = mod_screen.x_reference_point;
+                    obj_screen.y_reference_point = mod_screen.y_reference_point;
+                }
+            }
+        }
+
+        if message.bitfield.time() {
+            object.display_ticks = message.data.display_ticks as u32 * 10;
+        }
+
+        if message.bitfield.image() {
+            let index = message.data.image_index as usize;
+
+            let container = &self.containers[object.container_index as usize];
+
+            if index >= container.images.len() {
+                log::warn!("Invalid LvzContainer image index");
+                return;
+            }
+
+            let image_defn = &container.images[index];
+
+            let Some(sheet_index) = self.sheets.get(&image_defn.filename) else {
+                log::warn!(
+                    "LvzObject modify definition requested file '{}', but it wasn't provided.",
+                    image_defn.filename
+                );
+                return;
+            };
+
+            object.columns = image_defn.columns;
+            object.rows = image_defn.rows;
+            object.duration = image_defn.duration;
+            object.sheet_index = *sheet_index;
+        }
+    }
+
+    fn set_mode(&mut self, obj_index: usize, mode: DisplayMode) {
+        self.remove_mode(obj_index);
+
+        match &mode {
+            DisplayMode::EnterZone => self.enter_zone_objects.push(obj_index),
+            DisplayMode::EnterArena => self.enter_arena_objects.push(obj_index),
+            DisplayMode::Kill => self.kill_objects.push(obj_index),
+            DisplayMode::Death => self.death_objects.push(obj_index),
+            DisplayMode::ServerControlled => self.server_objects.push(obj_index),
+            _ => {}
+        }
+
+        let object = &mut self.objects[obj_index];
+        object.display_mode = mode;
+    }
+
+    fn remove_mode(&mut self, obj_index: usize) {
+        let mode = &self.objects[obj_index].display_mode;
+
+        let set = match &mode {
+            DisplayMode::ShowAlways => {
+                return;
+            }
+            DisplayMode::EnterZone => &mut self.enter_zone_objects,
+            DisplayMode::EnterArena => &mut self.enter_arena_objects,
+            DisplayMode::Kill => &mut self.kill_objects,
+            DisplayMode::Death => &mut self.death_objects,
+            DisplayMode::ServerControlled => &mut self.server_objects,
+        };
+
+        if let Some(display_index) = set.iter().position(|index| *index == obj_index) {
+            set.swap_remove(display_index);
+        }
     }
 
     pub fn handle_download(&mut self, data: &[u8]) -> Result<(), LvzError> {
