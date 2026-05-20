@@ -602,7 +602,7 @@ pub struct SecurityMessage {
     pub s2c_fast_total: u32,
     pub s2c_slow_current: u16,
     pub s2c_fast_current: u16,
-    pub s2c_reliable_out: u16,
+    pub s2c_avg_current: u16,
     pub ping: u16,
     pub ping_average: u16,
     pub ping_low: u16,
@@ -620,17 +620,22 @@ impl SecurityMessage {
         ping_average: u16,
         ping_low: u16,
         ping_high: u16,
+        s2c_slow_total: u32,
+        s2c_fast_total: u32,
+        s2c_slow_current: u16,
+        s2c_fast_current: u16,
+        s2c_avg_current: u16,
     ) -> SecurityMessage {
         SecurityMessage {
             weapon_count,
             settings_checksum,
             exe_checksum,
             level_checksum,
-            s2c_slow_total: 0,
-            s2c_fast_total: 0,
-            s2c_slow_current: 0,
-            s2c_fast_current: 0,
-            s2c_reliable_out: 0,
+            s2c_slow_total,
+            s2c_fast_total,
+            s2c_slow_current,
+            s2c_fast_current,
+            s2c_avg_current,
             ping,
             ping_average,
             ping_low,
@@ -654,7 +659,7 @@ impl Serialize for SecurityMessage {
             .concat_u32(self.s2c_fast_total)
             .concat_u16(self.s2c_slow_current)
             .concat_u16(self.s2c_fast_current)
-            .concat_u16(self.s2c_reliable_out)
+            .concat_u16(self.s2c_avg_current)
             .concat_u16(self.ping)
             .concat_u16(self.ping_average)
             .concat_u16(self.ping_low)

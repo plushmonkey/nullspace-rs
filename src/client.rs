@@ -1105,6 +1105,13 @@ impl Client {
                     let ping = self.connection.ping;
                     let ping_high = self.connection.sync_history.get_high_ping();
 
+                    let s2c_current_total = (self.connection.s2c_fast_current
+                        + self.connection.s2c_slow_current)
+                        .max(1);
+
+                    let s2c_avg_current =
+                        (self.connection.s2c_avg_sum / s2c_current_total as u64) as u16;
+
                     let response = SecurityMessage::new(
                         self.connection.weapons_recv,
                         settings_checksum,
@@ -1114,7 +1121,26 @@ impl Client {
                         ping_average as u16 / 10,
                         ping_low as u16 / 10,
                         ping_high as u16 / 10,
+                        self.connection.s2c_slow_total,
+                        self.connection.s2c_fast_total,
+                        self.connection.s2c_slow_current,
+                        self.connection.s2c_fast_current,
+                        s2c_avg_current,
                     );
+
+                    self.connection.s2c_fast_total = self
+                        .connection
+                        .s2c_fast_total
+                        .saturating_add(self.connection.s2c_fast_current as u32);
+                    self.connection.s2c_slow_total = self
+                        .connection
+                        .s2c_slow_total
+                        .saturating_add(self.connection.s2c_slow_current as u32);
+
+                    self.connection.s2c_fast_current = 0;
+                    self.connection.s2c_slow_current = 0;
+                    self.connection.s2c_avg_sum = 0;
+
                     log::debug!("Sending game sync packet");
                     self.connection.send_reliable(&response)?;
                 }
@@ -1331,9 +1357,22 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(message.player_id)
                 {
-                    let message_timestamp =
-                        GameTick::from_mini(self.connection.get_game_tick(), message.timestamp)
-                            - message.ping as i32;
+                    let server_timestamp =
+                        GameTick::from_mini(self.connection.get_game_tick(), message.timestamp);
+                    let message_timestamp = server_timestamp - message.ping as i32;
+
+                    let s2c_latency = self.connection.get_game_tick().diff(&server_timestamp);
+
+                    if s2c_latency.abs() >= self.settings.client_slow_packet_time as i32 {
+                        self.connection.s2c_slow_current += 1;
+                    } else {
+                        self.connection.s2c_fast_current += 1;
+                    }
+
+                    self.connection.s2c_avg_sum = self
+                        .connection
+                        .s2c_avg_sum
+                        .saturating_add_signed(s2c_latency as i64);
 
                     if message.status & StatusFlags::Flash != 0 {
                         // Always override new flashes if we get one, even if the message timestamp is older.
@@ -1416,9 +1455,22 @@ impl Client {
                     .player_manager
                     .get_by_id_mut(message.player_id)
                 {
-                    let message_timestamp =
-                        GameTick::from_mini(self.connection.get_game_tick(), message.timestamp)
-                            - message.ping as i32;
+                    let server_timestamp =
+                        GameTick::from_mini(self.connection.get_game_tick(), message.timestamp);
+                    let message_timestamp = server_timestamp - message.ping as i32;
+
+                    let s2c_latency = self.connection.get_game_tick().diff(&server_timestamp);
+
+                    if s2c_latency.abs() >= self.settings.client_slow_packet_time as i32 {
+                        self.connection.s2c_slow_current += 1;
+                    } else {
+                        self.connection.s2c_fast_current += 1;
+                    }
+
+                    self.connection.s2c_avg_sum = self
+                        .connection
+                        .s2c_avg_sum
+                        .saturating_add_signed(s2c_latency as i64);
 
                     let position = Position::new(
                         PixelUnit(message.x as i32).into(),
@@ -2179,7 +2231,7 @@ impl Client {
     }
 
     fn validate_packet_timestamp(current_tick: GameTick, timestamp: GameTick, ctx: &str) -> bool {
-        if current_tick.diff(&timestamp) > 100 {
+        if current_tick.diff(&timestamp) > 200 {
             log::warn!(
                 "Received {} packet timestamp that was far out of range of normal Recv: {} Now: {}",
                 ctx,

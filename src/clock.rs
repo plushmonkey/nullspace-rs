@@ -36,32 +36,35 @@ impl GameTick {
     }
 
     pub fn from_mini(now: Self, value: u16) -> Self {
-        let now_bottom = now.value() as i16;
-        let delta = now_bottom.wrapping_sub(value as i16) as i32;
-        let combined = (now.value() as i32).wrapping_add(delta);
+        let now_bottom = (now.value() as u16).cast_signed();
+        let delta = now_bottom.wrapping_sub(value.cast_signed()) as i32;
+        let combined = (now.value().cast_signed()).wrapping_sub(delta);
 
         Self {
-            value: combined as u32,
+            value: combined.cast_unsigned(),
         }
     }
 
     pub fn from_batched(now: Self, value: u16) -> Self {
-        let now_bottom = (now.value() & 0x3FF) as i16;
-        let delta = now_bottom.wrapping_sub((value & 0x3FF) as i16) as i32;
+        let value = value.cast_signed();
+        let now = now.value().cast_signed();
+
+        let now_bottom = (now & 0x3FF) as i16;
+        let delta = now_bottom.wrapping_sub(value & 0x3FF) as i32;
 
         if delta < -300 {
             let delta = delta + 0x400;
-            let combined = (now.value() as i32).wrapping_add(delta);
+            let combined = now.wrapping_add(delta);
 
             Self {
-                value: combined as u32,
+                value: combined.cast_unsigned(),
             }
         } else {
             let delta = delta.max(0);
-            let combined = (now.value() as i32).wrapping_add(delta);
+            let combined = now.wrapping_add(delta);
 
             Self {
-                value: combined as u32,
+                value: combined.cast_unsigned(),
             }
         }
     }

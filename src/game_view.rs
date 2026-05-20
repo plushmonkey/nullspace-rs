@@ -697,11 +697,22 @@ fn get_player_name_view(player: &Player, view_freq: u16) -> (SmolStr, TextColor)
 }
 
 fn render_weapons(client: &mut Client, render_state: &mut RenderState, sprites: &GameSprites) {
-    let tick_value = client.connection.get_game_tick().value();
+    let current_tick = client.connection.get_game_tick();
+    let tick_value = current_tick.value();
 
     let highest_points_player_id = get_highest_points_player_id(client);
 
     for weapon in &client.simulation.weapon_manager.weapons {
+        const WEAPON_DESYNC_TICKS: i32 = 5;
+
+        if weapon.spawn_timestamp == weapon.last_update_tick
+            && current_tick.diff(&weapon.last_update_tick) > WEAPON_DESYNC_TICKS
+        {
+            // We don't want to spawn weapons that haven't been updated to be near the current tick.
+            // This fixes the flicker that could occur with large delays of weapon packets.
+            continue;
+        }
+
         let x_pixels = weapon.position.x.0 / 1000;
         let y_pixels = weapon.position.y.0 / 1000;
 
@@ -1164,10 +1175,7 @@ pub fn render_map_animations(
     sprites: &GameSprites,
 ) {
     const OFFSCREEN_PIXELS: i32 = 8 * 16;
-    let (screen_width, screen_height) = (
-        render_state.width() as i32,
-        render_state.height() as i32,
-    );
+    let (screen_width, screen_height) = (render_state.width() as i32, render_state.height() as i32);
     let half_width = (screen_width / 2) + OFFSCREEN_PIXELS;
     let half_height = (screen_height / 2) + OFFSCREEN_PIXELS;
 

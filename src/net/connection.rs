@@ -181,6 +181,13 @@ pub struct Connection {
     pub packets_sent: u32,
     pub packets_recv: u32,
 
+    pub s2c_fast_total: u32,
+    pub s2c_slow_total: u32,
+
+    pub s2c_fast_current: u16,
+    pub s2c_slow_current: u16,
+    pub s2c_avg_sum: u64,
+
     pub ticks_since_recv: u32,
 
     pub send_extra_position_info: bool,
@@ -210,6 +217,11 @@ impl Connection {
             ticks_since_recv: 0,
             send_extra_position_info: false,
             download_queue: vec![],
+            s2c_fast_total: 0,
+            s2c_slow_total: 0,
+            s2c_fast_current: 0,
+            s2c_slow_current: 0,
+            s2c_avg_sum: 0,
         }
     }
 
