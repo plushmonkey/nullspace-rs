@@ -170,11 +170,12 @@ pub struct Connection {
     pub player_name: String,
     pub crypt: VieEncrypt,
 
-    pub sync_history: ClockSyncHistory,
-    pub tick_diff: i32,
     pub current_tick: GameTick,
 
+    pub sync_history: ClockSyncHistory,
+    pub tick_diff: i32,
     pub last_sync_req: GameTick,
+    pub send_route_percent: i32,
 
     pub ping: i32,
     pub weapons_recv: u32,
@@ -187,6 +188,7 @@ pub struct Connection {
     pub s2c_fast_current: u16,
     pub s2c_slow_current: u16,
     pub s2c_avg_sum: u64,
+    pub s2c_latest: u16,
 
     pub ticks_since_recv: u32,
 
@@ -206,10 +208,11 @@ impl Connection {
             player_id: PlayerId::invalid(),
             player_name: String::new(),
             crypt: VieEncrypt::new(0),
+            current_tick: GameTick::empty(),
             sync_history: ClockSyncHistory::new(),
             tick_diff: 0,
-            current_tick: GameTick::empty(),
             last_sync_req: GameTick::empty(),
+            send_route_percent: 500,
             ping: 0,
             weapons_recv: 0,
             packets_sent: 0,
@@ -222,6 +225,7 @@ impl Connection {
             s2c_fast_current: 0,
             s2c_slow_current: 0,
             s2c_avg_sum: 0,
+            s2c_latest: 0,
         }
     }
 
@@ -487,7 +491,7 @@ impl Connection {
                     let server_timestamp = sync.response_timestamp as i32;
                     let current_timestamp = GameTick::now(0).value() as i32;
                     let rtt = current_timestamp - sync.request_timestamp as i32;
-                    let current_ping = (rtt / 2) * 10;
+                    let current_ping_ticks = ((1000 - self.send_route_percent) * rtt) / 1000;
 
                     log::trace!(
                         "ServerTimestamp: {}, CurrentTimestamp: {}, rtt: {}",
@@ -497,14 +501,15 @@ impl Connection {
                     );
 
                     let current_time_diff =
-                        (rtt / 2 + server_timestamp).wrapping_sub(current_timestamp);
+                        (current_ping_ticks + server_timestamp).wrapping_sub(current_timestamp);
 
                     let first_sync = self.sync_history.is_empty();
                     // Discard timings that come in while downloading so the delay doesn't create timer jitter.
                     let acceptable_stat = first_sync || self.sequencer.huge_chunk_data.is_empty();
 
                     if acceptable_stat {
-                        self.sync_history.insert(current_ping, current_time_diff);
+                        self.sync_history
+                            .insert(current_ping_ticks * 10, current_time_diff);
                     }
 
                     let new_tick_diff = self.sync_history.get_average_time_diff();

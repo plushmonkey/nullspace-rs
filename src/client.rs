@@ -592,7 +592,7 @@ impl Client {
 
                 let data = ExtraPositionData {
                     energy: (ship_controller.ship.current_energy / 1000) as u16,
-                    s2c_latency: 0,
+                    s2c_latency: self.connection.s2c_latest,
                     flag_timer,
                     items: items,
                 };
@@ -1075,6 +1075,9 @@ impl Client {
                 log::debug!("Received arena settings");
                 self.settings = settings_message.clone();
 
+                self.connection.send_route_percent =
+                    (self.settings.send_route_percent as i32).clamp(300, 700);
+
                 if self.settings.door_mode >= 0 {
                     self.map.door_rng = Some(DoorRng::new(
                         self.settings.door_mode as u32,
@@ -1363,6 +1366,8 @@ impl Client {
 
                     let s2c_latency = self.connection.get_game_tick().diff(&server_timestamp);
 
+                    self.connection.s2c_latest = s2c_latency.max(0) as u16;
+
                     if s2c_latency.abs() >= self.settings.client_slow_packet_time as i32 {
                         self.connection.s2c_slow_current += 1;
                     } else {
@@ -1460,6 +1465,8 @@ impl Client {
                     let message_timestamp = server_timestamp - message.ping as i32;
 
                     let s2c_latency = self.connection.get_game_tick().diff(&server_timestamp);
+
+                    self.connection.s2c_latest = s2c_latency.max(0) as u16;
 
                     if s2c_latency.abs() >= self.settings.client_slow_packet_time as i32 {
                         self.connection.s2c_slow_current += 1;
