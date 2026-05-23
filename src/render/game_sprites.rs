@@ -197,6 +197,7 @@ pub enum GameSpriteKind {
     Crown,
     CrownIndicator,
     PointsShield,
+    BombFlash,
     Repel,
 }
 // This must match the last kind in the enum. std::mem::variant_count still unstable.
@@ -244,6 +245,7 @@ pub const GAME_SPRITE_SHEET_DEFINITIONS: [(u32, u32); GAME_SPRITE_KIND_SIZE] = [
     (10, 1),     // Crown
     (10, 1),     // CrownIndicator
     (10, 1),     // PointsShield
+    (6, 1),      // BombFlash
     (5, 2),      // Repel
 ];
 
@@ -420,6 +422,7 @@ impl GameSpriteLoader {
             (GameSpriteKind::Crown, "graphics/king.bm2"),
             (GameSpriteKind::CrownIndicator, "graphics/kingex.bm2"),
             (GameSpriteKind::PointsShield, "graphics/ssshield.bm2"),
+            (GameSpriteKind::BombFlash, "graphics/bombflsh.bm2"),
             (GameSpriteKind::Repel, "graphics/repel.bm2"),
         ];
 

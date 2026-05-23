@@ -37,10 +37,12 @@ pub struct ShipController {
     pub notification_cooldown: u32,
     pub pending_attach_target: Option<PlayerId>,
     pub crown_remaining_ticks: u32,
+    pub bomb_flash_remaining_ticks: u32,
 }
 
 impl ShipController {
     const REPEL_DELAY_TICKS: i32 = 50;
+    const BOMB_FLASH_DURATION: u32 = 6 * 3;
 
     pub fn new() -> Self {
         Self {
@@ -49,6 +51,7 @@ impl ShipController {
             notification_cooldown: 0,
             pending_attach_target: None,
             crown_remaining_ticks: 0,
+            bomb_flash_remaining_ticks: 0,
         }
     }
 
@@ -68,6 +71,10 @@ impl ShipController {
     ) {
         if self.notification_cooldown > 0 {
             self.notification_cooldown -= 1;
+        }
+
+        if self.bomb_flash_remaining_ticks > 0 {
+            self.bomb_flash_remaining_ticks -= 1;
         }
 
         let player_count = player_manager.players.len();
@@ -1142,7 +1149,7 @@ impl ShipController {
         match &mut weapon_kind {
             WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) | WeaponKind::Thor(bomb) => {
                 if !bomb.mine {
-                    if let Some(me) = player_manager.get_self() {
+                    if let Some(me) = player_manager.get_self_mut() {
                         bomb.initialize_rng_seed(
                             me_position,
                             me.velocity,
@@ -1150,6 +1157,16 @@ impl ShipController {
                             ship_settings.bomb_speed as u32,
                             me.frequency,
                         );
+
+                        let heading = me.get_heading();
+
+                        // Apply backward thrust from firing bomb.
+                        me.velocity.x.0 =
+                            me.velocity.x.0 - (heading.x * ship_settings.bomb_thrust as f32) as i32;
+                        me.velocity.y.0 =
+                            me.velocity.y.0 - (heading.y * ship_settings.bomb_thrust as f32) as i32;
+
+                        self.bomb_flash_remaining_ticks = Self::BOMB_FLASH_DURATION;
                     }
                 }
             }
@@ -1452,6 +1469,36 @@ impl ShipController {
         self.render_icons(render_state, sprites);
 
         self.render_attach_turret(player_manager, render_state, sprites);
+
+        if self.bomb_flash_remaining_ticks > 0 {
+            // Render bomb flash in front of ship.
+            if let Some(me) = player_manager.get_self() {
+                if let Some(me_position) = me.position {
+                    let ship_radius = settings.get_ship_settings(me.ship_kind).get_radius();
+                    let (mut flash_x, mut flash_y) = me_position.to_pixels();
+                    let offset = me.get_heading() * (ship_radius as f32 + 3.0f32);
+
+                    flash_x += offset.x as i32;
+                    flash_y += offset.y as i32;
+
+                    if let Some(bomb_flash_sprites) = sprites.get_set(GameSpriteKind::BombFlash) {
+                        let elapsed = Self::BOMB_FLASH_DURATION - self.bomb_flash_remaining_ticks;
+                        let ticks_per_frame = Self::BOMB_FLASH_DURATION as usize / 6;
+                        let index = elapsed as usize / ticks_per_frame;
+
+                        let renderable = &bomb_flash_sprites.renderables[index];
+
+                        render_state.sprite_renderer.draw_centered(
+                            &render_state.camera,
+                            renderable,
+                            flash_x,
+                            flash_y,
+                            Layer::AfterWeapons,
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(portal_position) = self.ship.portal_position {
             let (x_pixels, y_pixels) = portal_position.to_pixels();
