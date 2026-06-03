@@ -1,10 +1,12 @@
 use smol_str::{SmolStr, StrExt, ToSmolStr};
 
 use crate::{
+    clock::GameTick,
     net::{connection::Connection, packet::s2c::ChatKind},
     player::PlayerManager,
     radar::Radar,
     render::{
+        game_sprites::GameSprites,
         layer::Layer,
         render_state::{ReferencePoint, RenderState},
         text_renderer::{TextAlignment, TextColor},
@@ -81,7 +83,7 @@ impl ChatController {
         }
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState) {
+    pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
         const NAMELEN: usize = 10;
         const LEFT_SPACING: i32 = 2;
 
@@ -92,6 +94,12 @@ impl ChatController {
 
         let mut current_y = height.saturating_sub_signed(font_height + 2) as i32;
 
+        let chat_region_width = Self::get_chat_region_width(render_state);
+
+        if chat_region_width <= 0 {
+            return;
+        }
+
         if !self.input.is_empty() {
             let color = match self.get_chat_send_kind() {
                 ChatSendKind::Team => TextColor::Yellow,
@@ -100,18 +108,49 @@ impl ChatController {
                 _ => TextColor::White,
             };
 
-            render_state.text_renderer.draw_slice(
-                &mut render_state.sprite_renderer,
-                &render_state.ui_camera,
-                &self.input,
-                LEFT_SPACING,
-                current_y,
-                Layer::Chat,
-                color,
-                TextAlignment::Left,
-            );
+            if let Ok(input) = core::str::from_utf8(&self.input) {
+                let max_chat_region_characters = ((chat_region_width as i32) / font_width) as usize;
 
-            current_y -= font_height;
+                Self::wrap_chat(&mut self.message_spans, input, max_chat_region_characters);
+
+                let mut render_cursor = true;
+
+                for (start_index, end_index) in self.message_spans.iter().rev() {
+                    let current = &input[*start_index as usize..*end_index as usize];
+
+                    let render_width = render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        current,
+                        LEFT_SPACING,
+                        current_y,
+                        Layer::Chat,
+                        color,
+                        TextAlignment::Left,
+                    );
+
+                    if render_cursor {
+                        let cursor_x = LEFT_SPACING + render_width;
+                        let cursor_y = current_y;
+
+                        render_cursor = false;
+
+                        let tick = GameTick::now(0).value();
+                        if (tick / 30) % 2 == 0 {
+                            sprites.colors.draw_cursor(
+                                &mut render_state.sprite_renderer,
+                                &render_state.ui_camera,
+                                Layer::Chat,
+                                cursor_x,
+                                cursor_y,
+                                font_height,
+                            );
+                        }
+                    }
+
+                    current_y -= font_height;
+                }
+            }
         }
 
         let max_output_count = self.get_max_output_count(
@@ -128,12 +167,6 @@ impl ChatController {
             let first_index = current_index;
 
             let mut output_count = 0;
-
-            let chat_region_width = Self::get_chat_region_width(render_state);
-
-            if chat_region_width <= 0 {
-                return;
-            }
 
             'render_loop: loop {
                 let entry = &self.messages[current_index];
@@ -261,8 +294,6 @@ impl ChatController {
 
     // Wraps chat into spans stored in self.message_spans so the memory can be reused.
     fn wrap_chat(message_spans: &mut Vec<(u16, u16)>, message: &str, max_size: usize) {
-        let message = message.trim();
-
         message_spans.clear();
 
         if max_size == 0 || message.len() == 0 {

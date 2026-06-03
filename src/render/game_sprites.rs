@@ -361,7 +361,7 @@ impl GameSpriteLoader {
 
         sprites.colors.width = colors_width;
         sprites.colors.height = colors_height;
-        sprites.colors.sheet_index = colors_sheet_index;
+        sprites.colors.initialize(render_state, colors_sheet_index);
 
         Some(sprites)
     }

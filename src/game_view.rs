@@ -31,7 +31,7 @@ pub fn render_game(
     sprites: &mut GameSprites,
     menu_open: bool,
 ) {
-    client.chat_controller.render(render_state);
+    client.chat_controller.render(render_state, sprites);
     client
         .statbox
         .render(&client.simulation.player_manager, render_state, sprites);

@@ -3,7 +3,9 @@ use crate::{
     render::{
         camera::Camera,
         layer::Layer,
+        render_state::RenderState,
         sprite_renderer::{SheetIndex, SpriteRenderable, SpriteRenderer},
+        texture::Texture,
     },
 };
 
@@ -41,6 +43,9 @@ pub struct Colors {
     pub sheet_index: SheetIndex,
     pub current_tick: GameTick,
     pub current_u: f32,
+
+    // This is a sheet that stores custom colors for various things, like chat cursor.
+    static_sheet_index: SheetIndex,
 }
 
 impl Colors {
@@ -51,7 +56,33 @@ impl Colors {
             sheet_index: SheetIndex(0xFFFFFF),
             current_tick: GameTick::empty(),
             current_u: 0.0f32,
+            static_sheet_index: SheetIndex(0xFFFFFFFF),
         }
+    }
+
+    pub fn initialize(&mut self, render_state: &mut RenderState, color_sheet_index: SheetIndex) {
+        self.sheet_index = color_sheet_index;
+
+        let texture = Texture::new_2d(
+            &render_state.device,
+            1,
+            1,
+            render_state.get_texture_format(),
+        );
+
+        let mut rgba_data = Vec::<u8>::new();
+
+        rgba_data.push(0xFF);
+        rgba_data.push(0xFF);
+        rgba_data.push(0xFF);
+        rgba_data.push(0xFF);
+
+        RenderState::buffer_texture(&render_state.queue, &texture, &rgba_data);
+
+        self.static_sheet_index =
+            render_state
+                .sprite_renderer
+                .create_sprite_sheet(&render_state.device, &texture, false);
     }
 
     pub fn tick(&mut self, current_tick: GameTick) {
@@ -274,5 +305,24 @@ impl Colors {
                 height - 1,
             );
         }
+    }
+
+    pub fn draw_cursor(
+        &self,
+        sprite_renderer: &mut SpriteRenderer,
+        camera: &Camera,
+        layer: Layer,
+        x: i32,
+        y: i32,
+        height: i32,
+    ) {
+        let renderable = SpriteRenderable {
+            uv_start: [0.0f32, 0.0f32],
+            uv_size: [0.0f32, 0.0f32],
+            size: [1, height as u32],
+            sheet_index: self.static_sheet_index,
+        };
+
+        sprite_renderer.draw(camera, &renderable, x, y, layer);
     }
 }
