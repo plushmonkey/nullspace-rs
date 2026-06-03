@@ -3,6 +3,7 @@ use smol_str::{SmolStr, StrExt, ToSmolStr};
 use crate::{
     net::{connection::Connection, packet::s2c::ChatKind},
     player::PlayerManager,
+    radar::Radar,
     render::{
         layer::Layer,
         render_state::{ReferencePoint, RenderState},
@@ -24,6 +25,12 @@ pub enum ChatSendKind {
     Channel,
 }
 
+pub enum ChatRenderMode {
+    Normal,
+    Full,
+    None,
+}
+
 pub struct ChatEntry {
     pub kind: ChatKind,
     pub sender: String,
@@ -34,8 +41,10 @@ pub struct ChatController {
     pub input: Vec<u8>,
     pub messages: Vec<ChatEntry>,
     pub insert_index: usize,
-    pub full_history: bool,
+    pub render_mode: ChatRenderMode,
     pub recent_private: Vec<String>,
+
+    message_spans: Vec<(u16, u16)>,
 }
 
 impl ChatController {
@@ -48,8 +57,9 @@ impl ChatController {
             input: vec![],
             messages: vec![],
             insert_index: 0,
-            full_history: false,
+            render_mode: ChatRenderMode::Normal,
             recent_private: vec![],
+            message_spans: vec![],
         }
     }
 
@@ -58,7 +68,20 @@ impl ChatController {
         self.insert_index = 0;
     }
 
-    pub fn render(&self, render_state: &mut RenderState) {
+    pub fn update_render_mode(&mut self, menu_open: bool, radar_full: bool) {
+        if radar_full {
+            self.render_mode = ChatRenderMode::None;
+            return;
+        }
+
+        if menu_open {
+            self.render_mode = ChatRenderMode::Full;
+        } else {
+            self.render_mode = ChatRenderMode::Normal;
+        }
+    }
+
+    pub fn render(&mut self, render_state: &mut RenderState) {
         const NAMELEN: usize = 10;
         const LEFT_SPACING: i32 = 2;
 
@@ -91,22 +114,30 @@ impl ChatController {
             current_y -= font_height;
         }
 
-        // TODO: Wrapping chat lines
+        let max_output_count = self.get_max_output_count(
+            render_state.height() as i32,
+            render_state.text_renderer.character_height,
+        );
+
+        if max_output_count == 0 {
+            return;
+        }
+
         if !self.messages.is_empty() {
             let mut current_index = Self::wrap_index(self.insert_index, -1, self.messages.len());
             let first_index = current_index;
 
             let mut output_count = 0;
 
-            loop {
+            let chat_region_width = Self::get_chat_region_width(render_state);
+
+            if chat_region_width <= 0 {
+                return;
+            }
+
+            'render_loop: loop {
                 let entry = &self.messages[current_index];
                 let message_color = Self::get_chat_message_color(entry.kind);
-
-                if !self.full_history && output_count >= Self::MAX_DISPLAY {
-                    break;
-                }
-
-                output_count += 1;
 
                 match entry.kind {
                     ChatKind::Public
@@ -122,60 +153,101 @@ impl ChatController {
                         };
 
                         let trimmed_name_len = entry.sender.len().min(NAMELEN);
-                        let inset_pixels = (NAMELEN - trimmed_name_len) as i32 * font_width;
-
-                        render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
-                            &entry.sender[..trimmed_name_len],
-                            LEFT_SPACING + inset_pixels,
-                            current_y,
-                            Layer::Chat,
-                            name_color,
-                            TextAlignment::Left,
-                        );
+                        let inset_pixels =
+                            LEFT_SPACING + (NAMELEN - trimmed_name_len) as i32 * font_width;
 
                         let name_width = trimmed_name_len * font_width as usize;
-
-                        render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
-                            "> ",
-                            LEFT_SPACING + inset_pixels + name_width as i32,
-                            current_y,
-                            Layer::Chat,
-                            name_color,
-                            TextAlignment::Left,
-                        );
-
                         let message_inset = inset_pixels + name_width as i32 + 2 * font_width;
 
-                        render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
+                        let max_chat_region_characters =
+                            ((chat_region_width as i32 - message_inset) / font_width) as usize;
+
+                        Self::wrap_chat(
+                            &mut self.message_spans,
                             &entry.message,
-                            LEFT_SPACING + message_inset,
-                            current_y,
-                            Layer::Chat,
-                            message_color,
-                            TextAlignment::Left,
+                            max_chat_region_characters,
                         );
+
+                        for (start_index, end_index) in self.message_spans.iter().rev() {
+                            let current =
+                                &entry.message[*start_index as usize..*end_index as usize].trim();
+
+                            render_state.text_renderer.draw(
+                                &mut render_state.sprite_renderer,
+                                &render_state.ui_camera,
+                                &entry.sender[..trimmed_name_len],
+                                inset_pixels,
+                                current_y,
+                                Layer::Chat,
+                                name_color,
+                                TextAlignment::Left,
+                            );
+
+                            render_state.text_renderer.draw(
+                                &mut render_state.sprite_renderer,
+                                &render_state.ui_camera,
+                                "> ",
+                                inset_pixels + name_width as i32,
+                                current_y,
+                                Layer::Chat,
+                                name_color,
+                                TextAlignment::Left,
+                            );
+
+                            render_state.text_renderer.draw(
+                                &mut render_state.sprite_renderer,
+                                &render_state.ui_camera,
+                                current,
+                                message_inset,
+                                current_y,
+                                Layer::Chat,
+                                message_color,
+                                TextAlignment::Left,
+                            );
+
+                            if output_count >= max_output_count {
+                                break 'render_loop;
+                            }
+
+                            output_count += 1;
+                            current_y -= font_height;
+                        }
                     }
                     _ => {
-                        render_state.text_renderer.draw(
-                            &mut render_state.sprite_renderer,
-                            &render_state.ui_camera,
+                        let max_chat_region_characters =
+                            ((chat_region_width as i32) / font_width) as usize;
+
+                        Self::wrap_chat(
+                            &mut self.message_spans,
                             &entry.message,
-                            LEFT_SPACING,
-                            current_y,
-                            Layer::Chat,
-                            message_color,
-                            TextAlignment::Left,
+                            max_chat_region_characters,
                         );
+
+                        for (start_index, end_index) in self.message_spans.iter().rev() {
+                            let current =
+                                &entry.message[*start_index as usize..*end_index as usize].trim();
+
+                            render_state.text_renderer.draw(
+                                &mut render_state.sprite_renderer,
+                                &render_state.ui_camera,
+                                current,
+                                LEFT_SPACING,
+                                current_y,
+                                Layer::Chat,
+                                message_color,
+                                TextAlignment::Left,
+                            );
+
+                            if output_count >= max_output_count {
+                                break 'render_loop;
+                            }
+
+                            output_count += 1;
+                            current_y -= font_height;
+                        }
                     }
                 }
 
-                current_y -= font_height;
                 current_index = Self::wrap_index(current_index, -1, self.messages.len());
 
                 if current_index == first_index {
@@ -185,6 +257,63 @@ impl ChatController {
         }
 
         render_state.set_reference_point(ReferencePoint::ChatTopLeft, (0, current_y));
+    }
+
+    // Wraps chat into spans stored in self.message_spans so the memory can be reused.
+    fn wrap_chat(message_spans: &mut Vec<(u16, u16)>, message: &str, max_size: usize) {
+        let message = message.trim();
+
+        message_spans.clear();
+
+        if max_size == 0 || message.len() == 0 {
+            message_spans.push((0, message.len() as u16));
+            return;
+        }
+
+        let mut index = 0;
+
+        while index < message.len() {
+            let mut end_index = (index + max_size).min(message.len());
+
+            if end_index < message.len() {
+                // Search backwards to find a space separator
+
+                while end_index > index {
+                    if message.as_bytes()[end_index] == b' ' {
+                        break;
+                    }
+                    end_index -= 1;
+                }
+
+                if end_index == index {
+                    end_index = (index + max_size).min(message.len());
+                }
+            }
+
+            message_spans.push((index as u16, end_index as u16));
+
+            index = end_index;
+        }
+    }
+
+    fn get_max_output_count(&self, surface_height: i32, font_height: i32) -> usize {
+        match self.render_mode {
+            ChatRenderMode::Normal => Self::MAX_DISPLAY,
+            ChatRenderMode::Full => {
+                let max_height = ((surface_height - font_height) * 3) / 4;
+
+                (max_height / font_height) as usize
+            }
+            ChatRenderMode::None => 0,
+        }
+    }
+
+    fn get_chat_region_width(render_state: &RenderState) -> i32 {
+        let surface_width = render_state.width() as i32;
+        let radar_dim = Radar::get_dim_from_surface_width(render_state.width()) as i32;
+        let radar_border_size = 3 * 2;
+
+        surface_width - radar_dim - radar_border_size - Radar::CORNER_INSET as i32
     }
 
     fn get_chat_message_color(kind: ChatKind) -> TextColor {

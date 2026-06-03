@@ -269,9 +269,12 @@ impl ApplicationPlayingState {
             .colors
             .tick(self.client.connection.get_game_tick());
 
-        self.menu.handled = false;
-        self.client.chat_controller.full_history = self.menu.is_open();
         self.action_input = false;
+        self.menu.handled = false;
+
+        self.client
+            .chat_controller
+            .update_render_mode(self.menu.is_open(), self.client.radar.render_full);
 
         Ok(())
     }

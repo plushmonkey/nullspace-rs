@@ -108,6 +108,8 @@ pub struct Radar {
 }
 
 impl Radar {
+    pub const CORNER_INSET: u32 = 6;
+
     pub fn new() -> Self {
         Self {
             sprite_radar: RadarSprite::new(),
@@ -133,6 +135,10 @@ impl Radar {
         view_rect.contains(position)
     }
 
+    pub fn get_dim_from_surface_width(surface_width: u32) -> u32 {
+        (((surface_width / 6) / 4) * 8) / 2
+    }
+
     pub fn update(
         &mut self,
         surface_width: u32,
@@ -150,7 +156,7 @@ impl Radar {
 
         let mapzoom = mapzoom.max(1);
 
-        let dim = (((surface_width / 6) / 4) * 8) / 2;
+        let dim = Self::get_dim_from_surface_width(surface_width);
         let full_dim = (surface_width * 8) / mapzoom as u32;
 
         let ivar8 = (surface_width / 6) + (surface_width >> 0x1F);
@@ -234,10 +240,8 @@ impl Radar {
             return;
         }
 
-        const CORNER_INSET: u32 = 6;
-
-        let bottom_x = render_state.width().saturating_sub(CORNER_INSET);
-        let bottom_y = render_state.height().saturating_sub(CORNER_INSET);
+        let bottom_x = render_state.width().saturating_sub(Self::CORNER_INSET);
+        let bottom_y = render_state.height().saturating_sub(Self::CORNER_INSET);
 
         if self.render_full {
             let size = &self.sprite_entire.renderable.size;
@@ -454,7 +458,7 @@ impl Radar {
             Self::get_surface_dimensions(surface_width, surface_height);
 
         // If our surface is too small, disable radar rendering.
-        if surface_width < 128 || surface_height < 128 {
+        if surface_width <= 128 || surface_height <= 128 {
             self.dirty = true;
             return;
         }

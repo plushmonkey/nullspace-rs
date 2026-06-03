@@ -341,8 +341,8 @@ impl RenderState {
             render_pass.set_viewport(
                 0.0f32,
                 0.0f32,
-                (self.camera.surface_dim.x as f32).max(0.0f32),
-                (self.camera.surface_dim.y as f32).max(0.0f32),
+                (self.camera.surface_dim.x as f32).max(1.0f32),
+                (self.camera.surface_dim.y as f32).max(1.0f32),
                 0.0f32,
                 1.0f32,
             );
