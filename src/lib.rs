@@ -24,6 +24,7 @@ use crate::{
         connection::{ConnectionError, ConnectionState},
         packet::c2s::{RegistrationFormMessage, RegistrationSex},
     },
+    platform::Platform,
 };
 use crate::{
     menu::Menu,
@@ -212,11 +213,7 @@ impl ApplicationPlayingState {
                 crate::net::webtransport_socket::WebTransportSocket::new(&proxy_url, hash).unwrap();
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let platform = Box::new(crate::platform::NativePlatform {});
-
-        #[cfg(target_arch = "wasm32")]
-        let platform = Box::new(crate::platform::WebPlatform {});
+        let platform = Platform::new();
 
         let registration = RegistrationFormMessage::new(
             "nullspace",

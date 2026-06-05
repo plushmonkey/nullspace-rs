@@ -618,6 +618,12 @@ impl Connection {
         }
     }
 
+    pub fn get_download_request_by_filename(&mut self, filename: &str) -> Option<&DownloadRequest> {
+        self.download_queue
+            .iter()
+            .find(|request| request.filename == filename)
+    }
+
     pub fn cancel_downloads(&mut self) {
         if self.state == ConnectionState::MapDownload || !self.sequencer.huge_chunk_data.is_empty()
         {

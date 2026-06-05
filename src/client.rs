@@ -94,7 +94,7 @@ impl OutboundPositionQueue {
 }
 
 pub struct Client {
-    pub platform: Box<dyn Platform + Send>,
+    pub platform: Platform,
     pub connection: Connection,
     pub map: Map,
     pub settings: Box<ArenaSettings>,
@@ -135,7 +135,7 @@ impl Client {
         zone: &str,
         socket: SocketKind,
         registration: RegistrationFormMessage,
-        platform: Box<dyn Platform + Send>,
+        platform: Platform,
     ) -> Result<Client, ConnectionError> {
         let connection = Connection::new(socket);
 
@@ -188,6 +188,8 @@ impl Client {
         };
 
         self.radar.render_full = input_state.is_down(InputAction::FullRadar);
+
+        self.handle_loads(render_state.as_deref_mut());
 
         for _ in 0..tick_count {
             self.statbox
@@ -2076,37 +2078,30 @@ impl Client {
                 for index in 0..info.downloads.len() {
                     let download = &info.downloads[index];
 
-                    if let Some(data) = self.platform.load_zone_file(&self.zone, &download.filename)
-                    {
-                        let checksum = checksum::crc32(&data);
-
-                        if checksum == download.checksum {
-                            self.connection.remove_download_request(index as u16);
-
-                            self.handle_download_complete(
-                                render_state.as_deref_mut(),
-                                &download.filename,
-                                checksum,
-                                &data,
-                            );
-                        }
-                    }
-                }
-
-                if !self.connection.download_queue.is_empty() {
-                    self.connection.request_next_download();
+                    self.platform
+                        .request_file_load(&self.zone, &download.filename);
                 }
             }
             GameServerMessage::CompressedMap(compressed) => {
                 if compressed.filename == self.map.filename {
                     match decompress_to_vec_zlib(&compressed.data) {
                         Ok(data) => {
-                            self.platform
-                                .save_zone_file(&self.zone, &compressed.filename, &data);
-
                             let checksum = checksum::crc32(&data);
 
-                            self.handle_download_complete(
+                            self.platform.request_file_save(
+                                &self.zone,
+                                &compressed.filename,
+                                checksum,
+                                &data,
+                            );
+
+                            Self::handle_download_complete(
+                                &mut self.map,
+                                &mut self.connection,
+                                &mut self.radar,
+                                &mut self.simulation,
+                                &mut self.lvz_controller,
+                                &mut self.arena_change_count,
                                 render_state.as_deref_mut(),
                                 &compressed.filename,
                                 checksum,
@@ -2120,15 +2115,22 @@ impl Client {
                         }
                     }
                 } else {
-                    self.platform.save_zone_file(
+                    let checksum = checksum::crc32(&compressed.data);
+
+                    self.platform.request_file_save(
                         &self.zone,
                         &compressed.filename,
+                        checksum,
                         &compressed.data,
                     );
 
-                    let checksum = checksum::crc32(&compressed.data);
-
-                    self.handle_download_complete(
+                    Self::handle_download_complete(
+                        &mut self.map,
+                        &mut self.connection,
+                        &mut self.radar,
+                        &mut self.simulation,
+                        &mut self.lvz_controller,
+                        &mut self.arena_change_count,
                         render_state.as_deref_mut(),
                         &compressed.filename,
                         checksum,
@@ -2252,41 +2254,88 @@ impl Client {
         }
     }
 
+    fn handle_loads(&mut self, render_state: Option<&mut RenderState>) {
+        let mut render_state = render_state;
+
+        if self.platform.is_load_complete() {
+            for request in self.platform.load_requests.drain(..) {
+                let filename = &request.filename;
+
+                if let Some(data) = &request.result {
+                    let (download_index, download_checksum) = if let Some(download) =
+                        self.connection.get_download_request_by_filename(&filename)
+                    {
+                        (download.server_index, download.checksum)
+                    } else {
+                        continue;
+                    };
+
+                    let checksum = checksum::crc32(&data);
+
+                    if checksum == download_checksum {
+                        self.connection.remove_download_request(download_index);
+
+                        Self::handle_download_complete(
+                            &mut self.map,
+                            &mut self.connection,
+                            &mut self.radar,
+                            &mut self.simulation,
+                            &mut self.lvz_controller,
+                            &mut self.arena_change_count,
+                            render_state.as_deref_mut(),
+                            &filename,
+                            checksum,
+                            &data,
+                        );
+                    }
+                }
+            }
+
+            if !self.connection.download_queue.is_empty() {
+                self.connection.request_next_download();
+            }
+        }
+    }
+
     fn handle_download_complete(
-        &mut self,
+        map: &mut Map,
+        connection: &mut Connection,
+        radar: &mut Radar,
+        simulation: &mut Simulation,
+        lvz_controller: &mut LvzController,
+        arena_change_count: &mut usize,
         render_state: Option<&mut RenderState>,
         filename: &str,
         checksum: u32,
         data: &[u8],
     ) {
-        if filename == self.map.filename {
-            if let Ok(new_map) = Map::new(filename, data, self.map.door_rng) {
+        if filename == map.filename {
+            if let Ok(new_map) = Map::new(filename, data, map.door_rng) {
                 if let Some(render_state) = render_state {
                     render_state.on_map_change(&new_map, data);
                 }
 
-                self.map = new_map;
-                self.map.checksum = checksum;
+                *map = new_map;
+                map.checksum = checksum;
             } else {
                 log::debug!("Map read error: failed to load tiles");
-                self.connection.state = ConnectionState::Disconnected;
+                connection.state = ConnectionState::Disconnected;
             }
         } else {
-            if let Err(e) = self.lvz_controller.handle_download(&data) {
+            if let Err(e) = lvz_controller.handle_download(&data) {
                 log::error!("LvzError: {e}");
             }
         }
 
-        if self.connection.download_queue.is_empty() {
-            self.connection.state = ConnectionState::Playing;
+        if connection.download_queue.is_empty() {
+            connection.state = ConnectionState::Playing;
 
-            self.radar.invalidate();
-            self.simulation.powerball_paused = false;
+            radar.invalidate();
+            simulation.powerball_paused = false;
 
-            self.arena_change_count += 1;
+            *arena_change_count += 1;
 
-            self.lvz_controller
-                .on_download_complete(self.arena_change_count == 1);
+            lvz_controller.on_download_complete(*arena_change_count == 1);
         }
     }
 
