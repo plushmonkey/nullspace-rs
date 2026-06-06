@@ -19,7 +19,7 @@ use crate::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::RenderState,
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
     ship::ShipKind,
 };
@@ -284,8 +284,10 @@ impl FlagController {
                 );
 
                 let seconds = self_flag_ticks as f32 / 100.0f32;
-                let text_y =
-                    ui_y + renderable.size[1] as i32 - render_state.text_renderer.character_height;
+                let text_y = ui_y + renderable.size[1] as i32
+                    - render_state
+                        .text_renderer
+                        .character_height(FontKind::Normal);
 
                 render_state.text_renderer.draw(
                     &mut render_state.sprite_renderer,

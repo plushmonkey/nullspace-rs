@@ -1,20 +1,14 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use crate::render::text_renderer::FontKind;
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Copy, Clone, Debug)]
 pub enum NotificationArea {
     Off,
     Center,
     Chat,
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-#[derive(Copy, Clone, Debug)]
-pub enum FontSize {
-    Small,
-    Medium,
-    Large,
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -55,7 +49,7 @@ pub struct GameSettings {
 
     pub transparent_statbox: bool,
 
-    pub chat_font_size: FontSize,
+    pub chat_font_kind: FontKind,
 
     pub name_length: u8,
     pub chat_lines: u8,
@@ -89,7 +83,7 @@ impl GameSettings {
             enter_notify_area: NotificationArea::Center,
             leave_notify_area: NotificationArea::Center,
             transparent_statbox: false,
-            chat_font_size: FontSize::Medium,
+            chat_font_kind: FontKind::Normal,
             name_length: 10,
             chat_lines: 8,
             radar_target_bounty: 100,

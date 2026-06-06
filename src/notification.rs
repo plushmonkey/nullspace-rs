@@ -1,7 +1,7 @@
 use crate::render::{
     layer::Layer,
     render_state::RenderState,
-    text_renderer::{TextAlignment, TextColor},
+    text_renderer::{FontKind, TextAlignment, TextColor},
 };
 
 pub struct Notification {
@@ -66,7 +66,9 @@ impl NotificationManager {
                 );
             }
 
-            y += render_state.text_renderer.character_height;
+            y += render_state
+                .text_renderer
+                .character_height(FontKind::Normal);
         }
     }
 

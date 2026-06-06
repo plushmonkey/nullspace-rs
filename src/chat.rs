@@ -93,8 +93,12 @@ impl ChatController {
 
         const LEFT_SPACING: i32 = 2;
 
-        let font_width = render_state.text_renderer.character_width;
-        let font_height = render_state.text_renderer.character_height;
+        let font_width = render_state
+            .text_renderer
+            .character_width(game_settings.chat_font_kind);
+        let font_height = render_state
+            .text_renderer
+            .character_height(game_settings.chat_font_kind);
 
         let height = render_state.height();
 
@@ -124,9 +128,10 @@ impl ChatController {
                 for (start_index, end_index) in self.message_spans.iter().rev() {
                     let current = &input[*start_index as usize..*end_index as usize];
 
-                    let render_width = render_state.text_renderer.draw(
+                    let render_width = render_state.text_renderer.draw_with_font(
                         &mut render_state.sprite_renderer,
                         &render_state.ui_camera,
+                        game_settings.chat_font_kind,
                         current,
                         LEFT_SPACING,
                         current_y,
@@ -161,7 +166,9 @@ impl ChatController {
 
         let max_output_count = self.get_max_output_count(
             render_state.height() as i32,
-            render_state.text_renderer.character_height,
+            render_state
+                .text_renderer
+                .character_height(game_settings.chat_font_kind),
             game_settings,
         );
 
@@ -212,9 +219,10 @@ impl ChatController {
                             let current =
                                 &entry.message[*start_index as usize..*end_index as usize].trim();
 
-                            render_state.text_renderer.draw(
+                            render_state.text_renderer.draw_with_font(
                                 &mut render_state.sprite_renderer,
                                 &render_state.ui_camera,
+                                game_settings.chat_font_kind,
                                 &entry.sender[..trimmed_name_len],
                                 inset_pixels,
                                 current_y,
@@ -223,9 +231,10 @@ impl ChatController {
                                 TextAlignment::Left,
                             );
 
-                            render_state.text_renderer.draw(
+                            render_state.text_renderer.draw_with_font(
                                 &mut render_state.sprite_renderer,
                                 &render_state.ui_camera,
+                                game_settings.chat_font_kind,
                                 "> ",
                                 inset_pixels + name_width as i32,
                                 current_y,
@@ -234,9 +243,10 @@ impl ChatController {
                                 TextAlignment::Left,
                             );
 
-                            render_state.text_renderer.draw(
+                            render_state.text_renderer.draw_with_font(
                                 &mut render_state.sprite_renderer,
                                 &render_state.ui_camera,
+                                game_settings.chat_font_kind,
                                 current,
                                 message_inset,
                                 current_y,
@@ -268,9 +278,10 @@ impl ChatController {
                             let current =
                                 &entry.message[*start_index as usize..*end_index as usize].trim();
 
-                            render_state.text_renderer.draw(
+                            render_state.text_renderer.draw_with_font(
                                 &mut render_state.sprite_renderer,
                                 &render_state.ui_camera,
+                                game_settings.chat_font_kind,
                                 current,
                                 LEFT_SPACING,
                                 current_y,

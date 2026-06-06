@@ -9,6 +9,7 @@ use crate::{
         layer::Layer,
         render_state::{ReferencePoint, RenderState},
         sprite_renderer::{SheetIndex, SpriteRenderable},
+        text_renderer::FontKind,
         texture::Texture,
     },
 };
@@ -331,7 +332,11 @@ impl Radar {
                 ReferencePoint::RadarTextTopLeft,
                 (
                     bottom_x as i32 + 4,
-                    start_y as i32 - 4 - render_state.text_renderer.character_height,
+                    start_y as i32
+                        - 4
+                        - render_state
+                            .text_renderer
+                            .character_height(FontKind::Normal),
                 ),
             );
 

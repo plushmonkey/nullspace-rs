@@ -1,7 +1,10 @@
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use crate::render::{
     camera::Camera,
     layer::Layer,
-    sprite_renderer::{SheetIndex, SpriteRenderable, SpriteRenderer},
+    sprite_renderer::{SpriteRenderable, SpriteRenderer},
     texture::Texture,
 };
 
@@ -29,25 +32,46 @@ pub enum TextAlignment {
     Right,
 }
 
-pub struct TextRenderer {
-    _sprite_sheet_index: SheetIndex,
+pub struct Font {
     renderables: Vec<SpriteRenderable>,
-    pub character_width: i32,
-    pub character_height: i32,
+    renderables_foreign: Vec<SpriteRenderable>,
+
+    character_width: i32,
+    character_height: i32,
 }
 
-// TODO: Support foreign font
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum FontKind {
+    Short,
+    Normal,
+    Large,
+    Huge,
+}
+
+pub struct TextRenderer {
+    fonts: Vec<Font>,
+}
+
 impl TextRenderer {
     const CHARACTERS_PER_ROW: u32 = 48;
     const CHARACTERS_PER_COL: u32 = 16;
 
-    pub fn new(
+    const CHARACTERS_PER_ROW_FOREIGN: u32 = 24;
+    const CHARACTERS_PER_COL_FOREIGN: u32 = 24;
+
+    pub fn new() -> Self {
+        Self { fonts: vec![] }
+    }
+
+    pub fn add_font(
+        &mut self,
         device: &wgpu::Device,
         texture: &Texture,
+        texture_foreign: &Texture,
         sprite_renderer: &mut SpriteRenderer,
-    ) -> Self {
+    ) {
         let sprite_sheet_index = sprite_renderer.create_sprite_sheet(device, texture, false);
-
         let sheet = sprite_renderer.get_sheet(sprite_sheet_index).unwrap();
         let mut renderables = vec![];
 
@@ -64,12 +88,33 @@ impl TextRenderer {
             renderables.push(renderable);
         }
 
-        Self {
-            _sprite_sheet_index: sprite_sheet_index,
+        let sprite_sheet_index_foreign =
+            sprite_renderer.create_sprite_sheet(device, texture_foreign, false);
+        let sheet_foreign = sprite_renderer
+            .get_sheet(sprite_sheet_index_foreign)
+            .unwrap();
+        let mut renderables_foreign = vec![];
+
+        for i in 0..(Self::CHARACTERS_PER_ROW_FOREIGN * Self::CHARACTERS_PER_COL_FOREIGN) {
+            let x = (i % Self::CHARACTERS_PER_ROW_FOREIGN) * character_width as u32;
+            let y = (i / Self::CHARACTERS_PER_ROW_FOREIGN) * character_height as u32;
+
+            let renderable = sheet_foreign.create_renderable(
+                x,
+                y,
+                character_width as u32,
+                character_height as u32,
+            );
+
+            renderables_foreign.push(renderable);
+        }
+
+        self.fonts.push(Font {
             renderables,
+            renderables_foreign,
             character_width,
             character_height,
-        }
+        });
     }
 
     // This will push renderables to the sprite renderer.
@@ -86,9 +131,38 @@ impl TextRenderer {
         color: TextColor,
         align: TextAlignment,
     ) -> i32 {
-        self.draw_slice(
+        self.draw_with_font(
             sprite_renderer,
             camera,
+            FontKind::Normal,
+            text,
+            x,
+            y,
+            layer,
+            color,
+            align,
+        )
+    }
+
+    // This will push renderables to the sprite renderer.
+    // The sprite renderer will need to be rendered to actually see the result of this draw call.
+    // Returns the width of the rendered text
+    pub fn draw_with_font(
+        &self,
+        sprite_renderer: &mut SpriteRenderer,
+        camera: &Camera,
+        font: FontKind,
+        text: &str,
+        x: i32,
+        y: i32,
+        layer: Layer,
+        color: TextColor,
+        align: TextAlignment,
+    ) -> i32 {
+        self.draw_slice_with_font(
+            sprite_renderer,
+            camera,
+            font,
             text.as_bytes(),
             x,
             y,
@@ -112,10 +186,42 @@ impl TextRenderer {
         color: TextColor,
         align: TextAlignment,
     ) -> i32 {
+        self.draw_slice_with_font(
+            sprite_renderer,
+            camera,
+            FontKind::Normal,
+            text,
+            x,
+            y,
+            layer,
+            color,
+            align,
+        )
+    }
+
+    // This will push renderables to the sprite renderer.
+    // The sprite renderer will need to be rendered to actually see the result of this draw call.
+    // Returns the width of the rendered text
+    pub fn draw_slice_with_font(
+        &self,
+        sprite_renderer: &mut SpriteRenderer,
+        camera: &Camera,
+        font_kind: FontKind,
+        text: &[u8],
+        x: i32,
+        y: i32,
+        layer: Layer,
+        color: TextColor,
+        align: TextAlignment,
+    ) -> i32 {
         let mut current_x;
         let mut current_y = y;
 
         let mut max_width = 0;
+
+        let font = &self.fonts[font_kind as usize];
+        let character_width = self.character_width(font_kind);
+        let character_height = self.character_height(font_kind);
 
         // Precompute the transform so we don't have to matrix multiply every character.
         let mvp = camera.projection() * camera.view();
@@ -124,30 +230,41 @@ impl TextRenderer {
 
             match align {
                 TextAlignment::Center => {
-                    current_x -= (line.len() as i32 * self.character_width) / 2;
+                    current_x -= (line.len() as i32 * character_width) / 2;
                 }
                 TextAlignment::Right => {
-                    current_x -= line.len() as i32 * self.character_width;
+                    current_x -= line.len() as i32 * character_width;
                 }
                 _ => {}
             }
 
-            let width = line.len() as i32 * self.character_width;
+            let width = line.len() as i32 * character_width;
             if width > max_width {
                 max_width = width;
             }
 
             // This game only supports ascii text, so we can just take the raw bytes and grab the character from it.
             for c in line {
-                if *c < 0x20 || *c > 0x7F {
+                let mut c = *c;
+
+                if c < 0x20 {
                     continue;
                 }
 
-                let character_index = (*c - 0x20) as usize;
+                let mut renderables = &font.renderables;
+
+                if c > 0x7F {
+                    renderables = &font.renderables_foreign;
+                    c -= 0x7F;
+                } else {
+                    c -= 0x20;
+                }
+
+                let character_index = c as usize;
                 let color_index = color.index() * (Self::CHARACTERS_PER_ROW * 2) as usize;
                 let renderable_index = color_index + character_index;
 
-                let renderable = &self.renderables[renderable_index];
+                let renderable = &renderables[renderable_index];
 
                 sprite_renderer.draw_with_transform(
                     mvp,
@@ -158,12 +275,20 @@ impl TextRenderer {
                     layer.z(),
                 );
 
-                current_x += self.character_width;
+                current_x += character_width;
             }
 
-            current_y += self.character_height;
+            current_y += character_height;
         }
 
         max_width
+    }
+
+    pub fn character_width(&self, font: FontKind) -> i32 {
+        self.fonts[font as usize].character_width
+    }
+
+    pub fn character_height(&self, font: FontKind) -> i32 {
+        self.fonts[font as usize].character_height
     }
 }

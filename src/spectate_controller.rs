@@ -17,7 +17,7 @@ use crate::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::{ReferencePoint, RenderState},
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
     ship::ShipKind,
     statbox::Statbox,
@@ -268,7 +268,9 @@ impl SpectateController {
                 TextAlignment::Left,
             );
 
-            y += render_state.text_renderer.character_height;
+            y += render_state
+                .text_renderer
+                .character_height(FontKind::Normal);
         }
 
         render_state.set_reference_point(

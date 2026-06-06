@@ -16,7 +16,7 @@ use crate::{
         game_sprites::{GAME_SPRITE_SHEET_DEFINITIONS, GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::RenderState,
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
     ship::ShipKind,
     simulation::{
@@ -449,7 +449,9 @@ fn render_players(
                         TextAlignment::Left,
                     );
 
-                    name_y += render_state.text_renderer.character_height;
+                    name_y += render_state
+                        .text_renderer
+                        .character_height(FontKind::Normal);
                 }
             }
 
@@ -503,7 +505,9 @@ fn render_players(
                                 TextAlignment::Left,
                             );
 
-                            name_y += render_state.text_renderer.character_height;
+                            name_y += render_state
+                                .text_renderer
+                                .character_height(FontKind::Normal);
                         }
                     }
                 }
@@ -530,7 +534,10 @@ fn render_players(
                 }
             }
 
-            let mut child_y = name_y + render_state.text_renderer.character_height;
+            let mut child_y = name_y
+                + render_state
+                    .text_renderer
+                    .character_height(FontKind::Normal);
 
             for child_id in &player.children {
                 if let Some(child) = client.simulation.player_manager.get_by_id(*child_id) {
@@ -565,7 +572,9 @@ fn render_players(
                                     TextAlignment::Left,
                                 );
 
-                                child_y += render_state.text_renderer.character_height;
+                                child_y += render_state
+                                    .text_renderer
+                                    .character_height(FontKind::Normal);
                             }
                         }
                     } else {
@@ -601,7 +610,9 @@ fn render_players(
                             child.id == highest_points_player_id,
                         );
 
-                        child_y += render_state.text_renderer.character_height;
+                        child_y += render_state
+                            .text_renderer
+                            .character_height(FontKind::Normal);
                     }
                 }
             }
@@ -634,7 +645,8 @@ fn render_player_name(
         text_x += 16;
     }
 
-    let name_width = player_name_view.len() as i32 * render_state.text_renderer.character_width;
+    let name_width = player_name_view.len() as i32
+        * render_state.text_renderer.character_width(FontKind::Normal);
 
     render_state.draw_world_text(
         &player_name_view,

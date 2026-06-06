@@ -8,7 +8,7 @@ use crate::{
         game_sprites::{GameSpriteKind, GameSprites},
         layer::Layer,
         render_state::{ReferencePoint, RenderState},
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
     select_box::SelectBox,
     ship::ShipKind,
@@ -479,6 +479,8 @@ impl Statbox {
             return 0;
         };
 
+        let font_width = render_state.text_renderer.character_width(FontKind::Normal);
+
         let color = if me.frequency == player.frequency {
             TextColor::Yellow
         } else {
@@ -498,7 +500,7 @@ impl Statbox {
             TextAlignment::Left,
         );
 
-        12 * 8 + 10 + 3
+        MAX_NAME_VIEW_LENGTH as i32 * font_width + 10 + 3
     }
 
     fn render_points_row(
@@ -534,7 +536,8 @@ impl Statbox {
             TextAlignment::Left,
         );
 
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+        let name_width = render_state.text_renderer.character_width(FontKind::Normal)
+            * MAX_NAME_VIEW_LENGTH as i32;
 
         if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
             render_state.sprite_renderer.draw(
@@ -595,7 +598,8 @@ impl Statbox {
             TextAlignment::Left,
         );
 
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+        let name_width = render_state.text_renderer.character_width(FontKind::Normal)
+            * MAX_NAME_VIEW_LENGTH as i32;
 
         if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
             render_state.sprite_renderer.draw(
@@ -634,7 +638,7 @@ impl Statbox {
         rating_width_pixels: i32,
         average_width_pixels: i32,
     ) -> i32 {
-        let font_width = render_state.text_renderer.character_width;
+        let font_width = render_state.text_renderer.character_width(FontKind::Normal);
 
         let Some(player) = player_manager.get_by_id(self.sorted_players[i]) else {
             return 0;
@@ -659,7 +663,8 @@ impl Statbox {
             TextAlignment::Left,
         );
 
-        let name_width = render_state.text_renderer.character_width * MAX_NAME_VIEW_LENGTH as i32;
+        let name_width = render_state.text_renderer.character_width(FontKind::Normal)
+            * MAX_NAME_VIEW_LENGTH as i32;
 
         if let Some(banner_renderable) = render_state.banner_manager.get_banner(player.id) {
             render_state.sprite_renderer.draw(
@@ -813,22 +818,26 @@ impl Statbox {
         let mut current_y = 4;
         let heading_y = current_y;
 
+        let font_height = render_state
+            .text_renderer
+            .character_height(FontKind::Normal);
+
         match &self.view {
             StatboxView::Frequency => {
-                current_y += 12 + 2;
+                current_y += font_height + 2;
             }
             _ => {
                 render_state.text_renderer.draw(
                     &mut render_state.sprite_renderer,
                     &render_state.ui_camera,
                     &format_smolstr!("{}", player_manager.players.len()),
-                    10 + 5 * render_state.text_renderer.character_width,
+                    10 + 5 * render_state.text_renderer.character_width(FontKind::Normal),
                     heading_y,
                     Layer::AfterStatbox,
                     TextColor::Green,
                     TextAlignment::Right,
                 );
-                current_y += 12 + 2;
+                current_y += font_height + 2;
             }
         }
 
@@ -868,7 +877,7 @@ impl Statbox {
                         window_width = width;
                     }
 
-                    current_y += 12;
+                    current_y += font_height;
                 }
             }
             StatboxView::Points | StatboxView::PointSort => {
@@ -876,11 +885,12 @@ impl Statbox {
                     format_smolstr!("{}", p.get_points()).len()
                 });
 
-                let points_width_pixels =
-                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
+                let points_width_pixels = max_points_length as i32
+                    * render_state.text_renderer.character_width(FontKind::Normal)
+                    + 4;
 
                 let heading_x = (MAX_NAME_VIEW_LENGTH as i32
-                    * render_state.text_renderer.character_width)
+                    * render_state.text_renderer.character_width(FontKind::Normal))
                     + BORDER_LEFT_WIDTH
                     + TICKER_WIDTH
                     + BANNER_WIDTH
@@ -927,7 +937,7 @@ impl Statbox {
                         window_width = width;
                     }
 
-                    current_y += 12;
+                    current_y += font_height;
                 }
             }
             StatboxView::TeamSort => {
@@ -935,13 +945,14 @@ impl Statbox {
                     format_smolstr!("{}", p.get_points()).len()
                 });
 
-                let points_width_pixels =
-                    max_points_length as i32 * render_state.text_renderer.character_width + 4;
+                let points_width_pixels = max_points_length as i32
+                    * render_state.text_renderer.character_width(FontKind::Normal)
+                    + 4;
 
                 const FREQ_END_PIXELS: i32 = 166 + 8;
 
                 let mut points_x = (MAX_NAME_VIEW_LENGTH as i32
-                    * render_state.text_renderer.character_width)
+                    * render_state.text_renderer.character_width(FontKind::Normal))
                     + BORDER_LEFT_WIDTH
                     + TICKER_WIDTH
                     + BANNER_WIDTH
@@ -1011,7 +1022,8 @@ impl Statbox {
                             TextAlignment::Left,
                         );
 
-                        let spacer_width = 3 * render_state.text_renderer.character_width;
+                        let spacer_width =
+                            3 * render_state.text_renderer.character_width(FontKind::Normal);
 
                         render_state.text_renderer.draw(
                             &mut render_state.sprite_renderer,
@@ -1031,7 +1043,7 @@ impl Statbox {
                             TextAlignment::Right,
                         );
 
-                        current_y += 12;
+                        current_y += font_height;
                     }
 
                     let width = self.render_teamsort_row(
@@ -1057,13 +1069,13 @@ impl Statbox {
                         window_width = width;
                     }
 
-                    current_y += 12;
+                    current_y += font_height;
                 }
             }
             StatboxView::Full => {
                 const MIN_COL_LEN: usize = 4;
 
-                let font_width = render_state.text_renderer.character_width;
+                let font_width = render_state.text_renderer.character_width(FontKind::Normal);
 
                 let max_wins_length = self
                     .calculate_max_length(player_manager, |p| format_smolstr!("{}", p.wins).len())
@@ -1182,14 +1194,14 @@ impl Statbox {
                         window_width = width;
                     }
 
-                    current_y += 12;
+                    current_y += font_height;
                 }
             }
             StatboxView::Frequency => {
                 let (points_length, wins_length, losses_length, flags_length) =
                     self.build_frequency_view(player_manager);
 
-                let font_width = render_state.text_renderer.character_width;
+                let font_width = render_state.text_renderer.character_width(FontKind::Normal);
 
                 let points_width_pixels = points_length as i32 * font_width;
                 let wins_width_pixels = wins_length as i32 * font_width;
@@ -1344,7 +1356,7 @@ impl Statbox {
                         TextAlignment::Right,
                     );
 
-                    current_y += 12;
+                    current_y += font_height;
                 }
 
                 window_width = flags_x + 1;

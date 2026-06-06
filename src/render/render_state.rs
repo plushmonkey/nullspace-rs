@@ -204,16 +204,9 @@ impl RenderState {
             wgpu::TextureFormat::Rgba8Unorm
         };
 
-        const TEXT_IMG_DATA: &[u8] = include_bytes!("../../www/graphics/tallfont.bm2");
+        let text_renderer =
+            Self::create_text_renderer(&device, &queue, view_format, &mut sprite_renderer);
 
-        let text_img = image::load_from_memory(TEXT_IMG_DATA).unwrap();
-
-        let text_texture =
-            Texture::new_2d(&device, text_img.width(), text_img.height(), view_format);
-
-        Self::buffer_texture(&queue, &text_texture, &text_img.to_rgba8().as_bytes());
-
-        let text_renderer = TextRenderer::new(&device, &text_texture, &mut sprite_renderer);
         let background_renderer = BackgroundRenderer::new(&device, &config.format, &depth_texture);
         let animation_renderer = AnimationRenderer::new();
 
@@ -251,6 +244,141 @@ impl RenderState {
             render_map: false,
             reference_points: [(0, 0); REFERENCE_POINT_COUNT],
         })
+    }
+
+    fn create_text_renderer(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view_format: wgpu::TextureFormat,
+        sprite_renderer: &mut SpriteRenderer,
+    ) -> TextRenderer {
+        let mut text_renderer = TextRenderer::new();
+
+        {
+            const FONT_DATA: &[u8] = include_bytes!("../../www/graphics/shrtfont.bm2");
+            const FONT_FOREIGN_DATA: &[u8] = include_bytes!("../../www/graphics/shrtfontf.bm2");
+
+            let font_img = image::load_from_memory(FONT_DATA).unwrap();
+            let font_foreign_img = image::load_from_memory(FONT_FOREIGN_DATA).unwrap();
+
+            let font_texture =
+                Texture::new_2d(&device, font_img.width(), font_img.height(), view_format);
+            let font_foreign_texture = Texture::new_2d(
+                &device,
+                font_foreign_img.width(),
+                font_foreign_img.height(),
+                view_format,
+            );
+
+            Self::buffer_texture(&queue, &font_texture, &font_img.to_rgba8().as_bytes());
+            Self::buffer_texture(
+                &queue,
+                &font_foreign_texture,
+                &font_foreign_img.to_rgba8().as_bytes(),
+            );
+
+            text_renderer.add_font(
+                &device,
+                &font_texture,
+                &font_foreign_texture,
+                sprite_renderer,
+            );
+        }
+
+        {
+            const FONT_DATA: &[u8] = include_bytes!("../../www/graphics/tallfont.bm2");
+            const FONT_FOREIGN_DATA: &[u8] = include_bytes!("../../www/graphics/tallfontf.bm2");
+
+            let font_img = image::load_from_memory(FONT_DATA).unwrap();
+            let font_foreign_img = image::load_from_memory(FONT_FOREIGN_DATA).unwrap();
+
+            let font_texture =
+                Texture::new_2d(&device, font_img.width(), font_img.height(), view_format);
+            let font_foreign_texture = Texture::new_2d(
+                &device,
+                font_foreign_img.width(),
+                font_foreign_img.height(),
+                view_format,
+            );
+
+            Self::buffer_texture(&queue, &font_texture, &font_img.to_rgba8().as_bytes());
+            Self::buffer_texture(
+                &queue,
+                &font_foreign_texture,
+                &font_foreign_img.to_rgba8().as_bytes(),
+            );
+
+            text_renderer.add_font(
+                &device,
+                &font_texture,
+                &font_foreign_texture,
+                sprite_renderer,
+            );
+        }
+
+        {
+            const FONT_DATA: &[u8] = include_bytes!("../../www/graphics/largefont.bm2");
+            const FONT_FOREIGN_DATA: &[u8] = include_bytes!("../../www/graphics/largefontf.bm2");
+
+            let font_img = image::load_from_memory(FONT_DATA).unwrap();
+            let font_foreign_img = image::load_from_memory(FONT_FOREIGN_DATA).unwrap();
+
+            let font_texture =
+                Texture::new_2d(&device, font_img.width(), font_img.height(), view_format);
+            let font_foreign_texture = Texture::new_2d(
+                &device,
+                font_foreign_img.width(),
+                font_foreign_img.height(),
+                view_format,
+            );
+
+            Self::buffer_texture(&queue, &font_texture, &font_img.to_rgba8().as_bytes());
+            Self::buffer_texture(
+                &queue,
+                &font_foreign_texture,
+                &font_foreign_img.to_rgba8().as_bytes(),
+            );
+
+            text_renderer.add_font(
+                &device,
+                &font_texture,
+                &font_foreign_texture,
+                sprite_renderer,
+            );
+        }
+
+        {
+            const FONT_DATA: &[u8] = include_bytes!("../../www/graphics/hugefont.bm2");
+            const FONT_FOREIGN_DATA: &[u8] = include_bytes!("../../www/graphics/hugefontf.bm2");
+
+            let font_img = image::load_from_memory(FONT_DATA).unwrap();
+            let font_foreign_img = image::load_from_memory(FONT_FOREIGN_DATA).unwrap();
+
+            let font_texture =
+                Texture::new_2d(&device, font_img.width(), font_img.height(), view_format);
+            let font_foreign_texture = Texture::new_2d(
+                &device,
+                font_foreign_img.width(),
+                font_foreign_img.height(),
+                view_format,
+            );
+
+            Self::buffer_texture(&queue, &font_texture, &font_img.to_rgba8().as_bytes());
+            Self::buffer_texture(
+                &queue,
+                &font_foreign_texture,
+                &font_foreign_img.to_rgba8().as_bytes(),
+            );
+
+            text_renderer.add_font(
+                &device,
+                &font_texture,
+                &font_foreign_texture,
+                sprite_renderer,
+            );
+        }
+
+        text_renderer
     }
 
     pub fn render(

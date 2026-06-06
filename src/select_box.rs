@@ -7,7 +7,7 @@ use crate::{
         game_sprites::GameSprites,
         layer::Layer,
         render_state::RenderState,
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
 };
 
@@ -142,7 +142,8 @@ impl SelectBox {
 
     pub fn render(&self, render_state: &mut RenderState, game_sprites: &GameSprites) {
         let x_center = render_state.width() as i32 / 2;
-        let inner_width = self.max_length * render_state.text_renderer.character_width;
+        let inner_width =
+            self.max_length * render_state.text_renderer.character_width(FontKind::Normal);
 
         let start_x = x_center - (inner_width / 2);
         let start_y = 2;
@@ -161,7 +162,9 @@ impl SelectBox {
             TextAlignment::Left,
         );
 
-        current_y += render_state.text_renderer.character_height;
+        current_y += render_state
+            .text_renderer
+            .character_height(FontKind::Normal);
 
         game_sprites.colors.draw(
             &mut render_state.sprite_renderer,
@@ -198,13 +201,15 @@ impl SelectBox {
                 &mut render_state.sprite_renderer,
                 &render_state.ui_camera,
                 &line,
-                start_x + 2 + render_state.text_renderer.character_width,
+                start_x + 2 + render_state.text_renderer.character_width(FontKind::Normal),
                 current_y,
                 Layer::TopMost,
                 *color,
                 TextAlignment::Left,
             );
-            current_y += render_state.text_renderer.character_height;
+            current_y += render_state
+                .text_renderer
+                .character_height(FontKind::Normal);
         }
 
         game_sprites.colors.draw_border(

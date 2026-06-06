@@ -6,7 +6,7 @@ use crate::{
         game_sprites::GameSprites,
         layer::Layer,
         render_state::RenderState,
-        text_renderer::{TextAlignment, TextColor},
+        text_renderer::{FontKind, TextAlignment, TextColor},
     },
     ship::ShipKind,
 };
@@ -103,7 +103,9 @@ impl Menu {
         let end_x = x_center + menu_width / 2;
         let end_y = start_y + menu_height;
 
-        let font_height = render_state.text_renderer.character_height;
+        let font_height = render_state
+            .text_renderer
+            .character_height(FontKind::Normal);
 
         sprites.colors.draw_border(
             &mut render_state.sprite_renderer,
@@ -186,7 +188,7 @@ impl Menu {
             TextAlignment::Left,
         );
 
-        current_y += 12;
+        current_y += font_height;
 
         render_state.text_renderer.draw(
             &mut render_state.sprite_renderer,
@@ -199,7 +201,8 @@ impl Menu {
             TextAlignment::Center,
         );
 
-        let right_side_x = end_x - 13 * render_state.text_renderer.character_width - 1;
+        let right_side_x =
+            end_x - 13 * render_state.text_renderer.character_width(FontKind::Normal) - 1;
         current_y = right_side_y;
 
         render_state.text_renderer.draw(
