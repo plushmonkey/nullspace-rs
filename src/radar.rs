@@ -499,6 +499,7 @@ impl Radar {
             frequency,
             powerball_mode,
             game_settings.map_transparent,
+            game_settings.radar_grid,
         );
 
         let radar_texture = Self::render_radar(
@@ -510,6 +511,7 @@ impl Radar {
             frequency,
             powerball_mode,
             game_settings.radar_transparent,
+            game_settings.radar_grid,
         );
 
         let invalid_sheet = SheetIndex(0xFFFFFFFF);
@@ -577,11 +579,17 @@ impl Radar {
         frequency: u16,
         powerball_mode: u8,
         transparent: bool,
+        grid: bool,
     ) -> Texture {
         let texture = Texture::new_2d(device, dim, dim, format);
         let mut data = Vec::<u32>::new();
 
         data.resize((dim * dim) as usize, 0);
+
+        let background_color: u32 = if transparent { 0x00000000 } else { 0xFF0A190A };
+
+        let mut last_grid_y: u32 = 0;
+        let mut last_grid_x: u32 = 0;
 
         if dim < 1024 {
             for y in 0..dim {
@@ -597,6 +605,12 @@ impl Radar {
             for y in 0..1024 {
                 let dest_y = ((y as f32 / 1024.0f32) * dim as f32) as u16;
 
+                let grid_y = y as u32 != last_grid_y && y % 51 == 0;
+
+                if grid_y {
+                    last_grid_y = y as u32;
+                }
+
                 for x in 0..1024 {
                     let dest_x = ((x as f32 / 1024.0f32) * dim as f32) as u16;
 
@@ -604,7 +618,16 @@ impl Radar {
                     let index = (dest_y as u32 * dim + dest_x as u32) as usize;
 
                     if id == 0 || id > 241 {
+                        let grid_x = x % 51 == 0 && last_grid_x != x as u32;
+
+                        if grid_x {
+                            last_grid_x = x as u32;
+                        }
+
                         // Empty tile, do not render
+                        if grid && (grid_x || grid_y) && data[index] == background_color {
+                            data[index] = 0xFF183910;
+                        }
                     } else {
                         data[index] = Self::get_radar_tile_color(
                             id,
@@ -622,6 +645,11 @@ impl Radar {
             for gen_y in 0..dim {
                 let y = y_tile_index / dim;
 
+                let grid_y = y as u32 != last_grid_y && y % 51 == 0;
+                if grid_y {
+                    last_grid_y = y as u32;
+                }
+
                 let mut x_tile_index = 0;
                 for gen_x in 0..dim {
                     let x = x_tile_index / dim;
@@ -637,6 +665,17 @@ impl Radar {
                         powerball_mode,
                         transparent,
                     );
+
+                    let grid_x = x % 51 == 0 && last_grid_x != x as u32;
+
+                    if grid_x {
+                        last_grid_x = x as u32;
+                    }
+
+                    // Empty tile, do not render
+                    if grid && (grid_x || grid_y) && data[index as usize] == background_color {
+                        data[index as usize] = 0xFF183910;
+                    }
 
                     x_tile_index += 1024;
                 }
@@ -660,7 +699,7 @@ impl Radar {
     ) -> u32 {
         if id == 0 || id > 241 {
             if transparent {
-                return 0xFF000000;
+                return 0x00000000;
             }
             return 0xFF0A190A;
         } else if id == 171 {
