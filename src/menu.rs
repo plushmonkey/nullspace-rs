@@ -70,7 +70,7 @@ impl Menu {
             KeyCode::F5 => (Some(MenuAction::Messages), false),
             KeyCode::F6 => (Some(MenuAction::HelpTicker), false),
             KeyCode::F8 => (Some(MenuAction::EngineSounds), false),
-            KeyCode::KeyA => (Some(MenuAction::ArenaList), false),
+            KeyCode::KeyA => (Some(MenuAction::ArenaList), true),
             KeyCode::KeyB => (Some(MenuAction::SetBanner), true),
             KeyCode::KeyI => (Some(MenuAction::IgnoreMacros), false),
             KeyCode::Digit1 => (Some(MenuAction::ShipRequest(ShipKind::Warbird)), true),
