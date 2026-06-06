@@ -1,5 +1,6 @@
 use crate::{
     clock::GameTick,
+    game_settings::GameSettings,
     map::Map,
     math::{PixelUnit, Position, Rectangle},
     render::{
@@ -225,6 +226,7 @@ impl Radar {
         mapzoom: u16,
         frequency: u16,
         powerball_mode: u8,
+        game_settings: &GameSettings,
     ) {
         if self.should_recreate(
             render_state.width(),
@@ -233,7 +235,14 @@ impl Radar {
             frequency,
             powerball_mode,
         ) {
-            self.recreate(render_state, map, mapzoom, frequency, powerball_mode);
+            self.recreate(
+                render_state,
+                map,
+                mapzoom,
+                frequency,
+                powerball_mode,
+                game_settings,
+            );
         }
 
         if self.dirty {
@@ -449,6 +458,7 @@ impl Radar {
         mapzoom: u16,
         frequency: u16,
         powerball_mode: u8,
+        game_settings: &GameSettings,
     ) {
         let mut mapzoom = mapzoom as u32;
         let surface_width = render_state.width();
@@ -488,6 +498,7 @@ impl Radar {
             map,
             frequency,
             powerball_mode,
+            game_settings.map_transparent,
         );
 
         let radar_texture = Self::render_radar(
@@ -498,6 +509,7 @@ impl Radar {
             map,
             frequency,
             powerball_mode,
+            game_settings.radar_transparent,
         );
 
         let invalid_sheet = SheetIndex(0xFFFFFFFF);
@@ -564,6 +576,7 @@ impl Radar {
         map: &Map,
         frequency: u16,
         powerball_mode: u8,
+        transparent: bool,
     ) -> Texture {
         let texture = Texture::new_2d(device, dim, dim, format);
         let mut data = Vec::<u32>::new();
@@ -575,7 +588,9 @@ impl Radar {
                 for x in 0..dim {
                     let index = (y * dim + x) as usize;
 
-                    data[index] = 0xFF0A190A;
+                    if !transparent {
+                        data[index] = 0xFF0A190A;
+                    }
                 }
             }
 
@@ -591,8 +606,14 @@ impl Radar {
                     if id == 0 || id > 241 {
                         // Empty tile, do not render
                     } else {
-                        data[index] =
-                            Self::get_radar_tile_color(id, x, y, frequency, powerball_mode);
+                        data[index] = Self::get_radar_tile_color(
+                            id,
+                            x,
+                            y,
+                            frequency,
+                            powerball_mode,
+                            transparent,
+                        );
                     }
                 }
             }
@@ -614,6 +635,7 @@ impl Radar {
                         y as u16,
                         frequency,
                         powerball_mode,
+                        transparent,
                     );
 
                     x_tile_index += 1024;
@@ -628,8 +650,18 @@ impl Radar {
         texture
     }
 
-    fn get_radar_tile_color(id: u8, x: u16, y: u16, frequency: u16, powerball_mode: u8) -> u32 {
+    fn get_radar_tile_color(
+        id: u8,
+        x: u16,
+        y: u16,
+        frequency: u16,
+        powerball_mode: u8,
+        transparent: bool,
+    ) -> u32 {
         if id == 0 || id > 241 {
+            if transparent {
+                return 0xFF000000;
+            }
             return 0xFF0A190A;
         } else if id == 171 {
             return 0xFF185218;

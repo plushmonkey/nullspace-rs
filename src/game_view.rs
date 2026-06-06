@@ -3,6 +3,7 @@ use smol_str::{SmolStr, format_smolstr};
 use crate::{
     client::{Client, MovementController},
     clock::GameTick,
+    game_settings::{GameSettings, RenderNameMode},
     map::{ANIMATED_TILE_KIND_COUNT, AnimatedTileKind, TILE_ID_FIRST_DOOR, TILE_ID_FLAG},
     math::{PixelUnit, Position, PositionUnit, Rectangle},
     net::connection::ConnectionState,
@@ -27,14 +28,21 @@ use crate::{
 
 pub fn render_game(
     client: &mut Client,
+    game_settings: &GameSettings,
     render_state: &mut RenderState,
     sprites: &mut GameSprites,
     menu_open: bool,
 ) {
-    client.chat_controller.render(render_state, sprites);
     client
-        .statbox
-        .render(&client.simulation.player_manager, render_state, sprites);
+        .chat_controller
+        .render(render_state, sprites, game_settings);
+
+    client.statbox.render(
+        &client.simulation.player_manager,
+        render_state,
+        sprites,
+        game_settings,
+    );
 
     match client.connection.state {
         ConnectionState::Playing | ConnectionState::Disconnected => {
@@ -74,6 +82,7 @@ pub fn render_game(
                         render_state,
                         sprites,
                         &client.settings,
+                        game_settings,
                         client.connection.get_game_tick(),
                     );
 
@@ -105,8 +114,8 @@ pub fn render_game(
             render_state.render_map = true;
             let view_freq = client.get_freq();
 
-            render_players(client, render_state, sprites);
-            render_weapons(client, render_state, sprites);
+            render_players(client, render_state, sprites, game_settings);
+            render_weapons(client, render_state, sprites, game_settings);
             render_powerballs(client, render_state, sprites);
 
             client.simulation.powerball_manager.render_radar(
@@ -151,6 +160,7 @@ pub fn render_game(
                 client.settings.map_zoom_factor as u16,
                 client.get_freq(),
                 client.settings.powerball_mode,
+                game_settings,
             );
 
             if client.connection.state == ConnectionState::Disconnected {
@@ -206,6 +216,7 @@ fn get_radar_player_color(
     player_id: PlayerId,
     view_freq: u16,
     is_decoy: bool,
+    target_bounty: u16,
 ) -> ColorRenderableKind {
     let Some(player) = player_manager.get_by_id(player_id) else {
         return ColorRenderableKind::RadarEnemyTarget;
@@ -225,7 +236,11 @@ fn get_radar_player_color(
         if player.flag_count > 0 || player.carrying_ball {
             ColorRenderableKind::RadarEnemyFlagCarry
         } else {
-            let mut color = ColorRenderableKind::RadarEnemyTarget;
+            let mut color = ColorRenderableKind::RadarEnemy;
+
+            if player.bounty >= target_bounty {
+                color = ColorRenderableKind::RadarEnemyTarget;
+            }
 
             if player.has_crown {
                 color = ColorRenderableKind::RadarEnemyCrown;
@@ -262,7 +277,12 @@ fn get_highest_points_player_id(client: &Client) -> PlayerId {
     highest_points_player
 }
 
-fn render_players(client: &mut Client, render_state: &mut RenderState, sprites: &GameSprites) {
+fn render_players(
+    client: &mut Client,
+    render_state: &mut RenderState,
+    sprites: &GameSprites,
+    game_settings: &GameSettings,
+) {
     let client_position = Position::new(
         PositionUnit(render_state.camera.position.x as i32 * 16000),
         PositionUnit(render_state.camera.position.y as i32 * 16000),
@@ -273,6 +293,8 @@ fn render_players(client: &mut Client, render_state: &mut RenderState, sprites: 
     } else {
         client.connection.player_id
     };
+
+    let self_id = client.simulation.player_manager.self_id;
 
     let highest_points_player_id = get_highest_points_player_id(client);
 
@@ -374,6 +396,7 @@ fn render_players(client: &mut Client, render_state: &mut RenderState, sprites: 
                 player.id,
                 client.get_freq(),
                 false,
+                game_settings.radar_target_bounty,
             );
 
             if visible_radar {
@@ -487,16 +510,24 @@ fn render_players(client: &mut Client, render_state: &mut RenderState, sprites: 
             }
 
             if visible {
-                render_player_name(
-                    render_state,
-                    sprites,
-                    player,
-                    name_x,
-                    name_y,
-                    client.get_freq(),
-                    current_tick,
-                    player.id == highest_points_player_id,
-                );
+                let render_name = match &game_settings.render_name_mode {
+                    RenderNameMode::All => true,
+                    RenderNameMode::Others => player.id != self_id,
+                    RenderNameMode::Off => false,
+                };
+
+                if render_name {
+                    render_player_name(
+                        render_state,
+                        sprites,
+                        player,
+                        name_x,
+                        name_y,
+                        client.get_freq(),
+                        current_tick,
+                        player.id == highest_points_player_id,
+                    );
+                }
             }
 
             let mut child_y = name_y + render_state.text_renderer.character_height;
@@ -552,19 +583,27 @@ fn render_players(client: &mut Client, render_state: &mut RenderState, sprites: 
                         }
                     }
 
-                    render_player_name(
-                        render_state,
-                        sprites,
-                        child,
-                        name_x,
-                        child_y,
-                        client.get_freq(),
-                        current_tick,
-                        child.id == highest_points_player_id,
-                    );
-                }
+                    let render_name = match &game_settings.render_name_mode {
+                        RenderNameMode::All => true,
+                        RenderNameMode::Others => player.id != self_id,
+                        RenderNameMode::Off => false,
+                    };
 
-                child_y += render_state.text_renderer.character_height;
+                    if render_name {
+                        render_player_name(
+                            render_state,
+                            sprites,
+                            child,
+                            name_x,
+                            child_y,
+                            client.get_freq(),
+                            current_tick,
+                            child.id == highest_points_player_id,
+                        );
+
+                        child_y += render_state.text_renderer.character_height;
+                    }
+                }
             }
         }
     }
@@ -696,7 +735,12 @@ fn get_player_name_view(player: &Player, view_freq: u16) -> (SmolStr, TextColor)
     (text, color)
 }
 
-fn render_weapons(client: &mut Client, render_state: &mut RenderState, sprites: &GameSprites) {
+fn render_weapons(
+    client: &mut Client,
+    render_state: &mut RenderState,
+    sprites: &GameSprites,
+    game_settings: &GameSettings,
+) {
     let current_tick = client.connection.get_game_tick();
     let tick_value = current_tick.value();
 
@@ -878,16 +922,18 @@ fn render_weapons(client: &mut Client, render_state: &mut RenderState, sprites: 
                             let name_x = x_pixels + (renderable.size[0] as i32) / 2;
                             let name_y = y_pixels + (renderable.size[1] as i32) / 2;
 
-                            render_player_name(
-                                render_state,
-                                sprites,
-                                player,
-                                name_x,
-                                name_y,
-                                client.get_freq(),
-                                client.connection.get_game_tick(),
-                                player.id == highest_points_player_id,
-                            );
+                            if game_settings.render_name_mode != RenderNameMode::Off {
+                                render_player_name(
+                                    render_state,
+                                    sprites,
+                                    player,
+                                    name_x,
+                                    name_y,
+                                    client.get_freq(),
+                                    client.connection.get_game_tick(),
+                                    player.id == highest_points_player_id,
+                                );
+                            }
                         }
                     }
                 }
@@ -930,6 +976,7 @@ fn render_weapons(client: &mut Client, render_state: &mut RenderState, sprites: 
                     weapon.player_id,
                     client.get_freq(),
                     true,
+                    game_settings.radar_target_bounty,
                 );
 
                 client.radar.add_indicator(
@@ -1015,7 +1062,11 @@ pub fn render_powerballs(client: &Client, render_state: &mut RenderState, sprite
     }
 }
 
-pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
+pub fn render_trails(
+    client: &mut Client,
+    render_state: &mut RenderState,
+    game_settings: &GameSettings,
+) {
     const BULLET_TRAIL_DURATION: u32 = 14;
     const BOMB_TRAIL_DURATION: u32 = 30;
 
@@ -1024,6 +1075,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
     for weapon in &mut client.simulation.weapon_manager.weapons {
         match &weapon.kind {
             WeaponKind::Bullet(bullet) | WeaponKind::BouncingBullet(bullet) => {
+                if !game_settings.render_gun_trails {
+                    continue;
+                }
+
                 let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                 if trail_diff < 2 {
@@ -1047,6 +1102,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
                 weapon.last_trail_tick = current_tick;
             }
             WeaponKind::Shrapnel(shrapnel) => {
+                if !game_settings.render_gun_trails {
+                    continue;
+                }
+
                 let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                 if trail_diff < 2 {
@@ -1070,6 +1129,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
                 weapon.last_trail_tick = current_tick;
             }
             WeaponKind::Burst(_) => {
+                if !game_settings.render_gun_trails {
+                    continue;
+                }
+
                 let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                 if trail_diff < 2 {
@@ -1093,6 +1156,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
                 weapon.last_trail_tick = current_tick;
             }
             WeaponKind::Bomb(bomb) | WeaponKind::ProximityBomb(bomb) => {
+                if !game_settings.render_bomb_trails {
+                    continue;
+                }
+
                 let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                 if trail_diff < 5 {
@@ -1116,6 +1183,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
                 weapon.last_trail_tick = current_tick;
             }
             WeaponKind::Thor(_) => {
+                if !game_settings.render_bomb_trails {
+                    continue;
+                }
+
                 let trail_diff = current_tick.diff(&weapon.last_trail_tick);
 
                 if trail_diff < 5 {
@@ -1143,6 +1214,10 @@ pub fn render_trails(client: &mut Client, render_state: &mut RenderState) {
     }
 
     for ball in &mut client.simulation.powerball_manager.balls {
+        if !game_settings.render_ball_trails {
+            continue;
+        }
+
         let trail_diff = current_tick.diff(&ball.last_trail_tick);
 
         if trail_diff < 3 {

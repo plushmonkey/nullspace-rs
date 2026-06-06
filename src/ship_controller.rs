@@ -4,6 +4,7 @@ use crate::{
     arena_settings::ArenaSettings,
     clock::GameTick,
     exhaust::ExhaustController,
+    game_settings::GameSettings,
     input::{InputAction, InputState},
     map::{AnimatedTileKind, Map, TILE_ID_ANIMATED_ENEMY_BRICK, TILE_ID_SAFE, TILE_ID_THOR_KILLER},
     net::connection::Connection,
@@ -65,6 +66,7 @@ impl ShipController {
         map: &Map,
         radar: &Radar,
         settings: &ArenaSettings,
+        game_settings: &GameSettings,
         notifications: &mut NotificationManager,
         current_tick: GameTick,
         render_state: Option<&mut RenderState>,
@@ -123,7 +125,12 @@ impl ShipController {
             me.status |= StatusFlags::Flash;
             me.velocity.clear();
 
-            self.reset_ship(settings, current_tick, me.ship_kind);
+            self.reset_ship(
+                settings,
+                current_tick,
+                me.ship_kind,
+                game_settings.multifire_spawn,
+            );
             self.pending_attach_target = None;
             return;
         }
@@ -548,8 +555,10 @@ impl ShipController {
         settings: &ArenaSettings,
         current_tick: GameTick,
         ship_kind: ShipKind,
+        multifire_spawn: bool,
     ) {
-        self.ship.reset(settings, current_tick, ship_kind);
+        self.ship
+            .reset(settings, current_tick, ship_kind, multifire_spawn);
     }
 
     pub fn is_antiwarped(
@@ -1459,9 +1468,12 @@ impl ShipController {
         render_state: &mut RenderState,
         sprites: &GameSprites,
         settings: &ArenaSettings,
+        game_settings: &GameSettings,
         current_tick: GameTick,
     ) {
-        self.exhaust.render(render_state, sprites);
+        if game_settings.render_exhaust {
+            self.exhaust.render(render_state, sprites);
+        }
 
         self.render_energy(render_state, sprites);
         self.render_energybar(render_state, sprites, settings, current_tick);
@@ -1680,7 +1692,7 @@ impl ShipController {
                 ),
             );
 
-            let right_side_x = (render_state.width() - icon_width) as i32;
+            let right_side_x = render_state.width() as i32 - icon_width as i32;
 
             let (gun_index, gun_offset) = if let Some(gun_index) = self.get_gun_renderable_index() {
                 (gun_index, 0)

@@ -62,7 +62,7 @@
     </div>
 
     <script type="module">
-      import init, { execute_app } from "./scripts/nullspace/nullspace.js";
+      import init, { execute_app, GameSettings, NotificationArea } from "./scripts/nullspace/nullspace.js";
 
       document.getElementById("login-form").onsubmit = function(e) {
         let username = document.getElementById("username").value;
@@ -82,10 +82,16 @@
 
         init().then(() => {
           console.log("nullspace loaded");
+
+          // TODO: Load and save this
+          let game_settings = new GameSettings();
+
+          game_settings.enter_notify_area = NotificationArea.Chat;
+          game_settings.leave_notify_area = NotificationArea.Chat;
           
           let hash = new Uint8Array([198, 194, 74, 239, 159, 181, 155, 2, 165, 220, 232, 5, 45, 154, 167, 128, 180, 42, 125, 109, 190, 135, 143, 170, 106, 185, 179, 73, 224, 68, 114, 72]);
 
-          let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password);
+          let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password, game_settings);
 
           let worker = new Worker('scripts/worker.js');
           worker.onmessage = function() {

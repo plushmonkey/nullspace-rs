@@ -149,7 +149,13 @@ impl Ship {
         self.current_energy >= self.max_energy
     }
 
-    pub fn reset(&mut self, settings: &ArenaSettings, current_tick: GameTick, ship_kind: ShipKind) {
+    pub fn reset(
+        &mut self,
+        settings: &ArenaSettings,
+        current_tick: GameTick,
+        ship_kind: ShipKind,
+        multifire_spawn: bool,
+    ) {
         self.kind = ship_kind;
         self.shrapnel = 0;
 
@@ -284,5 +290,9 @@ impl Ship {
 
         self.current_energy = self.max_energy;
         self.bounty = ship_settings.initial_bounty;
+
+        if multifire_spawn && self.capability & ShipCapabilityFlag::Multifire != 0 {
+            self.multifire = true;
+        }
     }
 }

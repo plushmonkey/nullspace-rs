@@ -1,6 +1,6 @@
 //#![windows_subsystem = "windows"]
 
-use nullspace::{ApplicationConfig, ApplicationEvent, EventProcessor};
+use nullspace::{ApplicationConfig, ApplicationEvent, EventProcessor, game_settings::GameSettings};
 
 use winit::event_loop::EventLoop;
 
@@ -21,7 +21,15 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let config = ApplicationConfig::new_exe(args.ip, args.port, args.username, args.password);
+    let game_settings = GameSettings::new();
+
+    let config = ApplicationConfig::new_exe(
+        args.ip,
+        args.port,
+        args.username,
+        args.password,
+        game_settings,
+    );
 
     env_logger::Builder::new()
         .filter(None, log::LevelFilter::Warn)

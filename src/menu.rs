@@ -15,7 +15,7 @@ pub enum MenuAction {
     MenuToggle,
     Quit,
     Help,
-    StatBox,
+    Statbox,
     NameTags,
     Radar,
     Messages,
@@ -61,31 +61,31 @@ impl Menu {
             return None;
         }
 
-        let result = match code {
-            KeyCode::KeyQ => Some(MenuAction::Quit),
-            KeyCode::F1 => Some(MenuAction::Help),
-            KeyCode::F2 => Some(MenuAction::StatBox),
-            KeyCode::F3 => Some(MenuAction::NameTags),
-            KeyCode::F4 => Some(MenuAction::Radar),
-            KeyCode::F5 => Some(MenuAction::Messages),
-            KeyCode::F6 => Some(MenuAction::HelpTicker),
-            KeyCode::F8 => Some(MenuAction::EngineSounds),
-            KeyCode::KeyA => Some(MenuAction::ArenaList),
-            KeyCode::KeyB => Some(MenuAction::SetBanner),
-            KeyCode::KeyI => Some(MenuAction::IgnoreMacros),
-            KeyCode::Digit1 => Some(MenuAction::ShipRequest(ShipKind::Warbird)),
-            KeyCode::Digit2 => Some(MenuAction::ShipRequest(ShipKind::Javelin)),
-            KeyCode::Digit3 => Some(MenuAction::ShipRequest(ShipKind::Spider)),
-            KeyCode::Digit4 => Some(MenuAction::ShipRequest(ShipKind::Leviathan)),
-            KeyCode::Digit5 => Some(MenuAction::ShipRequest(ShipKind::Terrier)),
-            KeyCode::Digit6 => Some(MenuAction::ShipRequest(ShipKind::Weasel)),
-            KeyCode::Digit7 => Some(MenuAction::ShipRequest(ShipKind::Lancaster)),
-            KeyCode::Digit8 => Some(MenuAction::ShipRequest(ShipKind::Shark)),
-            KeyCode::KeyS => Some(MenuAction::ShipRequest(ShipKind::Spectator)),
-            _ => None,
+        let (result, close) = match code {
+            KeyCode::KeyQ => (Some(MenuAction::Quit), true),
+            KeyCode::F1 => (Some(MenuAction::Help), true),
+            KeyCode::F2 => (Some(MenuAction::Statbox), false),
+            KeyCode::F3 => (Some(MenuAction::NameTags), false),
+            KeyCode::F4 => (Some(MenuAction::Radar), false),
+            KeyCode::F5 => (Some(MenuAction::Messages), false),
+            KeyCode::F6 => (Some(MenuAction::HelpTicker), false),
+            KeyCode::F8 => (Some(MenuAction::EngineSounds), false),
+            KeyCode::KeyA => (Some(MenuAction::ArenaList), false),
+            KeyCode::KeyB => (Some(MenuAction::SetBanner), true),
+            KeyCode::KeyI => (Some(MenuAction::IgnoreMacros), false),
+            KeyCode::Digit1 => (Some(MenuAction::ShipRequest(ShipKind::Warbird)), true),
+            KeyCode::Digit2 => (Some(MenuAction::ShipRequest(ShipKind::Javelin)), true),
+            KeyCode::Digit3 => (Some(MenuAction::ShipRequest(ShipKind::Spider)), true),
+            KeyCode::Digit4 => (Some(MenuAction::ShipRequest(ShipKind::Leviathan)), true),
+            KeyCode::Digit5 => (Some(MenuAction::ShipRequest(ShipKind::Terrier)), true),
+            KeyCode::Digit6 => (Some(MenuAction::ShipRequest(ShipKind::Weasel)), true),
+            KeyCode::Digit7 => (Some(MenuAction::ShipRequest(ShipKind::Lancaster)), true),
+            KeyCode::Digit8 => (Some(MenuAction::ShipRequest(ShipKind::Shark)), true),
+            KeyCode::KeyS => (Some(MenuAction::ShipRequest(ShipKind::Spectator)), true),
+            _ => (None, false),
         };
 
-        if result.is_some() {
+        if close {
             self.open = false;
             self.handled = true;
         }

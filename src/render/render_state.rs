@@ -5,6 +5,7 @@ use thiserror::Error;
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
+    game_settings::GameSettings,
     map::Map,
     render::{
         animation_renderer::AnimationRenderer,
@@ -256,6 +257,7 @@ impl RenderState {
         &mut self,
         window: Arc<Window>,
         game_sprites: Option<&GameSprites>,
+        game_settings: &GameSettings,
     ) -> Result<bool, RenderError> {
         if !self.is_surface_configured {
             return Ok(true);
@@ -355,8 +357,10 @@ impl RenderState {
                 );
             }
 
-            self.background_renderer
-                .render(&mut render_pass, &self.camera, &self.queue);
+            if game_settings.render_stars {
+                self.background_renderer
+                    .render(&mut render_pass, &self.camera, &self.queue);
+            }
 
             if self.render_map {
                 self.map_renderer

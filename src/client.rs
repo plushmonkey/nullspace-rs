@@ -6,6 +6,8 @@ use crate::chat::ChatController;
 use crate::checksum;
 use crate::clock::*;
 use crate::flag::FlagController;
+use crate::game_settings::GameSettings;
+use crate::game_settings::NotificationArea;
 use crate::game_view::render_explosions;
 use crate::game_view::render_trails;
 use crate::input::InputAction;
@@ -168,12 +170,13 @@ impl Client {
     pub fn update(
         &mut self,
         render_state: Option<&mut RenderState>,
+        game_settings: &mut GameSettings,
         input_state: &mut InputState,
         dt: f32,
     ) -> Result<i32, ConnectionError> {
         let mut render_state = render_state;
 
-        self.receive_messages(&mut render_state)?;
+        self.receive_messages(&mut render_state, game_settings)?;
 
         let local_now = GameTick::now(0);
 
@@ -220,12 +223,12 @@ impl Client {
                 self.camera_jitter_time -= 1;
             }
 
-            self.process_controller(render_state.as_deref_mut(), input_state);
+            self.process_controller(render_state.as_deref_mut(), input_state, game_settings);
 
             self.process_simulation_events();
 
             if let Some(render_state) = &mut render_state {
-                render_trails(self, render_state);
+                render_trails(self, render_state, game_settings);
 
                 let self_position = Position::new(
                     PositionUnit(render_state.camera.position.x as i32 * 16000),
@@ -299,6 +302,7 @@ impl Client {
         &mut self,
         render_state: Option<&mut RenderState>,
         input_state: &mut InputState,
+        game_settings: &GameSettings,
     ) {
         match &self.connection.state {
             ConnectionState::Playing | ConnectionState::Disconnected => {
@@ -333,6 +337,7 @@ impl Client {
                             &self.map,
                             &self.radar,
                             &self.settings,
+                            game_settings,
                             &mut self.notifications,
                             current_tick,
                             render_state,
@@ -857,6 +862,7 @@ impl Client {
     fn receive_messages(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        game_settings: &GameSettings,
     ) -> Result<(), ConnectionError> {
         loop {
             let message = self.connection.receive_message();
@@ -885,7 +891,7 @@ impl Client {
             let message = message.unwrap();
 
             if let Some(message) = message {
-                self.process_message(render_state, message)?;
+                self.process_message(render_state, game_settings, message)?;
             } else {
                 // We are done processing everything now.
                 break;
@@ -926,6 +932,7 @@ impl Client {
     fn process_game_message(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        game_settings: &GameSettings,
         message: &GameServerMessage,
     ) -> Result<(), ConnectionError> {
         match message {
@@ -1213,6 +1220,8 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerEntering(entering) => {
+                let initial_download = self.simulation.player_manager.players.is_empty();
+
                 for entry in &entering.players {
                     let mut player = Player::new(
                         entry.player_id,
@@ -1241,6 +1250,20 @@ impl Client {
                     }
 
                     log::debug!("{} entered arena {:?}", entry.name, entry.ship_kind);
+
+                    if !initial_download {
+                        match game_settings.enter_notify_area {
+                            NotificationArea::Center => {
+                                self.notifications
+                                    .push(format!("{} entered arena", entry.name), TextColor::Blue);
+                            }
+                            NotificationArea::Chat => {
+                                self.chat_controller
+                                    .add_system_message(format!("{} entered arena", entry.name));
+                            }
+                            NotificationArea::Off => {}
+                        }
+                    }
 
                     // If there was someone already in this place, say that they left.
                     // This can happen when joining at the same exact time as other players.
@@ -1287,6 +1310,18 @@ impl Client {
                     .remove_player(leaving.player_id)
                 {
                     log::debug!("{} left arena", player.name);
+
+                    match game_settings.leave_notify_area {
+                        NotificationArea::Center => {
+                            self.notifications
+                                .push(format!("{} left arena", player.name), TextColor::Blue);
+                        }
+                        NotificationArea::Chat => {
+                            self.chat_controller
+                                .add_system_message(format!("{} left arena", player.name));
+                        }
+                        NotificationArea::Off => {}
+                    }
                 }
 
                 if let Some(render_state) = render_state {
@@ -1718,19 +1753,31 @@ impl Client {
                             TextColor::Green
                         };
 
-                        // Only display notifications involving us for now.
-                        // TODO: Add setting for toggling this.
-                        if self_involved {
-                            let bounty = if killer.frequency == killed.frequency {
-                                0
-                            } else {
-                                killed.bounty
-                            };
+                        let bounty = if killer.frequency == killed.frequency {
+                            0
+                        } else {
+                            killed.bounty
+                        };
 
-                            self.notifications.push(
-                                format!("{}({}) killed by: {}", killed.name, bounty, killer.name),
-                                color,
-                            );
+                        if self_involved || game_settings.kill_notify_others {
+                            match game_settings.kill_notify_area {
+                                NotificationArea::Center => {
+                                    self.notifications.push(
+                                        format!(
+                                            "{}({}) killed by: {}",
+                                            killed.name, bounty, killer.name
+                                        ),
+                                        color,
+                                    );
+                                }
+                                NotificationArea::Chat => {
+                                    self.chat_controller.add_system_message(format!(
+                                        "{}({}) killed by: {}",
+                                        killed.name, bounty, killer.name
+                                    ));
+                                }
+                                NotificationArea::Off => {}
+                            }
                         }
                     }
                 }
@@ -1834,6 +1881,7 @@ impl Client {
                                     &self.settings,
                                     current_tick,
                                     me.ship_kind,
+                                    game_settings.multifire_spawn,
                                 );
 
                                 ship_controller.warp(
@@ -1934,6 +1982,7 @@ impl Client {
                                 &self.settings,
                                 self.connection.get_game_tick(),
                                 player.ship_kind,
+                                game_settings.multifire_spawn,
                             );
 
                             self.controller = MovementController::Ship(ship_controller);
@@ -2342,6 +2391,7 @@ impl Client {
     fn process_message(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        game_settings: &GameSettings,
         message: ServerMessage,
     ) -> Result<(), ConnectionError> {
         match message {
@@ -2349,7 +2399,7 @@ impl Client {
                 self.process_core_message(render_state, &core_message)
             }
             ServerMessage::Game(game_message) => {
-                self.process_game_message(render_state, &game_message)
+                self.process_game_message(render_state, game_settings, &game_message)
             }
         }
     }

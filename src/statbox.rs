@@ -1,6 +1,7 @@
 use smol_str::{StrExt, format_smolstr};
 
 use crate::{
+    game_settings::GameSettings,
     input::{InputAction, InputModifier, InputState},
     player::{Player, PlayerId, PlayerManager},
     render::{
@@ -234,6 +235,7 @@ impl Statbox {
         player_manager: &PlayerManager,
         render_state: &mut RenderState,
         game_sprites: &GameSprites,
+        game_settings: &GameSettings,
     ) {
         // TODO: Select box and statbox should be handled by some interface controller, but this is fine for now.
         if let Some(select_box) = &mut self.select_box {
@@ -250,7 +252,7 @@ impl Statbox {
 
         self.updating_sliding_view(player_manager);
 
-        self.render_window(player_manager, render_state, game_sprites);
+        self.render_window(player_manager, render_state, game_sprites, game_settings);
     }
 
     pub fn move_selected(&mut self, player_manager: &PlayerManager, direction: i32, shift: bool) {
@@ -802,6 +804,7 @@ impl Statbox {
         player_manager: &PlayerManager,
         render_state: &mut RenderState,
         game_sprites: &GameSprites,
+        game_settings: &GameSettings,
     ) {
         let Some(me) = player_manager.get_by_id(player_manager.self_id) else {
             return;
@@ -1368,7 +1371,7 @@ impl Statbox {
             2,
             window_width + 1,
             current_y + 1,
-            true,
+            !game_settings.transparent_statbox,
         );
 
         render_state.set_reference_point(

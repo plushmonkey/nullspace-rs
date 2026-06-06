@@ -17,6 +17,7 @@ use winit::platform::web::EventLoopExtWebSys;
 
 use crate::{
     client::Client,
+    game_settings::GameSettings,
     game_view::render_game,
     input::{InputMapping, InputState, is_input_keycode},
     menu::MenuAction,
@@ -43,6 +44,7 @@ pub mod client;
 pub mod clock;
 pub mod exhaust;
 pub mod flag;
+pub mod game_settings;
 pub mod game_view;
 pub mod input;
 pub mod lvz;
@@ -121,6 +123,8 @@ pub struct ApplicationConfig {
 
     pub username: String,
     pub password: String,
+
+    pub game_settings: GameSettings,
 }
 
 struct ApplicationLoadingState {
@@ -252,7 +256,11 @@ impl ApplicationPlayingState {
         }
     }
 
-    pub fn update(&mut self, render_state: &mut RenderState) -> Result<(), ConnectionError> {
+    pub fn update(
+        &mut self,
+        render_state: &mut RenderState,
+        game_settings: &mut GameSettings,
+    ) -> Result<(), ConnectionError> {
         let dt = self.timer.elapsed();
 
         render_state
@@ -260,7 +268,7 @@ impl ApplicationPlayingState {
             .update(self.client.connection.get_game_tick());
 
         self.client
-            .update(Some(render_state), &mut self.input_state, dt)?;
+            .update(Some(render_state), game_settings, &mut self.input_state, dt)?;
 
         self.sprites
             .colors
@@ -276,9 +284,10 @@ impl ApplicationPlayingState {
         Ok(())
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState) {
+    pub fn render(&mut self, render_state: &mut RenderState, game_settings: &GameSettings) {
         render_game(
             &mut self.client,
+            game_settings,
             render_state,
             &mut self.sprites,
             self.menu.is_open(),
@@ -292,6 +301,7 @@ impl ApplicationPlayingState {
     pub fn handle_key(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
+        game_settings: &mut GameSettings,
         code: KeyCode,
         is_pressed: bool,
     ) {
@@ -341,17 +351,6 @@ impl ApplicationPlayingState {
             _ => {}
         }
 
-        if let Some(action) = self.input_mapping.get_action(code, &self.input_state) {
-            if self.client.chat_controller.input.is_empty() || !is_input_keycode(code) {
-                if is_pressed {
-                    self.input_state.set_triggered(action);
-                }
-
-                self.input_state.set_down(action, is_pressed);
-                self.action_input = true;
-            }
-        }
-
         if is_pressed {
             if let Some(action) = self.menu.handle_key(code) {
                 match action {
@@ -371,10 +370,33 @@ impl ApplicationPlayingState {
                     MenuAction::ShipRequest(ship_kind) => {
                         self.client.handle_ship_request(ship_kind);
                     }
+                    MenuAction::NameTags => {
+                        game_settings.render_name_mode = game_settings.render_name_mode.next();
+                        self.client.chat_controller.add_system_message(format!(
+                            "Name view mode: {}",
+                            game_settings.render_name_mode.to_str()
+                        ));
+                    }
+                    MenuAction::Statbox => {
+                        self.client
+                            .statbox
+                            .next_view(&self.client.simulation.player_manager);
+                    }
                     _ => {}
                 }
 
                 return;
+            }
+        }
+
+        if let Some(action) = self.input_mapping.get_action(code, &self.input_state) {
+            if self.client.chat_controller.input.is_empty() || !is_input_keycode(code) {
+                if is_pressed {
+                    self.input_state.set_triggered(action);
+                }
+
+                self.input_state.set_down(action, is_pressed);
+                self.action_input = true;
             }
         }
     }
@@ -443,6 +465,7 @@ impl ApplicationConfig {
         proxy_hash: Vec<u8>,
         username: String,
         password: String,
+        game_settings: GameSettings,
     ) -> Self {
         Self {
             proxy_url: Some(proxy_url),
@@ -451,6 +474,7 @@ impl ApplicationConfig {
             remote_port: None,
             username,
             password,
+            game_settings,
         }
     }
 
@@ -459,6 +483,7 @@ impl ApplicationConfig {
         remote_port: u16,
         username: String,
         password: String,
+        game_settings: GameSettings,
     ) -> Self {
         Self {
             proxy_url: None,
@@ -467,6 +492,7 @@ impl ApplicationConfig {
             remote_port: Some(remote_port),
             username,
             password,
+            game_settings,
         }
     }
 }
@@ -504,7 +530,9 @@ impl Application {
         let _ = event_loop;
 
         match &mut self.state {
-            ApplicationState::Playing(playing) => playing.handle_key(event_loop, code, is_pressed),
+            ApplicationState::Playing(playing) => {
+                playing.handle_key(event_loop, &mut self.config.game_settings, code, is_pressed)
+            }
             ApplicationState::Loading(_) => {}
             ApplicationState::ConnectError(_) => {}
         }
@@ -521,7 +549,9 @@ impl Application {
     pub fn update(&mut self) {
         match &mut self.state {
             ApplicationState::Playing(playing) => {
-                if let Err(e) = playing.update(&mut self.render_state) {
+                if let Err(e) =
+                    playing.update(&mut self.render_state, &mut self.config.game_settings)
+                {
                     match &playing.client.connection.state {
                         ConnectionState::Playing | ConnectionState::Disconnected => {
                             //
@@ -550,7 +580,9 @@ impl Application {
 
     pub fn render(&mut self, window: Arc<Window>) -> Result<bool, RenderError> {
         match &mut self.state {
-            ApplicationState::Playing(playing) => playing.render(&mut self.render_state),
+            ApplicationState::Playing(playing) => {
+                playing.render(&mut self.render_state, &self.config.game_settings)
+            }
             ApplicationState::Loading(loading) => loading.render(&mut self.render_state),
             ApplicationState::ConnectError(error) => error.render(&mut self.render_state),
         };
@@ -561,7 +593,8 @@ impl Application {
             ApplicationState::ConnectError(_) => None,
         };
 
-        self.render_state.render(window.clone(), game_sprites)
+        self.render_state
+            .render(window.clone(), game_sprites, &self.config.game_settings)
     }
 
     pub fn exiting(&mut self) {
@@ -820,12 +853,14 @@ pub fn execute_app(
     proxy_hash: Vec<u8>,
     username: &str,
     password: &str,
+    game_settings: GameSettings,
 ) -> WebUpdateProxy {
     let config = ApplicationConfig::new_web(
         proxy_url.to_string(),
         proxy_hash,
         username.to_string(),
         password.to_string(),
+        game_settings,
     );
     let event_loop: EventLoop<ApplicationEvent> = EventLoop::with_user_event()
         .build()

@@ -2,6 +2,7 @@ use smol_str::{SmolStr, StrExt, ToSmolStr};
 
 use crate::{
     clock::GameTick,
+    game_settings::GameSettings,
     net::{connection::Connection, packet::s2c::ChatKind},
     player::PlayerManager,
     radar::Radar,
@@ -51,7 +52,6 @@ pub struct ChatController {
 
 impl ChatController {
     const MAX_MESSAGE_HISTORY: usize = 64;
-    const MAX_DISPLAY: usize = 10;
     const RECENT_NAME_COUNT: usize = 5;
 
     pub fn new() -> Self {
@@ -83,8 +83,14 @@ impl ChatController {
         }
     }
 
-    pub fn render(&mut self, render_state: &mut RenderState, sprites: &GameSprites) {
-        const NAMELEN: usize = 10;
+    pub fn render(
+        &mut self,
+        render_state: &mut RenderState,
+        sprites: &GameSprites,
+        game_settings: &GameSettings,
+    ) {
+        let name_len = game_settings.name_length as usize;
+
         const LEFT_SPACING: i32 = 2;
 
         let font_width = render_state.text_renderer.character_width;
@@ -156,6 +162,7 @@ impl ChatController {
         let max_output_count = self.get_max_output_count(
             render_state.height() as i32,
             render_state.text_renderer.character_height,
+            game_settings,
         );
 
         if max_output_count == 0 {
@@ -185,9 +192,9 @@ impl ChatController {
                             _ => TextColor::Blue,
                         };
 
-                        let trimmed_name_len = entry.sender.len().min(NAMELEN);
+                        let trimmed_name_len = entry.sender.len().min(name_len);
                         let inset_pixels =
-                            LEFT_SPACING + (NAMELEN - trimmed_name_len) as i32 * font_width;
+                            LEFT_SPACING + (name_len - trimmed_name_len) as i32 * font_width;
 
                         let name_width = trimmed_name_len * font_width as usize;
                         let message_inset = inset_pixels + name_width as i32 + 2 * font_width;
@@ -238,11 +245,12 @@ impl ChatController {
                                 TextAlignment::Left,
                             );
 
+                            output_count += 1;
+
                             if output_count >= max_output_count {
                                 break 'render_loop;
                             }
 
-                            output_count += 1;
                             current_y -= font_height;
                         }
                     }
@@ -271,11 +279,12 @@ impl ChatController {
                                 TextAlignment::Left,
                             );
 
+                            output_count += 1;
+
                             if output_count >= max_output_count {
                                 break 'render_loop;
                             }
 
-                            output_count += 1;
                             current_y -= font_height;
                         }
                     }
@@ -327,9 +336,14 @@ impl ChatController {
         }
     }
 
-    fn get_max_output_count(&self, surface_height: i32, font_height: i32) -> usize {
+    fn get_max_output_count(
+        &self,
+        surface_height: i32,
+        font_height: i32,
+        game_settings: &GameSettings,
+    ) -> usize {
         match self.render_mode {
-            ChatRenderMode::Normal => Self::MAX_DISPLAY,
+            ChatRenderMode::Normal => game_settings.chat_lines as usize,
             ChatRenderMode::Full => {
                 let max_height = ((surface_height - font_height) * 3) / 4;
 
@@ -675,5 +689,9 @@ impl ChatController {
             self.messages[self.insert_index] = entry;
             self.insert_index = (self.insert_index + 1) % Self::MAX_MESSAGE_HISTORY;
         }
+    }
+
+    pub fn add_system_message(&mut self, message: String) {
+        self.handle_chat_message(ChatKind::Arena, "".to_string(), message);
     }
 }
