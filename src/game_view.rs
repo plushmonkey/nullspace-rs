@@ -530,6 +530,7 @@ fn render_players(
                         client.get_freq(),
                         current_tick,
                         player.id == highest_points_player_id,
+                        game_settings.render_player_ping,
                     );
                 }
             }
@@ -608,6 +609,7 @@ fn render_players(
                             client.get_freq(),
                             current_tick,
                             child.id == highest_points_player_id,
+                            game_settings.render_player_ping,
                         );
 
                         child_y += render_state
@@ -629,8 +631,15 @@ fn render_player_name(
     view_freq: u16,
     current_tick: GameTick,
     highest_score: bool,
+    render_ping: bool,
 ) {
-    let (player_name_view, name_color) = get_player_name_view(player, view_freq);
+    let ping = if render_ping {
+        Some(player.ping as u16)
+    } else {
+        None
+    };
+
+    let (player_name_view, name_color) = get_player_name_view(player, view_freq, ping);
 
     let mut text_x = name_x;
 
@@ -714,7 +723,11 @@ fn is_radar_visible(player_manager: &PlayerManager, player_id: PlayerId, view_fr
     false
 }
 
-fn get_player_name_view(player: &Player, view_freq: u16) -> (SmolStr, TextColor) {
+fn get_player_name_view(
+    player: &Player,
+    view_freq: u16,
+    ping: Option<u16>,
+) -> (SmolStr, TextColor) {
     let color = if player.frequency == view_freq {
         TextColor::Yellow
     } else {
@@ -727,20 +740,48 @@ fn get_player_name_view(player: &Player, view_freq: u16) -> (SmolStr, TextColor)
 
     let text = if player.flag_count > 0 {
         if player.carrying_ball {
-            format_smolstr!(
-                "{}({}:{}) (Ball)",
-                player.name,
-                player.bounty,
-                player.flag_count
-            )
+            if let Some(ping) = ping {
+                format_smolstr!(
+                    "{}({}:{})[{}] (Ball)",
+                    player.name,
+                    player.bounty,
+                    player.flag_count,
+                    ping * 10
+                )
+            } else {
+                format_smolstr!(
+                    "{}({}:{}) (Ball)",
+                    player.name,
+                    player.bounty,
+                    player.flag_count
+                )
+            }
         } else {
-            format_smolstr!("{}({}:{})", player.name, player.bounty, player.flag_count)
+            if let Some(ping) = ping {
+                format_smolstr!(
+                    "{}({}:{})[{}]",
+                    player.name,
+                    player.bounty,
+                    player.flag_count,
+                    ping * 10
+                )
+            } else {
+                format_smolstr!("{}({}:{})", player.name, player.bounty, player.flag_count)
+            }
         }
     } else {
         if player.carrying_ball {
-            format_smolstr!("{}({}) (Ball)", player.name, player.bounty)
+            if let Some(ping) = ping {
+                format_smolstr!("{}({})[{}] (Ball)", player.name, player.bounty, ping * 10)
+            } else {
+                format_smolstr!("{}({}) (Ball)", player.name, player.bounty)
+            }
         } else {
-            format_smolstr!("{}({})", player.name, player.bounty)
+            if let Some(ping) = ping {
+                format_smolstr!("{}({})[{}]", player.name, player.bounty, ping * 10)
+            } else {
+                format_smolstr!("{}({})", player.name, player.bounty)
+            }
         }
     };
 
@@ -944,6 +985,7 @@ fn render_weapons(
                                     client.get_freq(),
                                     client.connection.get_game_tick(),
                                     player.id == highest_points_player_id,
+                                    game_settings.render_player_ping,
                                 );
                             }
                         }

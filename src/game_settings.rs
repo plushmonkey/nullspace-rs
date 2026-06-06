@@ -96,7 +96,7 @@ impl GameSettings {
             render_gun_trails: true,
             render_ball_trails: true,
             render_name_mode: RenderNameMode::All,
-            render_player_ping: false,
+            render_player_ping: true,
             multifire_spawn: false,
             statbox_size: 10,
         }
