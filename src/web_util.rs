@@ -171,6 +171,10 @@ impl Interval {
             token,
         }
     }
+
+    pub fn clear(&self) {
+        clearInterval(self.token);
+    }
 }
 
 impl Drop for Interval {

@@ -42,6 +42,18 @@ pub struct WebTransportSocket {
     ready: bool,
 }
 
+impl Drop for WebTransportSocket {
+    fn drop(&mut self) {
+        let _ = self.reader.cancel();
+
+        if let Some(bi_reader) = &self.bi_reader {
+            let _ = bi_reader.cancel();
+        }
+
+        self.transport.close();
+    }
+}
+
 impl WebTransportSocket {
     pub fn new(url: &str, hash: Option<&Vec<u8>>) -> Result<Self, ConnectionError> {
         let options = web_sys::WebTransportOptions::new();
@@ -123,9 +135,22 @@ impl WebTransportSocket {
                     return;
                 };
 
-                let chunk_value =
-                    js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
-                let chunk_array: js_sys::Uint8Array = chunk_value.dyn_into().unwrap();
+                let chunk_value = match js_sys::Reflect::get(&result, &JsValue::from_str("value")) {
+                    Ok(chunk_value) => chunk_value,
+                    Err(_) => {
+                        // Unrecoverable error, cancel task so we can create it again on restart of the app.
+                        return;
+                    }
+                };
+
+                let chunk_array: js_sys::Uint8Array = match chunk_value.dyn_into() {
+                    Ok(chunk_array) => chunk_array,
+                    Err(_) => {
+                        // Unrecoverable error, cancel task so we can create it again on restart of the app.
+                        return;
+                    }
+                };
+
                 let chunk = chunk_array.to_vec();
 
                 let mut packet = Packet::empty();
@@ -157,9 +182,21 @@ impl WebTransportSocket {
                     return;
                 };
 
-                let chunk_value =
-                    js_sys::Reflect::get(&result, &JsValue::from_str("value")).unwrap();
-                let chunk_array: js_sys::Uint8Array = chunk_value.dyn_into().unwrap();
+                let chunk_value = match js_sys::Reflect::get(&result, &JsValue::from_str("value")) {
+                    Ok(chunk_value) => chunk_value,
+                    Err(_) => {
+                        // Unrecoverable error, so terminate task.
+                        return;
+                    }
+                };
+                let chunk_array: js_sys::Uint8Array = match chunk_value.dyn_into() {
+                    Ok(chunk_array) => chunk_array,
+                    Err(_) => {
+                        // Unrecoverable error, so terminate task.
+                        return;
+                    }
+                };
+
                 let chunk = chunk_array.to_vec();
 
                 if let Err(e) = sender.send(ProxyMessage::StreamData(chunk)) {

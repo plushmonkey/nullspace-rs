@@ -534,7 +534,11 @@ impl Application {
                 playing.handle_key(event_loop, &mut self.config.game_settings, code, is_pressed)
             }
             ApplicationState::Loading(_) => {}
-            ApplicationState::ConnectError(_) => {}
+            ApplicationState::ConnectError(_) => {
+                if is_pressed && code == KeyCode::Escape {
+                    event_loop.exit();
+                }
+            }
         }
     }
 
@@ -626,7 +630,7 @@ pub struct EventProcessor {
     proxy: Option<winit::event_loop::EventLoopProxy<ApplicationEvent>>,
 
     #[cfg(target_arch = "wasm32")]
-    _update_interval: crate::web_util::Interval,
+    update_interval: crate::web_util::Interval,
 }
 
 impl EventProcessor {
@@ -657,7 +661,7 @@ impl EventProcessor {
             proxy,
 
             #[cfg(target_arch = "wasm32")]
-            _update_interval: update_interval,
+            update_interval,
         }
     }
 }
@@ -665,9 +669,13 @@ impl EventProcessor {
 impl ApplicationHandler<ApplicationEvent> for EventProcessor {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(app) = &mut self.application {
+            #[cfg(target_arch = "wasm32")]
+            self.update_interval.clear();
+
             app.exiting();
         }
     }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes().with_title("nullspace");
@@ -831,18 +839,34 @@ impl ApplicationHandler<ApplicationEvent> for EventProcessor {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub struct WebUpdateProxy {
-    proxy: winit::event_loop::EventLoopProxy<ApplicationEvent>,
+pub struct WebExecuteContext {
+    proxy: Option<winit::event_loop::EventLoopProxy<ApplicationEvent>>,
+    quit_func: Option<js_sys::Function>,
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-impl WebUpdateProxy {
+impl WebExecuteContext {
     #[wasm_bindgen]
-    pub fn request_update(&self) {
-        if let Err(e) = self.proxy.send_event(ApplicationEvent::Update) {
-            log::error!("{e}");
+    pub fn request_update(&mut self) {
+        let Some(proxy) = &self.proxy else {
+            return;
+        };
+
+        if let Err(_) = proxy.send_event(ApplicationEvent::Update) {
+            if let Some(quit_func) = &self.quit_func {
+                if let Err(_) = quit_func.call0(&JsValue::NULL) {
+                    log::error!("Failed to call javascript quit function.");
+                }
+
+                self.proxy = None;
+            }
         }
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_on_quit(&mut self, quit_func: js_sys::Function) {
+        self.quit_func = Some(quit_func);
     }
 }
 
@@ -854,7 +878,7 @@ pub fn execute_app(
     username: &str,
     password: &str,
     game_settings: GameSettings,
-) -> WebUpdateProxy {
+) -> WebExecuteContext {
     let config = ApplicationConfig::new_web(
         proxy_url.to_string(),
         proxy_hash,
@@ -867,8 +891,9 @@ pub fn execute_app(
         .expect("event loop must be supported on this platform");
 
     let event_processor = EventProcessor::new(config, &event_loop);
-    let update_proxy = WebUpdateProxy {
-        proxy: event_loop.create_proxy(),
+    let update_proxy = WebExecuteContext {
+        proxy: Some(event_loop.create_proxy()),
+        quit_func: None,
     };
 
     event_loop.spawn_app(event_processor);

@@ -1,74 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>nullspace</title>
-    <style>
-      * {
-        padding: 0;
-        margin: 0;
-        overflow: hidden;
-      }
-      body {
-        background-color: #090909;
-        color: #ffffff;
-      }
-      canvas {
-        background-color: black;
-        width: 100%;
-        height: 100%;
-      }
-      #game-container {
-        width: 100vw;
-        height: 100vh;
-        box-sizing: border-box;
-      }
-      #login {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        width: 400px;
-        margin: auto;
-        position: absolute;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        right: 0;
-      }
-      input {
-        display: block;
-      }
-      #username, #password {
-        width: 150px;
-        align-self: center;
-        margin: auto;
-      }
-      #play-button {
-        align-self: center;
-        width: 75px;
-        margin: auto;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="login">
-      <form id="login-form">
-        <input type="text" id="username" placeholder="username" autofocus />
-        <input type="password" id="password" placeholder="password" />
 
-        <input id="play-button" type="submit" value="Play" />
-      </form>
-    </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nullspace</title>
+  <style>
+    * {
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+    }
 
-    <script type="module">
-      import init, { execute_app, GameSettings, NotificationArea } from "./scripts/nullspace/nullspace.js";
+    body {
+      background-color: #090909;
+      color: #ffffff;
+    }
 
-      document.getElementById("login-form").onsubmit = function(e) {
-        let username = document.getElementById("username").value;
-        let password = document.getElementById("password").value;
+    canvas {
+      background-color: black;
+      width: 100%;
+      height: 100%;
+    }
 
-        document.getElementById("login").remove();
+    #game-container {
+      width: 100vw;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+
+    #login {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      width: 400px;
+      margin: auto;
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+    }
+
+    input {
+      display: block;
+    }
+
+    #username,
+    #password {
+      width: 150px;
+      align-self: center;
+      margin: auto;
+    }
+
+    #play-button {
+      align-self: center;
+      width: 75px;
+      margin: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="module">
+    import init, { execute_app, GameSettings, NotificationArea } from "./scripts/nullspace/nullspace.js";
+
+    // This is the hash that is taken from the proxy standard output.
+    let proxy_hash = new Uint8Array([198, 194, 74, 239, 159, 181, 155, 2, 165, 220, 232, 5, 45, 154, 167, 128, 180, 42, 125, 109, 190, 135, 143, 170, 106, 185, 179, 73, 224, 68, 114, 72]);
+    let proxy_url = "https://127.0.0.1:4433";
+
+    class LoginForm {
+      constructor() {
+        let login_div = document.createElement("div");
+        login_div.id = "login";
+
+        // TODO: Load previous username from local storage.
+
+        {
+          let login_form = document.createElement("form");
+          login_form.id = "login-form";
+          {
+            let username = document.createElement("input");
+
+            username.id = "username";
+            username.type = "text";
+            username.placeholder = "username";
+
+            this.username = username;
+
+            let password = document.createElement("input");
+
+            password.id = "password";
+            password.type = "password";
+            password.placeholder = "password";
+
+            this.password = password;
+
+            let play_button = document.createElement("input");
+
+            play_button.id = "play-button";
+            play_button.type = "submit";
+            play_button.value = "Play";
+
+            login_form.appendChild(username);
+            login_form.appendChild(password);
+            login_form.appendChild(play_button);
+          }
+
+          login_form.onsubmit = (e) => {
+            e.preventDefault();
+            this.onSubmit(e);
+          };
+
+          login_div.appendChild(login_form);
+        }
+
+        this.login_div = login_div;
+
+        document.body.appendChild(login_div);
+
+        this.username.focus();
+      }
+
+      getUsername() {
+        return this.username.value;
+      }
+
+      getPassword() {
+        return this.password.value;
+      }
+
+      remove() {
+        this.login_div.remove();
+      }
+
+      onSubmit(e) {
+        let username = this.getUsername();
+        let password = this.getPassword();
+
+        this.remove();
 
         let game_container = document.createElement("div");
         game_container.id = "game-container";
@@ -77,33 +147,40 @@
         canvas.id = "canvas";
 
         game_container.appendChild(canvas);
-
         document.body.appendChild(game_container);
 
-        init().then(() => {
-          console.log("nullspace loaded");
+        // TODO: Load and save this
+        let game_settings = new GameSettings();
 
-          // TODO: Load and save this
-          let game_settings = new GameSettings();
+        game_settings.enter_notify_area = NotificationArea.Chat;
+        game_settings.leave_notify_area = NotificationArea.Chat;
 
-          game_settings.enter_notify_area = NotificationArea.Chat;
-          game_settings.leave_notify_area = NotificationArea.Chat;
-          
-          let hash = new Uint8Array([198, 194, 74, 239, 159, 181, 155, 2, 165, 220, 232, 5, 45, 154, 167, 128, 180, 42, 125, 109, 190, 135, 143, 170, 106, 185, 179, 73, 224, 68, 114, 72]);
+        let update_proxy = execute_app(proxy_url, proxy_hash, username, password, game_settings);
 
-          let update_proxy = execute_app("https://127.0.0.1:4433", hash, username, password, game_settings);
+        let worker = new Worker('scripts/worker.js');
+        worker.onmessage = function () {
+          // This triggers an update for the app outside of the normal setInterval that the app registers itself.
+          // This is slower than the normal updateInterval, but it's necessary to keep a good connection when the 
+          // browser is minimized or the tab is in the background.
+          update_proxy.request_update();
+        };
 
-          let worker = new Worker('scripts/worker.js');
-          worker.onmessage = function() {
-            // This triggers an update for the app outside of the normal setInterval that the app registers itself.
-            // This is slower than the normal updateInterval, but it's necessary to keep a good connection when the 
-            // browser is minimized or the tab is in the background.
-            update_proxy.request_update();
-          };
-        });
-        
-        e.preventDefault();
-      };
-    </script>
-  </body>
+        update_proxy.on_quit = function () {
+          worker.terminate();
+
+          document.getElementById("game-container").remove();
+
+          let loginForm = new LoginForm();
+        }
+      }
+    }
+
+    init().then(() => {
+      console.log("nullspace loaded");
+
+      let loginForm = new LoginForm();
+    });
+  </script>
+</body>
+
 </html>
