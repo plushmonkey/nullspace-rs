@@ -57,15 +57,21 @@ pub fn generate_spawn_position(
                         spawn_radius = 3;
                     }
 
-                    let offset_x = rng.next() % 0x14;
-                    let offset_y = rng.next() % 0x14;
+                    let x_rng = rng.next();
+                    let y_rng = rng.next();
 
-                    x = (rng.next() % (spawn_radius - 2))
+                    let offset_seed = VieRng::xorshift(rng.seed as u32);
+                    let mut offset_rng = VieRng::new(offset_seed as i32);
+
+                    let offset_x = offset_rng.next().cast_signed() % 0x14;
+                    let offset_y = offset_rng.next().cast_signed() % 0x14;
+
+                    x = (x_rng % (spawn_radius - 2))
                         .wrapping_sub(9)
-                        .wrapping_add(((0x400 - spawn_radius) / 2) + offset_x);
-                    y = (rng.next() % (spawn_radius - 2))
+                        .wrapping_add(((0x400 - spawn_radius) / 2).wrapping_add_signed(offset_x));
+                    y = (y_rng % (spawn_radius - 2))
                         .wrapping_sub(9)
-                        .wrapping_add(((0x400 - spawn_radius) / 2) + offset_y);
+                        .wrapping_add(((0x400 - spawn_radius) / 2).wrapping_add_signed(offset_y));
                 }
             }
 
@@ -97,11 +103,12 @@ pub fn generate_spawn_position(
 
         if radius > 0 {
             for _ in 0..100 {
-                let xrand = rng.next();
-                let yrand = rng.next();
+                let xrand = rng.next().cast_signed();
+                let yrand = rng.next().cast_signed();
+                let radius = radius as i32;
 
-                let x_offset = ((xrand % (radius as u32 * 2)) as i32) - radius as i32;
-                let y_offset = ((yrand % (radius as u32 * 2)) as i32) - radius as i32;
+                let x_offset = (xrand % (radius * 2 + 1)) - radius;
+                let y_offset = (yrand % (radius * 2 + 1)) - radius;
 
                 let x = x_center as i32 + x_offset;
                 let y = y_center as i32 + y_offset;

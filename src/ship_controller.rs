@@ -346,14 +346,11 @@ impl ShipController {
 
                 if distance_sq < wormhole_radius_sq {
                     let new_energy = (self.ship.current_energy as f32 * 0.2f32) as u32;
-                    self.warp(
-                        me,
-                        settings,
-                        map,
-                        current_tick,
-                        player_count,
-                        Some(new_energy),
+                    let rng = VieRng::new(
+                        current_tick.value() as i32 / settings.wormhole_switch_time.max(1),
                     );
+
+                    self.warp_with_rng(me, settings, map, rng, player_count, Some(new_energy));
                     return false;
                 }
 
@@ -535,6 +532,18 @@ impl ShipController {
         new_energy: Option<u32>,
     ) {
         let rng = VieRng::new(current_tick.value() as i32);
+        self.warp_with_rng(me, settings, map, rng, player_count, new_energy);
+    }
+
+    pub fn warp_with_rng(
+        &mut self,
+        me: &mut Player,
+        settings: &ArenaSettings,
+        map: &Map,
+        rng: VieRng,
+        player_count: usize,
+        new_energy: Option<u32>,
+    ) {
         let new_position =
             generate_spawn_position(settings, map, me.ship_kind, me.frequency, rng, player_count);
 
