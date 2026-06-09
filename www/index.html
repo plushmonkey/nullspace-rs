@@ -14,7 +14,8 @@
 
     body {
       background-color: #090909;
-      color: #ffffff;
+      color: #dddddd;
+      font-family: sans-serif;
     }
 
     canvas {
@@ -53,92 +54,517 @@
       margin: auto;
     }
 
+    #settings-button,
     #play-button {
       align-self: center;
       width: 75px;
       margin: auto;
+      display: block;
+    }
+
+    #kill-notify-all {
+      display: inline
+    }
+
+    .settings-number {
+      width: 40px;
+      display: inline;
+    }
+
+    #game-settings {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      width: auto;
+      margin: auto;
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+    }
+
+    #game-settings-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      align-self: center;
+      margin: auto;
+    }
+
+    .settings-line {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .save-line {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+    }
+
+    .cancel-button,
+    .save-button {
+      margin: 15px;
+      width: 70px;
+    }
+
+    span {
+      padding: 0;
+      margin: 0;
+      display: flex;
+      justify-content: left;
+      align-items: center;
+      gap: 10px;
+      width: 260px;
+    }
+
+    label {
+      width: 170px;
+      display: inline-block;
+      text-align: right;
     }
   </style>
 </head>
 
 <body>
+  <div id="login">
+    <form id="login-form">
+      <input type="text" id="username" placeholder="username" />
+      <input type="password" id="password" placeholder="password" />
+      <input type="submit" id="play-button" value="Play" />
+      <button type="button" id="settings-button">Settings</button>
+    </form>
+  </div>
+  <div id="game-settings">
+    <div id="game-settings-container">
+      <div class="settings-line">
+        <span>
+          <label for="kill-notify-area">Kill notify area:</label>
+          <select name="kill-notify-area" id="kill-notify-area">
+            <option value="off">Off</option>
+            <option value="center">Center</option>
+            <option value="chat">Chat</option>
+          </select>
+        </span>
+
+        <span>
+          <label for="kill-notify-all">Kill notify all:</label>
+          <input type="checkbox" id="kill-notify-all" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="enter-notify-area">Enter notify area:</label>
+          <select name="enter-notify-area" id="enter-notify-area">
+            <option value="off">Off</option>
+            <option value="center">Center</option>
+            <option value="chat">Chat</option>
+          </select>
+        </span>
+
+        <span>
+          <label for="leave-notify-area">Leave notify area:</label>
+          <select name="leave-notify-area" id="leave-notify-area">
+            <option value="off">Off</option>
+            <option value="center">Center</option>
+            <option value="chat">Chat</option>
+          </select>
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="transparent-statbox">Transparent statbox:</label>
+          <input type="checkbox" id="transparent-statbox" />
+        </span>
+        <span>
+          <label for="multifire-spawn">Multifire spawn:</label>
+          <input type="checkbox" id="multifire-spawn" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="name-length">Chat name length:</label>
+          <input type="input" class="settings-number" id="name-length" value="10" />
+        </span>
+
+        <span>
+          <label for="chat-lines">Chat lines:</label>
+          <input type="input" class="settings-number" id="chat-lines" value="8" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="chat-font">Chat font:</label>
+          <select name="chat-font" id="chat-font">
+            <option value="short">Short</option>
+            <option value="normal">Normal</option>
+            <option value="large">Large</option>
+            <option value="huge">Huge</option>
+          </select>
+        </span>
+
+        <span>
+          <label for="render-name-mode">Name tags:</label>
+          <select name="render-name-mode" id="render-name-mode">
+            <option value="off">Off</option>
+            <option value="others">Others</option>
+            <option value="all">All</option>
+          </select>
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="radar-target-bounty">Radar bounty:</label>
+          <input type="input" class="settings-number" id="radar-target-bounty" value="100" />
+        </span>
+
+        <span>
+          <label for="radar-grid">Radar grid:</label>
+          <input type="checkbox" id="radar-grid" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="radar-transparent">Transparent radar:</label>
+          <input type="checkbox" id="radar-transparent" />
+        </span>
+        <span>
+          <label for="map-transparent">Transparent map:</label>
+          <input type="checkbox" id="map-transparent" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="render-stars">Render stars:</label>
+          <input type="checkbox" id="render-stars" />
+        </span>
+        <span>
+          <label for="render-exhaust">Render exhaust:</label>
+          <input type="checkbox" id="render-exhaust" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="render-bomb-trails">Bomb trails:</label>
+          <input type="checkbox" id="render-bomb-trails" />
+        </span>
+        <span>
+          <label for="render-gun-trails">Gun trails:</label>
+          <input type="checkbox" id="render-gun-trails" />
+        </span>
+      </div>
+
+      <div class="settings-line">
+        <span>
+          <label for="render-ball-trails">Ball trails:</label>
+          <input type="checkbox" id="render-ball-trails" />
+        </span>
+        <span>
+          <label for="render-player-ping">Player ping:</label>
+          <input type="checkbox" id="render-player-ping" />
+        </span>
+      </div>
+
+      <div class="save-line">
+        <button type="button" id="settings-save-button" class="save-button">Save</button>
+        <button type="button" id="settings-cancel-button" class="cancel-button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
-    import init, { execute_app, GameSettings, NotificationArea } from "./scripts/nullspace/nullspace.js";
+    import init, { execute_app, GameSettings, NotificationArea, FontKind, RenderNameMode } from "./scripts/nullspace/nullspace.js";
 
     // This is the hash that is taken from the proxy standard output.
     let proxy_hash = new Uint8Array([198, 194, 74, 239, 159, 181, 155, 2, 165, 220, 232, 5, 45, 154, 167, 128, 180, 42, 125, 109, 190, 135, 143, 170, 106, 185, 179, 73, 224, 68, 114, 72]);
     let proxy_url = "https://127.0.0.1:4433";
 
-    class LoginForm {
-      constructor() {
-        let login_div = document.createElement("div");
-        login_div.id = "login";
+    function populateSettingsForm(game_settings) {
+      let populateNotifyArea = (id, value) => {
+        let element = document.getElementById(id);
 
-        // TODO: Load previous username from local storage.
+        if (value == NotificationArea.Off) {
+          element.value = "off";
+        } else if (value == NotificationArea.Center) {
+          element.value = "center";
+        } else if (value == NotificationArea.Chat) {
+          element.value = "chat";
+        }
+      };
 
-        {
-          let login_form = document.createElement("form");
-          login_form.id = "login-form";
-          {
-            let username = document.createElement("input");
+      let populateChatFont = (id, value) => {
+        let element = document.getElementById(id);
 
-            username.id = "username";
-            username.type = "text";
-            username.placeholder = "username";
+        if (value == FontKind.Short) {
+          element.value = "short";
+        } else if (value == FontKind.Normal) {
+          element.value = "normal";
+        } else if (value == FontKind.Large) {
+          element.value = "large";
+        } else if (value == FontKind.Huge) {
+          element.value = "huge";
+        }
+      };
 
-            this.username = username;
+      let populateNameMode = (id, value) => {
+        let element = document.getElementById(id);
 
-            let password = document.createElement("input");
+        if (value == RenderNameMode.Off) {
+          element.value = "off";
+        } else if (value == RenderNameMode.Others) {
+          element.value = "others";
+        } else if (value == RenderNameMode.All) {
+          element.value = "all";
+        }
+      };
 
-            password.id = "password";
-            password.type = "password";
-            password.placeholder = "password";
+      populateNotifyArea("kill-notify-area", game_settings.kill_notify_area);
+      populateNotifyArea("enter-notify-area", game_settings.enter_notify_area);
+      populateNotifyArea("leave-notify-area", game_settings.leave_notify_area);
+      document.getElementById("kill-notify-all").checked = game_settings.kill_notify_others;
+      document.getElementById("transparent-statbox").checked = game_settings.transparent_statbox;
+      document.getElementById("multifire-spawn").checked = game_settings.multifire_spawn;
+      document.getElementById("name-length").value = game_settings.name_length;
+      document.getElementById("chat-lines").value = game_settings.chat_lines;
+      populateChatFont("chat-font", game_settings.chat_font_kind);
+      populateNameMode("render-name-mode", game_settings.render_name_mode);
+      document.getElementById("radar-target-bounty").value = game_settings.radar_target_bounty;
+      document.getElementById("radar-transparent").checked = game_settings.radar_transparent;
+      document.getElementById("map-transparent").checked = game_settings.map_transparent;
+      document.getElementById("radar-grid").checked = game_settings.radar_grid;
+      document.getElementById("render-stars").checked = game_settings.render_stars;
+      document.getElementById("render-exhaust").checked = game_settings.render_exhaust;
+      document.getElementById("render-bomb-trails").checked = game_settings.render_bomb_trails;
+      document.getElementById("render-gun-trails").checked = game_settings.render_gun_trails;
+      document.getElementById("render-ball-trails").checked = game_settings.render_ball_trails;
+      document.getElementById("render-player-ping").checked = game_settings.render_player_ping;
+    }
 
-            this.password = password;
+    function readSettingsForm() {
+      let readNotifyArea = (id) => {
+        let element = document.getElementById(id);
+        let value = element.value;
 
-            let play_button = document.createElement("input");
-
-            play_button.id = "play-button";
-            play_button.type = "submit";
-            play_button.value = "Play";
-
-            login_form.appendChild(username);
-            login_form.appendChild(password);
-            login_form.appendChild(play_button);
-          }
-
-          login_form.onsubmit = (e) => {
-            e.preventDefault();
-            this.onSubmit(e);
-          };
-
-          login_div.appendChild(login_form);
+        if (value == "off") {
+          return NotificationArea.Off;
+        } else if (value == "center") {
+          return NotificationArea.Center;
+        } else if (value == "chat") {
+          return NotificationArea.Chat;
         }
 
-        this.login_div = login_div;
+        return NotificationArea.Center;
+      };
 
-        document.body.appendChild(login_div);
+      let readChatFont = (id) => {
+        let element = document.getElementById(id);
+        let value = element.value;
 
-        this.username.focus();
+        if (value == "short") {
+          return FontKind.Short;
+        } else if (value == "normal") {
+          return FontKind.Normal;
+        } else if (value == "large") {
+          return FontKind.Large;
+        } else if (value == "huge") {
+          return FontKind.Huge;
+        }
+
+        return FontKind.Normal;
+      };
+
+      let readNameMode = (id) => {
+        let element = document.getElementById(id);
+        let value = element.value;
+
+        if (value == "off") {
+          return RenderNameMode.Off;
+        } else if (value == "others") {
+          return RenderNameMode.Others;
+        } else if (value == "all") {
+          return RenderNameMode.All;
+        }
+
+        return RenderNameMode.All;
+      };
+
+      let readBoolean = (id) => {
+        let element = document.getElementById(id);
+        return element.checked;
+      };
+
+      let readValue = (id) => {
+        let element = document.getElementById(id);
+        return element.value;
+      };
+
+      let game_settings = new GameSettings();
+
+      game_settings.kill_notify_area = readNotifyArea("kill-notify-area");
+      game_settings.kill_notify_others = readBoolean("kill-notify-all");
+      game_settings.enter_notify_area = readNotifyArea("enter-notify-area");
+      game_settings.leave_notify_area = readNotifyArea("leave-notify-area");
+      game_settings.transparent_statbox = readBoolean("transparent-statbox");
+      game_settings.chat_font_kind = readChatFont("chat-font");
+      game_settings.name_length = readValue("name-length");
+      game_settings.chat_lines = readValue("chat-lines");
+      game_settings.radar_target_bounty = readValue("radar-target-bounty");
+      game_settings.radar_transparent = readBoolean("radar-transparent");
+      game_settings.map_transparent = readBoolean("map-transparent");
+      game_settings.radar_grid = readBoolean("radar-grid");
+      game_settings.render_stars = readBoolean("render-stars");
+      game_settings.render_exhaust = readBoolean("render-exhaust");
+      game_settings.render_bomb_trails = readBoolean("render-bomb-trails");
+      game_settings.render_gun_trails = readBoolean("render-gun-trails");
+      game_settings.render_ball_trails = readBoolean("render-ball-trails");
+      game_settings.render_name_mode = readNameMode("render-name-mode");
+      game_settings.render_player_ping = readBoolean("render-player-ping");
+      game_settings.multifire_spawn = readBoolean("multifire-spawn");
+
+      return game_settings;
+    }
+
+    function loadGameSettings() {
+      let stored_settings = localStorage.getItem("game-settings");
+      let game_settings = new GameSettings();
+
+      if (stored_settings == null) {
+        return game_settings;
       }
 
-      getUsername() {
-        return this.username.value;
+      let stored_obj;
+
+      try {
+        stored_obj = JSON.parse(stored_settings);
+      } catch (e) {
+        return game_settings;
       }
 
-      getPassword() {
-        return this.password.value;
+      game_settings.kill_notify_area = stored_obj.kill_notify_area;
+      game_settings.kill_notify_others = stored_obj.kill_notify_others;
+      game_settings.enter_notify_area = stored_obj.enter_notify_area;
+      game_settings.leave_notify_area = stored_obj.leave_notify_area;
+      game_settings.transparent_statbox = stored_obj.transparent_statbox;
+      game_settings.chat_font_kind = stored_obj.chat_font_kind;
+      game_settings.name_length = stored_obj.name_length;
+      game_settings.chat_lines = stored_obj.chat_lines;
+      game_settings.radar_target_bounty = stored_obj.radar_target_bounty;
+      game_settings.radar_transparent = stored_obj.radar_transparent;
+      game_settings.map_transparent = stored_obj.map_transparent;
+      game_settings.radar_grid = stored_obj.radar_grid;
+      game_settings.render_stars = stored_obj.render_stars;
+      game_settings.render_exhaust = stored_obj.render_exhaust;
+      game_settings.render_bomb_trails = stored_obj.render_bomb_trails;
+      game_settings.render_gun_trails = stored_obj.render_gun_trails;
+      game_settings.render_ball_trails = stored_obj.render_ball_trails;
+      game_settings.render_name_mode = stored_obj.render_name_mode;
+      game_settings.render_player_ping = stored_obj.render_player_ping;
+      game_settings.multifire_spawn = stored_obj.multifire_spawn;
+
+      return game_settings;
+    }
+
+    function saveGameSettings(game_settings) {
+      let stored_obj = {};
+
+      stored_obj.kill_notify_area = game_settings.kill_notify_area;
+      stored_obj.kill_notify_others = game_settings.kill_notify_others;
+      stored_obj.enter_notify_area = game_settings.enter_notify_area;
+      stored_obj.leave_notify_area = game_settings.leave_notify_area;
+      stored_obj.transparent_statbox = game_settings.transparent_statbox;
+      stored_obj.chat_font_kind = game_settings.chat_font_kind;
+      stored_obj.name_length = game_settings.name_length;
+      stored_obj.chat_lines = game_settings.chat_lines;
+      stored_obj.radar_target_bounty = game_settings.radar_target_bounty;
+      stored_obj.radar_transparent = game_settings.radar_transparent;
+      stored_obj.map_transparent = game_settings.map_transparent;
+      stored_obj.radar_grid = game_settings.radar_grid;
+      stored_obj.render_stars = game_settings.render_stars;
+      stored_obj.render_exhaust = game_settings.render_exhaust;
+      stored_obj.render_bomb_trails = game_settings.render_bomb_trails;
+      stored_obj.render_gun_trails = game_settings.render_gun_trails;
+      stored_obj.render_ball_trails = game_settings.render_ball_trails;
+      stored_obj.render_name_mode = game_settings.render_name_mode;
+      stored_obj.render_player_ping = game_settings.render_player_ping;
+      stored_obj.multifire_spawn = game_settings.multifire_spawn;
+
+      localStorage.setItem("game-settings", JSON.stringify(stored_obj));
+    }
+
+    function validateGameSettings(game_settings) {
+      if (game_settings.name_length <= 0 || game_settings.name_length > 20) {
+        game_settings.name_length = 10;
       }
 
-      remove() {
-        this.login_div.remove();
+      if (game_settings.chat_lines < 0) {
+        game_settings.chat_lines = 8;
       }
+    }
 
-      onSubmit(e) {
-        let username = this.getUsername();
-        let password = this.getPassword();
+    function loadUsername() {
+      let username = localStorage.getItem("username");
 
-        this.remove();
+      if (username != null) {
+        document.getElementById("username").value = username;
+      }
+    }
+
+    function saveUsername() {
+      localStorage.setItem("username", document.getElementById("username").value);
+    }
+
+    loadUsername();
+
+    document.getElementById("password").focus();
+
+    init().then(() => {
+      console.log("nullspace loaded");
+
+      document.getElementById("settings-save-button").onclick = (e) => {
+        document.getElementById("game-settings").style.display = "none";
+        document.getElementById("login").style.display = "flex";
+
+        let game_settings = readSettingsForm();
+        saveGameSettings(game_settings);
+      };
+
+      document.getElementById("settings-cancel-button").onclick = (e) => {
+        document.getElementById("game-settings").style.display = "none";
+        document.getElementById("login").style.display = "flex";
+      };
+
+      document.getElementById("settings-button").onclick = (e) => {
+        document.getElementById("login").style.display = "none";
+        document.getElementById("game-settings").style.display = "flex";
+
+        let game_settings = loadGameSettings();
+        populateSettingsForm(game_settings);
+      };
+
+      document.getElementById("login-form").onsubmit = (e) => {
+        e.preventDefault();
+
+        let game_settings = loadGameSettings();
+        validateGameSettings(game_settings);
+
+        let username = document.getElementById("username").value;
+        let password = document.getElementById("password").value;
+
+        saveUsername();
+
+        document.getElementById("password").value = "";
+
+        document.getElementById("login").style.display = "none";
+        document.getElementById("game-settings").style.display = "none";
 
         let game_container = document.createElement("div");
         game_container.id = "game-container";
@@ -148,12 +574,6 @@
 
         game_container.appendChild(canvas);
         document.body.appendChild(game_container);
-
-        // TODO: Load and save this
-        let game_settings = new GameSettings();
-
-        game_settings.enter_notify_area = NotificationArea.Chat;
-        game_settings.leave_notify_area = NotificationArea.Chat;
 
         let update_proxy = execute_app(proxy_url, proxy_hash, username, password, game_settings);
 
@@ -170,15 +590,11 @@
 
           document.getElementById("game-container").remove();
 
-          let loginForm = new LoginForm();
+          document.getElementById("login").style.display = "flex";
+
+          document.getElementById("password").focus();
         }
       }
-    }
-
-    init().then(() => {
-      console.log("nullspace loaded");
-
-      let loginForm = new LoginForm();
     });
   </script>
 </body>
