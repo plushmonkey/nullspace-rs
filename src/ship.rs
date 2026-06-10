@@ -78,6 +78,7 @@ pub struct Ship {
     pub next_bullet_tick: GameTick,
     pub next_bomb_tick: GameTick,
     pub next_repel_tick: GameTick,
+    pub next_item_tick: GameTick,
 
     pub rocket_remaining_ticks: u32,
     pub shutdown_remaining_ticks: u32,
@@ -123,6 +124,7 @@ impl Ship {
             next_bullet_tick: GameTick::empty(),
             next_bomb_tick: GameTick::empty(),
             next_repel_tick: GameTick::empty(),
+            next_item_tick: GameTick::empty(),
             rocket_remaining_ticks: 0,
             shutdown_remaining_ticks: 0,
             fake_antiwarp_remaining_ticks: 0,
@@ -187,6 +189,7 @@ impl Ship {
         self.next_bomb_tick = current_tick;
         self.next_bullet_tick = current_tick;
         self.next_repel_tick = current_tick;
+        self.next_item_tick = current_tick;
 
         self.max_energy = ship_settings.initial_energy as u32 * 1000;
         self.recharge = ship_settings.initial_recharge as u32;
