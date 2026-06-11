@@ -674,6 +674,11 @@ impl ShipController {
 
         let mut weapon_kind = WeaponKind::None;
 
+        let mut new_bomb_tick = self.ship.next_bomb_tick;
+        let mut new_item_tick = self.ship.next_item_tick;
+        let mut new_bullet_tick = self.ship.next_bullet_tick;
+        let mut new_repel_tick = self.ship.next_repel_tick;
+
         if input_state.is_triggered(InputAction::Repel)
             && current_tick > self.ship.next_repel_tick
             && self.ship.repels > 0
@@ -684,10 +689,10 @@ impl ShipController {
                 self.ship.repels -= 1;
             }
 
-            self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
-            self.ship.next_item_tick = current_tick + bomb_fire_delay;
-            self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
-            self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+            new_bomb_tick = current_tick + bomb_fire_delay;
+            new_item_tick = current_tick + bomb_fire_delay;
+            new_bullet_tick = current_tick + bomb_fire_delay;
+            new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
         }
 
         if input_state.is_triggered(InputAction::Burst)
@@ -700,10 +705,10 @@ impl ShipController {
                 self.ship.bursts -= 1;
             }
 
-            self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
-            self.ship.next_item_tick = current_tick + bomb_fire_delay;
-            self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
-            self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+            new_bomb_tick = current_tick + bomb_fire_delay;
+            new_item_tick = current_tick + bomb_fire_delay;
+            new_bullet_tick = current_tick + bomb_fire_delay;
+            new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
         }
 
         if input_state.is_triggered(InputAction::Thor)
@@ -727,10 +732,10 @@ impl ShipController {
                 self.ship.thors -= 1;
             }
 
-            self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
-            self.ship.next_item_tick = current_tick + bomb_fire_delay;
-            self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
-            self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+            new_bomb_tick = current_tick + bomb_fire_delay;
+            new_item_tick = current_tick + bomb_fire_delay;
+            new_bullet_tick = current_tick + bomb_fire_delay;
+            new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
         }
 
         if input_state.is_triggered(InputAction::Decoy)
@@ -747,10 +752,10 @@ impl ShipController {
                 self.ship.decoys -= 1;
             }
 
-            self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
-            self.ship.next_item_tick = current_tick + bomb_fire_delay;
-            self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
-            self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+            new_bomb_tick = current_tick + bomb_fire_delay;
+            new_item_tick = current_tick + bomb_fire_delay;
+            new_bullet_tick = current_tick + bomb_fire_delay;
+            new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
         }
 
         if input_state.is_triggered(InputAction::Brick)
@@ -769,9 +774,9 @@ impl ShipController {
                 log::error!("{e}");
             }
 
-            self.ship.next_bomb_tick = current_tick + bomb_fire_delay;
-            self.ship.next_item_tick = current_tick + bomb_fire_delay;
-            self.ship.next_bullet_tick = current_tick + bomb_fire_delay;
+            new_bomb_tick = current_tick + bomb_fire_delay;
+            new_item_tick = current_tick + bomb_fire_delay;
+            new_bullet_tick = current_tick + bomb_fire_delay;
         }
 
         if input_state.is_triggered(InputAction::Rocket)
@@ -797,15 +802,15 @@ impl ShipController {
                 let future_tick = current_tick + 60;
 
                 if future_tick > self.ship.next_bomb_tick {
-                    self.ship.next_bomb_tick = future_tick;
+                    new_bomb_tick = future_tick;
                 }
 
                 if future_tick > self.ship.next_item_tick {
-                    self.ship.next_item_tick = future_tick;
+                    new_item_tick = future_tick;
                 }
 
                 if future_tick > self.ship.next_bullet_tick {
-                    self.ship.next_bullet_tick = future_tick;
+                    new_bullet_tick = future_tick;
                 }
             }
         }
@@ -878,15 +883,15 @@ impl ShipController {
 
                         let future_tick = current_tick + Self::REPEL_DELAY_TICKS;
                         if future_tick > self.ship.next_bomb_tick {
-                            self.ship.next_bomb_tick = future_tick;
+                            new_bomb_tick = future_tick;
                         }
 
                         if future_tick > self.ship.next_item_tick {
-                            self.ship.next_item_tick = future_tick;
+                            new_item_tick = future_tick;
                         }
 
                         if future_tick > self.ship.next_bullet_tick {
-                            self.ship.next_bullet_tick = future_tick;
+                            new_bullet_tick = future_tick;
                         }
                     }
 
@@ -963,17 +968,17 @@ impl ShipController {
             if has_super || self.ship.current_energy >= energy_cost as u32 {
                 let future_tick = current_tick + delay;
 
-                self.ship.next_bullet_tick = current_tick + delay;
+                new_bullet_tick = current_tick + delay;
 
                 if future_tick > self.ship.next_bomb_tick {
-                    self.ship.next_bomb_tick = future_tick;
+                    new_bomb_tick = future_tick;
                 }
 
                 if future_tick > self.ship.next_item_tick {
-                    self.ship.next_item_tick = future_tick;
+                    new_item_tick = future_tick;
                 }
 
-                self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
             } else {
                 weapon_kind = WeaponKind::None;
             }
@@ -1070,26 +1075,26 @@ impl ShipController {
 
                         let future_tick = current_tick + delay as i32;
 
-                        self.ship.next_bomb_tick = future_tick;
+                        new_bomb_tick = future_tick;
 
                         if !ship_settings.emp_bomb {
                             if future_tick > self.ship.next_item_tick {
-                                self.ship.next_item_tick = future_tick;
+                                new_item_tick = future_tick;
                             }
 
                             if future_tick > self.ship.next_bullet_tick {
-                                self.ship.next_bullet_tick = future_tick;
+                                new_bullet_tick = future_tick;
                             }
                         } else {
                             // This seems to differ from emp bombs. Emp mines set a small delay on bullets.
                             let future_tick = current_tick + 60;
 
                             if future_tick > self.ship.next_bullet_tick {
-                                self.ship.next_bullet_tick = future_tick;
+                                new_bullet_tick = future_tick;
                             }
                         }
 
-                        self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                        new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
                     } else {
                         weapon_kind = WeaponKind::None;
                     }
@@ -1181,19 +1186,19 @@ impl ShipController {
             if has_super || self.ship.current_energy >= energy_cost as u32 {
                 let future_tick = current_tick + bomb_fire_delay;
 
-                self.ship.next_bomb_tick = future_tick;
+                new_bomb_tick = future_tick;
 
                 if !ship_settings.emp_bomb {
                     if future_tick > self.ship.next_item_tick {
-                        self.ship.next_item_tick = future_tick;
+                        new_item_tick = future_tick;
                     }
 
                     if future_tick > self.ship.next_bullet_tick {
-                        self.ship.next_bullet_tick = future_tick;
+                        new_bullet_tick = future_tick;
                     }
 
                     // This seems to differ from mines. Emp mines do set the repel delay, but bombs do not.
-                    self.ship.next_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
+                    new_repel_tick = current_tick + Self::REPEL_DELAY_TICKS;
                 }
             } else {
                 weapon_kind = WeaponKind::None;
@@ -1209,6 +1214,12 @@ impl ShipController {
                 .get_self_mut()
                 .expect("Ship controller player must exist");
             me.velocity.clear();
+
+            self.ship.next_bomb_tick = new_bomb_tick;
+            self.ship.next_item_tick = new_item_tick;
+            self.ship.next_bullet_tick = new_bullet_tick;
+            self.ship.next_repel_tick = new_repel_tick;
+
             return;
         }
 
@@ -1256,6 +1267,11 @@ impl ShipController {
 
         self.ship.current_energy -= energy_cost as u32;
         self.ship.weapon = Some(weapon_kind);
+
+        self.ship.next_bomb_tick = new_bomb_tick;
+        self.ship.next_item_tick = new_item_tick;
+        self.ship.next_bullet_tick = new_bullet_tick;
+        self.ship.next_repel_tick = new_repel_tick;
     }
 
     fn shoot_powerball(
