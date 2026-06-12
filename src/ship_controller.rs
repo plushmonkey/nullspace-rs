@@ -71,6 +71,8 @@ impl ShipController {
         current_tick: GameTick,
         render_state: Option<&mut RenderState>,
     ) {
+        self.ship.weapon = None;
+
         if self.notification_cooldown > 0 {
             self.notification_cooldown -= 1;
         }

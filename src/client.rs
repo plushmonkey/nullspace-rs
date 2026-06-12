@@ -1221,7 +1221,10 @@ impl Client {
                 }
             }
             GameServerMessage::PlayerEntering(entering) => {
-                let initial_download = self.simulation.player_manager.players.is_empty();
+                let initial_download = match self.connection.state {
+                    ConnectionState::MapDownload | ConnectionState::Playing => false,
+                    _ => true,
+                };
 
                 for entry in &entering.players {
                     let mut player = Player::new(
