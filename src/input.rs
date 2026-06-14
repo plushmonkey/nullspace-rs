@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 
-#[derive(Copy, Clone)]
+use crate::platform::Platform;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InputAction {
     MoveLeft,
     MoveRight,
@@ -30,6 +33,7 @@ pub enum InputAction {
     StatboxUp,
     StatboxDown,
     FullRadar,
+    ChatBox,
 }
 
 #[derive(Copy, Clone)]
@@ -39,7 +43,7 @@ pub enum InputModifier {
     Alt,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputModifierSet {
     states: u8,
 }
@@ -172,6 +176,7 @@ impl InputState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 // This stores a list of actions associated with a keycode.
 // It is used for determining which action should be triggered depending on the modifiers pressed.
 struct KeyActionSet {
@@ -186,8 +191,17 @@ impl KeyActionSet {
     pub fn insert(&mut self, action: InputAction, modifiers: InputModifierSet) {
         self.actions.push((action, modifiers));
     }
+
+    pub fn remove(&mut self, action: InputAction) {
+        self.actions.retain(|(a, _)| *a != action);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InputMapping {
     mapping: HashMap<KeyCode, KeyActionSet>,
 }
@@ -197,6 +211,100 @@ impl InputMapping {
         Self {
             mapping: HashMap::new(),
         }
+    }
+
+    pub fn save(&self, platform: &mut Platform) {
+        let serialized = match serde_json::to_string(self) {
+            Ok(serialized) => serialized,
+            Err(e) => {
+                log::error!("{e}");
+                return;
+            }
+        };
+
+        platform.request_file_save("_system_", "keybinds.json", 0, serialized.as_bytes());
+    }
+
+    pub fn load(data: &[u8]) -> Self {
+        match serde_json::from_slice(data) {
+            Ok(mapping) => mapping,
+            Err(e) => {
+                log::error!("{e}");
+                Self::new()
+            }
+        }
+    }
+
+    pub fn create_reverse_mapping(&self) -> HashMap<InputAction, (KeyCode, InputModifierSet)> {
+        let mut mapping = HashMap::new();
+
+        for (code, action_set) in &self.mapping {
+            let modifier_code = Self::is_modifier_code(*code);
+
+            for (action, modifiers) in &action_set.actions {
+                if let Some((existing, _)) = mapping.get(action) {
+                    if modifier_code && !Self::is_modifier_code(*existing) {
+                        continue;
+                    }
+                }
+
+                mapping.insert(*action, (*code, *modifiers));
+            }
+        }
+
+        mapping
+    }
+
+    pub fn load_reverse_mapping(
+        &mut self,
+        mapping: &HashMap<InputAction, (KeyCode, InputModifierSet)>,
+    ) {
+        self.mapping.clear();
+
+        for (action, (code, modifiers)) in mapping {
+            if Self::is_modifier_code(*code) {
+                if modifiers.is_set(InputModifier::Alt) {
+                    self.register_modifier_action(KeyCode::AltLeft, *modifiers, *action);
+                    self.register_modifier_action(KeyCode::AltRight, *modifiers, *action);
+                }
+
+                if modifiers.is_set(InputModifier::Shift) {
+                    self.register_modifier_action(KeyCode::ShiftLeft, *modifiers, *action);
+                    self.register_modifier_action(KeyCode::ShiftRight, *modifiers, *action);
+                }
+
+                if modifiers.is_set(InputModifier::Control) {
+                    self.register_modifier_action(KeyCode::ControlLeft, *modifiers, *action);
+                    self.register_modifier_action(KeyCode::ControlRight, *modifiers, *action);
+                }
+            } else {
+                self.register_modifier_action(*code, *modifiers, *action);
+            }
+        }
+    }
+
+    pub fn is_modifier_code(code: KeyCode) -> bool {
+        match code {
+            KeyCode::ShiftLeft => true,
+            KeyCode::ShiftRight => true,
+            KeyCode::ControlLeft => true,
+            KeyCode::ControlRight => true,
+            KeyCode::AltLeft => true,
+            KeyCode::AltRight => true,
+            _ => false,
+        }
+    }
+
+    pub fn request_load(platform: &mut Platform) {
+        platform.request_file_load("_system_", "keybinds.json");
+    }
+
+    pub fn unregister_action(&mut self, action: InputAction) {
+        for (_, action_set) in &mut self.mapping {
+            action_set.remove(action);
+        }
+
+        self.mapping.retain(|_, action_set| !action_set.is_empty());
     }
 
     pub fn register_defaults(&mut self) {
@@ -248,7 +356,6 @@ impl InputMapping {
             InputModifierSet::with(InputModifier::Shift),
             InputAction::Repel,
         );
-        self.register_action(KeyCode::Backquote, InputAction::Repel);
 
         self.register_modifier_action(
             KeyCode::Delete,

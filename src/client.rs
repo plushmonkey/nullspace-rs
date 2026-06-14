@@ -8,8 +8,6 @@ use crate::clock::*;
 use crate::flag::FlagController;
 use crate::game_settings::GameSettings;
 use crate::game_settings::NotificationArea;
-use crate::game_view::render_explosions;
-use crate::game_view::render_trails;
 use crate::input::InputAction;
 use crate::input::InputState;
 use crate::lvz::LvzController;
@@ -39,6 +37,8 @@ use crate::render::layer::Layer;
 use crate::render::render_state::RenderState;
 use crate::render::text_renderer::TextColor;
 use crate::rng::VieRng;
+use crate::scenes::game_scene::render_explosions;
+use crate::scenes::game_scene::render_trails;
 use crate::select_box::SelectBox;
 use crate::ship::ShipKind;
 use crate::ship_controller::ShipController;
@@ -96,7 +96,6 @@ impl OutboundPositionQueue {
 }
 
 pub struct Client {
-    pub platform: Platform,
     pub connection: Connection,
     pub map: Map,
     pub settings: Box<ArenaSettings>,
@@ -137,12 +136,10 @@ impl Client {
         zone: &str,
         socket: SocketKind,
         registration: RegistrationFormMessage,
-        platform: Platform,
     ) -> Result<Client, ConnectionError> {
         let connection = Connection::new(socket);
 
         Ok(Client {
-            platform,
             connection,
             map: Map::empty(""),
             settings: Box::new(ArenaSettings::default()),
@@ -170,13 +167,14 @@ impl Client {
     pub fn update(
         &mut self,
         render_state: Option<&mut RenderState>,
+        platform: &mut Platform,
         game_settings: &mut GameSettings,
         input_state: &mut InputState,
         dt: f32,
     ) -> Result<i32, ConnectionError> {
         let mut render_state = render_state;
 
-        self.receive_messages(&mut render_state, game_settings)?;
+        self.receive_messages(&mut render_state, platform, game_settings)?;
 
         let local_now = GameTick::now(0);
 
@@ -192,7 +190,7 @@ impl Client {
 
         self.radar.render_full = input_state.is_down(InputAction::FullRadar);
 
-        self.handle_loads(render_state.as_deref_mut());
+        self.handle_loads(render_state.as_deref_mut(), platform);
 
         for _ in 0..tick_count {
             self.statbox
@@ -862,6 +860,7 @@ impl Client {
     fn receive_messages(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        platform: &mut Platform,
         game_settings: &GameSettings,
     ) -> Result<(), ConnectionError> {
         loop {
@@ -891,7 +890,7 @@ impl Client {
             let message = message.unwrap();
 
             if let Some(message) = message {
-                self.process_message(render_state, game_settings, message)?;
+                self.process_message(render_state, platform, game_settings, message)?;
             } else {
                 // We are done processing everything now.
                 break;
@@ -932,6 +931,7 @@ impl Client {
     fn process_game_message(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        platform: &mut Platform,
         game_settings: &GameSettings,
         message: &GameServerMessage,
     ) -> Result<(), ConnectionError> {
@@ -1061,6 +1061,8 @@ impl Client {
 
                 self.map.clear_bricks();
                 self.camera_jitter_time = 0;
+
+                self.connection.state = ConnectionState::ArenaLogin;
 
                 // Stop downloading the map if we're downloading.
                 // We need to clear the process queue for the new settings and map.
@@ -2131,8 +2133,7 @@ impl Client {
                 for index in 0..info.downloads.len() {
                     let download = &info.downloads[index];
 
-                    self.platform
-                        .request_file_load(&self.zone, &download.filename);
+                    platform.request_file_load(&self.zone, &download.filename);
                 }
             }
             GameServerMessage::CompressedMap(compressed) => {
@@ -2141,7 +2142,7 @@ impl Client {
                         Ok(data) => {
                             let checksum = checksum::crc32(&data);
 
-                            self.platform.request_file_save(
+                            platform.request_file_save(
                                 &self.zone,
                                 &compressed.filename,
                                 checksum,
@@ -2170,7 +2171,7 @@ impl Client {
                 } else {
                     let checksum = checksum::crc32(&compressed.data);
 
-                    self.platform.request_file_save(
+                    platform.request_file_save(
                         &self.zone,
                         &compressed.filename,
                         checksum,
@@ -2307,11 +2308,11 @@ impl Client {
         }
     }
 
-    fn handle_loads(&mut self, render_state: Option<&mut RenderState>) {
+    fn handle_loads(&mut self, render_state: Option<&mut RenderState>, platform: &mut Platform) {
         let mut render_state = render_state;
 
-        if self.platform.is_load_complete() {
-            for request in self.platform.load_requests.drain(..) {
+        if platform.is_load_complete() {
+            for request in platform.load_requests.drain(..) {
                 let filename = &request.filename;
 
                 if let Some(data) = &request.result {
@@ -2395,6 +2396,7 @@ impl Client {
     fn process_message(
         &mut self,
         render_state: &mut Option<&mut RenderState>,
+        platform: &mut Platform,
         game_settings: &GameSettings,
         message: ServerMessage,
     ) -> Result<(), ConnectionError> {
@@ -2403,7 +2405,7 @@ impl Client {
                 self.process_core_message(render_state, &core_message)
             }
             ServerMessage::Game(game_message) => {
-                self.process_game_message(render_state, game_settings, &game_message)
+                self.process_game_message(render_state, platform, game_settings, &game_message)
             }
         }
     }

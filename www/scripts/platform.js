@@ -1,19 +1,33 @@
 export class WebPlatformIoJs {
     constructor() {
-        const openRequest = window.indexedDB.open("nullspace", 1);
 
-        openRequest.onsuccess = (event) => {
-            this.db = event.target.result;
-        };
+    }
 
-        openRequest.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            const zoneStore = db.createObjectStore("zone", {
-                keyPath: "filename",
-            });
+    open() {
+        let io = this;
 
-            zoneStore.createIndex("filename", "filename");
-        };
+        return new Promise((resolve, reject) => {
+            const openRequest = window.indexedDB.open("nullspace", 1);
+
+            openRequest.onsuccess = (event) => {
+                io.db = event.target.result;
+
+                resolve();
+            };
+
+            openRequest.onerror = (event) => {
+                reject();
+            };
+
+            openRequest.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                const zoneStore = db.createObjectStore("zone", {
+                    keyPath: "filename",
+                });
+
+                zoneStore.createIndex("filename", "filename");
+            };
+        });
     }
 
     save_zone_file(zone, filename, checksum, data) {

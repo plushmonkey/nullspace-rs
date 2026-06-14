@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -15,25 +15,21 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
+use crate::render::{
+    game_sprites::{GameSpriteLoader, GameSprites},
+    layer::Layer,
+    render_state::{RenderError, RenderState, RenderStateCreateError},
+};
 use crate::{
     client::Client,
     game_settings::GameSettings,
-    game_view::render_game,
-    input::{InputMapping, InputState, is_input_keycode},
-    menu::MenuAction,
+    input::{InputMapping, InputState},
     net::{
         connection::{ConnectionError, ConnectionState},
         packet::c2s::{RegistrationFormMessage, RegistrationSex},
     },
     platform::Platform,
-};
-use crate::{
-    menu::Menu,
-    render::{
-        game_sprites::{GameSpriteLoader, GameSprites},
-        layer::Layer,
-        render_state::{RenderError, RenderState, RenderStateCreateError},
-    },
+    scenes::{SceneStack, menu_scene::MenuScene},
 };
 
 pub mod arena_settings;
@@ -45,12 +41,10 @@ pub mod clock;
 pub mod exhaust;
 pub mod flag;
 pub mod game_settings;
-pub mod game_view;
 pub mod input;
 pub mod lvz;
 pub mod map;
 pub mod math;
-pub mod menu;
 pub mod net;
 pub mod notification;
 pub mod platform;
@@ -60,6 +54,7 @@ pub mod prize;
 pub mod radar;
 pub mod render;
 pub mod rng;
+pub mod scenes;
 pub mod select_box;
 pub mod ship;
 pub mod ship_controller;
@@ -129,13 +124,22 @@ pub struct ApplicationConfig {
 
 struct ApplicationLoadingState {
     sprite_loader: GameSpriteLoader,
+    input_mapping: Option<InputMapping>,
+    platform: Option<Platform>,
 }
 
 impl ApplicationLoadingState {
     pub fn new() -> Self {
         let sprite_loader = GameSpriteLoader::new();
+        let mut platform = Platform::new();
 
-        Self { sprite_loader }
+        InputMapping::request_load(&mut platform);
+
+        Self {
+            sprite_loader,
+            platform: Some(platform),
+            input_mapping: None,
+        }
     }
 
     pub fn render(&mut self, render_state: &mut RenderState) {
@@ -178,17 +182,23 @@ impl ApplicationConnectErrorState {
 }
 
 struct ApplicationPlayingState {
+    client: Arc<Mutex<Client>>,
+    platform: Platform,
     timer: Timer, // Used for delta time calculations for client update.
-    client: Client,
     sprites: GameSprites,
-    menu: Menu,
     input_mapping: InputMapping,
     input_state: InputState,
     action_input: bool,
+    scene_stack: SceneStack,
 }
 
 impl ApplicationPlayingState {
-    pub fn new(config: &ApplicationConfig, sprites: GameSprites) -> Self {
+    pub fn new(
+        config: &ApplicationConfig,
+        sprites: GameSprites,
+        platform: Platform,
+        input_mapping: InputMapping,
+    ) -> Self {
         let socket;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -217,8 +227,6 @@ impl ApplicationPlayingState {
                 crate::net::webtransport_socket::WebTransportSocket::new(&proxy_url, hash).unwrap();
         }
 
-        let platform = Platform::new();
-
         let registration = RegistrationFormMessage::new(
             "nullspace",
             "nullspace@nullspace.com",
@@ -237,22 +245,26 @@ impl ApplicationPlayingState {
             #[cfg(target_arch = "wasm32")]
             net::connection::SocketKind::WebTransport(socket),
             registration,
-            platform,
         )
         .unwrap();
 
-        let mut input_mapping = InputMapping::new();
+        let client = Arc::new(Mutex::new(client));
+        let menu = Arc::new(Mutex::new(MenuScene::new(client.clone())));
 
-        input_mapping.register_defaults();
+        let mut scene_stack = SceneStack::new();
+
+        scene_stack.add_scene(client.clone());
+        scene_stack.add_scene(menu.clone());
 
         Self {
-            timer: Timer::new(),
             client,
+            platform,
+            timer: Timer::new(),
             sprites,
-            menu: Menu::new(),
             input_mapping,
             input_state: InputState::new(),
             action_input: false,
+            scene_stack,
         }
     }
 
@@ -263,39 +275,38 @@ impl ApplicationPlayingState {
     ) -> Result<(), ConnectionError> {
         let dt = self.timer.elapsed();
 
+        let windows_open = self.scene_stack.get_active_scene_count() > 1;
+
+        let mut client = self.client.lock().unwrap();
+
         render_state
             .animation_renderer
-            .update(self.client.connection.get_game_tick());
+            .update(client.connection.get_game_tick());
 
-        self.client
-            .update(Some(render_state), game_settings, &mut self.input_state, dt)?;
+        client.update(
+            Some(render_state),
+            &mut self.platform,
+            game_settings,
+            &mut self.input_state,
+            dt,
+        )?;
 
-        self.sprites
-            .colors
-            .tick(self.client.connection.get_game_tick());
+        self.sprites.colors.tick(client.connection.get_game_tick());
 
         self.action_input = false;
-        self.menu.handled = false;
 
-        self.client
+        let full_radar = client.radar.render_full;
+
+        client
             .chat_controller
-            .update_render_mode(self.menu.is_open(), self.client.radar.render_full);
+            .update_render_mode(windows_open, full_radar);
 
         Ok(())
     }
 
     pub fn render(&mut self, render_state: &mut RenderState, game_settings: &GameSettings) {
-        render_game(
-            &mut self.client,
-            game_settings,
-            render_state,
-            &mut self.sprites,
-            self.menu.is_open(),
-        );
-
-        if self.menu.is_open() {
-            self.menu.render(render_state, &self.sprites);
-        }
+        self.scene_stack
+            .render(game_settings, render_state, &mut self.sprites);
     }
 
     pub fn handle_key(
@@ -305,150 +316,20 @@ impl ApplicationPlayingState {
         code: KeyCode,
         is_pressed: bool,
     ) {
-        match code {
-            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
-                if is_pressed {
-                    self.input_state
-                        .set_modifier_triggered(input::InputModifier::Shift);
-                } else {
-                    self.input_mapping.clear_actions_with_modifier(
-                        input::InputModifier::Shift,
-                        &mut self.input_state,
-                    );
-                }
-
-                self.input_state
-                    .set_modifier_down(input::InputModifier::Shift, is_pressed);
-            }
-            KeyCode::AltLeft | KeyCode::AltRight => {
-                if is_pressed {
-                    self.input_state
-                        .set_modifier_triggered(input::InputModifier::Alt);
-                } else {
-                    self.input_mapping.clear_actions_with_modifier(
-                        input::InputModifier::Alt,
-                        &mut self.input_state,
-                    );
-                }
-
-                self.input_state
-                    .set_modifier_down(input::InputModifier::Alt, is_pressed);
-            }
-            KeyCode::ControlLeft | KeyCode::ControlRight => {
-                if is_pressed {
-                    self.input_state
-                        .set_modifier_triggered(input::InputModifier::Control);
-                } else {
-                    self.input_mapping.clear_actions_with_modifier(
-                        input::InputModifier::Control,
-                        &mut self.input_state,
-                    );
-                }
-
-                self.input_state
-                    .set_modifier_down(input::InputModifier::Control, is_pressed);
-            }
-            _ => {}
-        }
-
-        if is_pressed {
-            if let Some(action) = self.menu.handle_key(code) {
-                match action {
-                    MenuAction::MenuToggle => {
-                        if !self.client.statbox.cancel_select_box() {
-                            self.menu.toggle();
-                        }
-                    }
-                    MenuAction::Quit => {
-                        event_loop.exit();
-                    }
-                    MenuAction::ArenaList => {
-                        self.client
-                            .chat_controller
-                            .send_public(&mut self.client.connection, "?arena");
-                    }
-                    MenuAction::ShipRequest(ship_kind) => {
-                        self.client.handle_ship_request(ship_kind);
-                    }
-                    MenuAction::NameTags => {
-                        game_settings.render_name_mode = game_settings.render_name_mode.next();
-                        self.client.chat_controller.add_system_message(format!(
-                            "Name view mode: {}",
-                            game_settings.render_name_mode.to_str()
-                        ));
-                    }
-                    MenuAction::Statbox => {
-                        self.client
-                            .statbox
-                            .next_view(&self.client.simulation.player_manager);
-                    }
-                    _ => {}
-                }
-
-                return;
-            }
-        }
-
-        if let Some(action) = self.input_mapping.get_action(code, &self.input_state) {
-            if self.client.chat_controller.input.is_empty() || !is_input_keycode(code) {
-                if is_pressed {
-                    self.input_state.set_triggered(action);
-                }
-
-                self.input_state.set_down(action, is_pressed);
-                self.action_input = true;
-            }
-        }
+        self.action_input = self.scene_stack.handle_key(
+            event_loop,
+            &mut self.platform,
+            &mut self.input_state,
+            &mut self.input_mapping,
+            game_settings,
+            code,
+            is_pressed,
+        );
     }
 
     pub fn handle_text(&mut self, c: &SmolStr) {
-        if c.is_empty() {
-            return;
-        }
-
-        let code = c.as_bytes()[0];
-
-        // If we receive some text that isn't Escape, close the menu and proceed to handle it.
-        if code != 0x1B && self.menu.is_open() {
-            self.menu.toggle();
-        }
-
-        if self.menu.handled || self.action_input {
-            return;
-        }
-
-        // If we press enter with the chat controller empty, handle select box.
-        if code == 0x0d {
-            if self.client.chat_controller.input.is_empty() {
-                if let Some(input_text) = self.client.statbox.activate_select_box() {
-                    for c in input_text.as_bytes() {
-                        self.client.chat_controller.input.push(*c);
-                    }
-
-                    if let Some(command) = self.client.chat_controller.send_input(
-                        &mut self.client.connection,
-                        &self.client.statbox,
-                        &self.client.simulation.player_manager,
-                    ) {
-                        self.client.handle_chat_command(command);
-                    }
-                }
-                return;
-            }
-        }
-
-        if self.client.chat_controller.handle_key(
-            code,
-            self.input_state
-                .is_modifier_down(input::InputModifier::Control),
-        ) {
-            if let Some(command) = self.client.chat_controller.send_input(
-                &mut self.client.connection,
-                &self.client.statbox,
-                &self.client.simulation.player_manager,
-            ) {
-                self.client.handle_chat_command(command);
-            }
+        if !self.action_input {
+            self.scene_stack.handle_text(&mut self.input_state, c);
         }
     }
 }
@@ -556,7 +437,11 @@ impl Application {
                 if let Err(e) =
                     playing.update(&mut self.render_state, &mut self.config.game_settings)
                 {
-                    match &playing.client.connection.state {
+                    let client = playing.client.lock().unwrap();
+                    let connection_state = client.connection.state;
+                    drop(client);
+
+                    match &connection_state {
                         ConnectionState::Playing | ConnectionState::Disconnected => {
                             //
                         }
@@ -569,13 +454,38 @@ impl Application {
                 }
             }
             ApplicationState::Loading(loading) => {
-                let sprites = loading.sprite_loader.try_create(&mut self.render_state);
+                if loading.input_mapping.is_some() {
+                    let sprites = loading.sprite_loader.try_create(&mut self.render_state);
 
-                if let Some(sprites) = sprites {
-                    self.state = ApplicationState::Playing(ApplicationPlayingState::new(
-                        &self.config,
-                        sprites,
-                    ));
+                    if let Some(sprites) = sprites {
+                        self.state = ApplicationState::Playing(ApplicationPlayingState::new(
+                            &self.config,
+                            sprites,
+                            loading.platform.take().unwrap(),
+                            loading.input_mapping.take().unwrap(),
+                        ));
+                    }
+                } else {
+                    if let Some(platform) = &mut loading.platform {
+                        if platform.is_load_complete() {
+                            let keybind_req = platform
+                                .load_requests
+                                .first()
+                                .expect("keybinds should be loaded");
+
+                            if let Some(data) = &keybind_req.result {
+                                loading.input_mapping = Some(InputMapping::load(data));
+                            } else {
+                                let mut input_mapping = InputMapping::new();
+
+                                input_mapping.register_defaults();
+
+                                loading.input_mapping = Some(input_mapping);
+                            }
+
+                            platform.load_requests.clear();
+                        }
+                    }
                 }
             }
             ApplicationState::ConnectError(_) => {}
@@ -608,7 +518,9 @@ impl Application {
 
                 let packet = crate::net::packet::bi::DisconnectMessage {};
 
-                if let Err(e) = playing.client.connection.send_packet(&packet.serialize()) {
+                let mut client = playing.client.lock().unwrap();
+
+                if let Err(e) = client.connection.send_packet(&packet.serialize()) {
                     log::error!("{e}");
                 }
             }
@@ -621,6 +533,8 @@ pub enum ApplicationEvent {
     Application(Application),
     Update,
 }
+
+unsafe impl Send for ApplicationEvent {}
 
 pub struct EventProcessor {
     application: Option<Application>,

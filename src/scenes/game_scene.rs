@@ -1,12 +1,15 @@
-use smol_str::{SmolStr, format_smolstr};
+use smol_str::format_smolstr;
+use winit::keyboard::{KeyCode, SmolStr};
 
 use crate::{
     client::{Client, MovementController},
     clock::GameTick,
     game_settings::{GameSettings, RenderNameMode},
+    input::{self, InputAction, InputMapping, InputState, is_input_keycode},
     map::{ANIMATED_TILE_KIND_COUNT, AnimatedTileKind, TILE_ID_FIRST_DOOR, TILE_ID_FLAG},
     math::{PixelUnit, Position, PositionUnit, Rectangle},
     net::connection::ConnectionState,
+    platform::Platform,
     player::{Player, PlayerId, PlayerManager, StatusFlags},
     powerball::{PowerballState, is_team_goal},
     radar::IndicatorFlag,
@@ -18,6 +21,7 @@ use crate::{
         render_state::RenderState,
         text_renderer::{FontKind, TextAlignment, TextColor},
     },
+    scenes::{Scene, SceneKeyAction},
     ship::ShipKind,
     simulation::{
         game_simulation::SimulationEventKind,
@@ -26,188 +30,303 @@ use crate::{
     weapon::WeaponKind,
 };
 
-pub fn render_game(
-    client: &mut Client,
-    game_settings: &GameSettings,
-    render_state: &mut RenderState,
-    sprites: &mut GameSprites,
-    menu_open: bool,
-) {
-    client
-        .chat_controller
-        .render(render_state, sprites, game_settings);
+impl Scene for Client {
+    fn is_active(&self) -> bool {
+        true
+    }
 
-    client.statbox.render(
-        &client.simulation.player_manager,
-        render_state,
-        sprites,
-        game_settings,
-    );
+    fn render(
+        &mut self,
+        game_settings: &GameSettings,
+        render_state: &mut RenderState,
+        sprites: &mut GameSprites,
+    ) {
+        self.chat_controller
+            .render(render_state, sprites, game_settings);
 
-    match client.connection.state {
-        ConnectionState::Playing | ConnectionState::Disconnected => {
-            if let Some(me) = client.simulation.player_manager.get_self() {
-                if let Some(me_position) = me.position {
-                    render_state.camera.position = me_position.into();
-                }
-            }
+        self.statbox.render(
+            &self.simulation.player_manager,
+            render_state,
+            sprites,
+            game_settings,
+        );
 
-            if client.camera_jitter_time > 0 {
-                let strength =
-                    client.camera_jitter_time as f32 / client.settings.jitter_time as f32;
-                let max_jitter_tiles = (client.settings.jitter_time as f32 / 100.0f32).min(2.0f32);
-
-                let t = (client.camera_jitter_time % 100) as f32 / 100.0f32;
-
-                let x_jitter = (t * 80.75f32).sin() * strength * max_jitter_tiles;
-                let y_jitter = (t * 45.63f32).sin() * strength * max_jitter_tiles;
-
-                render_state.camera.position.x += x_jitter;
-                render_state.camera.position.y += y_jitter;
-            }
-
-            match &client.controller {
-                MovementController::Spectate(spectate_controller) => {
-                    spectate_controller.render(
-                        render_state,
-                        sprites,
-                        &client.simulation.player_manager,
-                        &client.settings,
-                        client.connection.get_game_tick(),
-                    );
-                }
-                MovementController::Ship(ship_controller) => {
-                    ship_controller.render(
-                        &client.simulation.player_manager,
-                        render_state,
-                        sprites,
-                        &client.settings,
-                        game_settings,
-                        client.connection.get_game_tick(),
-                    );
-
-                    if let Some(portal_position) = ship_controller.ship.portal_position {
-                        let remaining_ticks = ship_controller.ship.portal_remaining_ticks;
-                        let t = (remaining_ticks as f32 * 1.5f32) as u32 % 100;
-
-                        let mut position = portal_position;
-
-                        if t < 25 {
-                            position.y.0 += 16000;
-                        } else if t < 50 {
-                            position.x.0 += 16000;
-                            position.y.0 += 16000;
-                        } else if t < 75 {
-                            position.x.0 += 16000;
-                        }
-
-                        client.radar.add_indicator(
-                            ColorRenderableKind::RadarPortal,
-                            position,
-                            client.connection.get_game_tick(),
-                            IndicatorFlag::SmallMap,
-                        );
+        match self.connection.state {
+            ConnectionState::Playing | ConnectionState::Disconnected => {
+                if let Some(me) = self.simulation.player_manager.get_self() {
+                    if let Some(me_position) = me.position {
+                        render_state.camera.position = me_position.into();
                     }
                 }
+
+                if self.camera_jitter_time > 0 {
+                    let strength =
+                        self.camera_jitter_time as f32 / self.settings.jitter_time as f32;
+                    let max_jitter_tiles =
+                        (self.settings.jitter_time as f32 / 100.0f32).min(2.0f32);
+
+                    let t = (self.camera_jitter_time % 100) as f32 / 100.0f32;
+
+                    let x_jitter = (t * 80.75f32).sin() * strength * max_jitter_tiles;
+                    let y_jitter = (t * 45.63f32).sin() * strength * max_jitter_tiles;
+
+                    render_state.camera.position.x += x_jitter;
+                    render_state.camera.position.y += y_jitter;
+                }
+
+                match &self.controller {
+                    MovementController::Spectate(spectate_controller) => {
+                        spectate_controller.render(
+                            render_state,
+                            sprites,
+                            &self.simulation.player_manager,
+                            &self.settings,
+                            self.connection.get_game_tick(),
+                        );
+                    }
+                    MovementController::Ship(ship_controller) => {
+                        ship_controller.render(
+                            &self.simulation.player_manager,
+                            render_state,
+                            sprites,
+                            &self.settings,
+                            game_settings,
+                            self.connection.get_game_tick(),
+                        );
+
+                        if let Some(portal_position) = ship_controller.ship.portal_position {
+                            let remaining_ticks = ship_controller.ship.portal_remaining_ticks;
+                            let t = (remaining_ticks as f32 * 1.5f32) as u32 % 100;
+
+                            let mut position = portal_position;
+
+                            if t < 25 {
+                                position.y.0 += 16000;
+                            } else if t < 50 {
+                                position.x.0 += 16000;
+                                position.y.0 += 16000;
+                            } else if t < 75 {
+                                position.x.0 += 16000;
+                            }
+
+                            self.radar.add_indicator(
+                                ColorRenderableKind::RadarPortal,
+                                position,
+                                self.connection.get_game_tick(),
+                                IndicatorFlag::SmallMap,
+                            );
+                        }
+                    }
+                }
+
+                render_state.render_map = true;
+                let view_freq = self.get_freq();
+
+                render_players(self, render_state, sprites, game_settings);
+                render_weapons(self, render_state, sprites, game_settings);
+                render_powerballs(self, render_state, sprites);
+
+                self.simulation.powerball_manager.render_radar(
+                    &mut self.radar,
+                    &self.simulation.player_manager,
+                    view_freq,
+                    self.connection.get_game_tick(),
+                    self.settings.powerball_global_position,
+                );
+
+                render_map_animations(self, render_state, sprites);
+                self.prize_manager.render(
+                    render_state,
+                    sprites,
+                    &mut self.radar,
+                    self.connection.get_game_tick(),
+                );
+
+                self.notifications.render(render_state);
+
+                let self_flag_ticks = if let Some(me) = self.simulation.player_manager.get_self() {
+                    me.flag_remaining_ticks
+                } else {
+                    0
+                };
+
+                self.flag_controller.render(
+                    render_state,
+                    sprites,
+                    &mut self.radar,
+                    self.connection.get_game_tick(),
+                    view_freq,
+                    self_flag_ticks,
+                );
+
+                self.radar.render(
+                    render_state,
+                    sprites,
+                    &self.map,
+                    self.settings.map_zoom_factor as u16,
+                    self.get_freq(),
+                    self.settings.powerball_mode,
+                    game_settings,
+                );
+
+                if self.connection.state == ConnectionState::Disconnected {
+                    let x = (render_state.width() as f32 * 0.2f32) as i32;
+                    let y = (render_state.height() as f32 * 0.4f32) as i32;
+
+                    render_state.text_renderer.draw(
+                        &mut render_state.sprite_renderer,
+                        &render_state.ui_camera,
+                        "WARNING: No data coming from server",
+                        x,
+                        y,
+                        Layer::TopMost,
+                        TextColor::Yellow,
+                        TextAlignment::Left,
+                    );
+
+                    self.notifications.clear();
+                }
+
+                self.lvz_controller.render(render_state, sprites);
             }
+            _ => {
+                render_state.render_map = false;
 
-            render_state.render_map = true;
-            let view_freq = client.get_freq();
+                let (x_pixels, y_pixels) = (
+                    render_state.width() as i32 / 2,
+                    render_state.height() as i32 - (render_state.height() as i32 / 4),
+                );
 
-            render_players(client, render_state, sprites, game_settings);
-            render_weapons(client, render_state, sprites, game_settings);
-            render_powerballs(client, render_state, sprites);
-
-            client.simulation.powerball_manager.render_radar(
-                &mut client.radar,
-                &client.simulation.player_manager,
-                view_freq,
-                client.connection.get_game_tick(),
-                client.settings.powerball_global_position,
-            );
-
-            render_map_animations(client, render_state, sprites);
-            client.prize_manager.render(
-                render_state,
-                sprites,
-                &mut client.radar,
-                client.connection.get_game_tick(),
-            );
-
-            if !menu_open {
-                client.notifications.render(render_state);
-            }
-
-            let client_flag_ticks = if let Some(me) = client.simulation.player_manager.get_self() {
-                me.flag_remaining_ticks
-            } else {
-                0
-            };
-
-            client.flag_controller.render(
-                render_state,
-                sprites,
-                &mut client.radar,
-                client.connection.get_game_tick(),
-                view_freq,
-                client_flag_ticks,
-            );
-
-            client.radar.render(
-                render_state,
-                sprites,
-                &client.map,
-                client.settings.map_zoom_factor as u16,
-                client.get_freq(),
-                client.settings.powerball_mode,
-                game_settings,
-            );
-
-            if client.connection.state == ConnectionState::Disconnected {
-                let x = (render_state.width() as f32 * 0.2f32) as i32;
-                let y = (render_state.height() as f32 * 0.4f32) as i32;
+                let text = if let ConnectionState::MapDownload = self.connection.state {
+                    "Downloading"
+                } else {
+                    "Entering arena"
+                };
 
                 render_state.text_renderer.draw(
                     &mut render_state.sprite_renderer,
                     &render_state.ui_camera,
-                    "WARNING: No data coming from server",
-                    x,
-                    y,
+                    text,
+                    x_pixels,
+                    y_pixels,
                     Layer::TopMost,
-                    TextColor::Yellow,
-                    TextAlignment::Left,
+                    TextColor::Blue,
+                    TextAlignment::Center,
                 );
-
-                client.notifications.clear();
             }
-
-            client.lvz_controller.render(render_state, sprites);
         }
-        _ => {
-            render_state.render_map = false;
+    }
 
-            let (x_pixels, y_pixels) = (
-                render_state.width() as i32 / 2,
-                render_state.height() as i32 - (render_state.height() as i32 / 4),
-            );
+    fn handle_key(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        platform: &mut Platform,
+        input_state: &mut InputState,
+        input_mapping: &mut InputMapping,
+        game_settings: &mut GameSettings,
+        code: winit::keyboard::KeyCode,
+        is_pressed: bool,
+    ) -> Option<SceneKeyAction> {
+        let _ = event_loop;
+        let _ = platform;
+        let _ = game_settings;
 
-            let text = if let ConnectionState::MapDownload = client.connection.state {
-                "Downloading"
-            } else {
-                "Entering arena"
-            };
+        match code {
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+                if is_pressed {
+                    input_state.set_modifier_triggered(input::InputModifier::Shift);
+                } else {
+                    input_mapping
+                        .clear_actions_with_modifier(input::InputModifier::Shift, input_state);
+                }
 
-            render_state.text_renderer.draw(
-                &mut render_state.sprite_renderer,
-                &render_state.ui_camera,
-                text,
-                x_pixels,
-                y_pixels,
-                Layer::TopMost,
-                TextColor::Blue,
-                TextAlignment::Center,
-            );
+                input_state.set_modifier_down(input::InputModifier::Shift, is_pressed);
+            }
+            KeyCode::AltLeft | KeyCode::AltRight => {
+                if is_pressed {
+                    input_state.set_modifier_triggered(input::InputModifier::Alt);
+                } else {
+                    input_mapping
+                        .clear_actions_with_modifier(input::InputModifier::Alt, input_state);
+                }
+
+                input_state.set_modifier_down(input::InputModifier::Alt, is_pressed);
+            }
+            KeyCode::ControlLeft | KeyCode::ControlRight => {
+                if is_pressed {
+                    input_state.set_modifier_triggered(input::InputModifier::Control);
+                } else {
+                    input_mapping
+                        .clear_actions_with_modifier(input::InputModifier::Control, input_state);
+                }
+
+                input_state.set_modifier_down(input::InputModifier::Control, is_pressed);
+            }
+            _ => {}
         }
+
+        if self.chat_controller.input.is_empty() || !is_input_keycode(code) {
+            if let Some(action) = input_mapping.get_action(code, input_state) {
+                if is_pressed {
+                    input_state.set_triggered(action);
+                }
+
+                input_state.set_down(action, is_pressed);
+
+                if self.chat_controller.input.is_empty()
+                    && input_state.is_triggered(InputAction::ChatBox)
+                {
+                    self.chat_controller.input.push(b' ');
+                }
+
+                return Some(SceneKeyAction::Ignore);
+            }
+        }
+
+        None
+    }
+
+    fn handle_text(&mut self, input_state: &mut InputState, c: &SmolStr) -> bool {
+        if c.is_empty() {
+            return false;
+        }
+
+        let code = c.as_bytes()[0];
+
+        // If we press enter with the chat controller empty, handle select box.
+        if code == 0x0d {
+            if self.chat_controller.input.is_empty() {
+                if let Some(input_text) = self.statbox.activate_select_box() {
+                    for c in input_text.as_bytes() {
+                        self.chat_controller.input.push(*c);
+                    }
+
+                    if let Some(command) = self.chat_controller.send_input(
+                        &mut self.connection,
+                        &self.statbox,
+                        &self.simulation.player_manager,
+                    ) {
+                        self.handle_chat_command(command);
+                    }
+                }
+                return true;
+            }
+        }
+
+        if self.chat_controller.handle_key(
+            code,
+            input_state.is_modifier_down(input::InputModifier::Control),
+        ) {
+            if let Some(command) = self.chat_controller.send_input(
+                &mut self.connection,
+                &self.statbox,
+                &self.simulation.player_manager,
+            ) {
+                self.handle_chat_command(command);
+            }
+        }
+
+        false
     }
 }
 
@@ -727,7 +846,7 @@ fn get_player_name_view(
     player: &Player,
     view_freq: u16,
     ping: Option<u16>,
-) -> (SmolStr, TextColor) {
+) -> (smol_str::SmolStr, TextColor) {
     let color = if player.frequency == view_freq {
         TextColor::Yellow
     } else {
@@ -1045,7 +1164,7 @@ fn render_weapons(
     }
 }
 
-pub fn render_powerballs(client: &Client, render_state: &mut RenderState, sprites: &GameSprites) {
+fn render_powerballs(client: &Client, render_state: &mut RenderState, sprites: &GameSprites) {
     let Some(ball_sprites) = sprites.get_set(GameSpriteKind::Powerball) else {
         return;
     };
@@ -1298,11 +1417,7 @@ pub fn render_trails(
     }
 }
 
-pub fn render_map_animations(
-    client: &Client,
-    render_state: &mut RenderState,
-    sprites: &GameSprites,
-) {
+fn render_map_animations(client: &Client, render_state: &mut RenderState, sprites: &GameSprites) {
     const OFFSCREEN_PIXELS: i32 = 8 * 16;
     let (screen_width, screen_height) = (render_state.width() as i32, render_state.height() as i32);
     let half_width = (screen_width / 2) + OFFSCREEN_PIXELS;

@@ -160,6 +160,7 @@ impl Statbox {
         self.selected_player_id = PlayerId::invalid();
         self.sliding_view.top = 0;
         self.sorted_players.clear();
+        self.select_box = None;
     }
 
     pub fn set_view(&mut self, player_manager: &PlayerManager, view_kind: StatboxView) {
