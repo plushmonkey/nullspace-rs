@@ -1991,6 +1991,8 @@ impl Client {
                                 game_settings.multifire_spawn,
                             );
 
+                            ship_controller.ship.status |= StatusFlags::Flash;
+
                             self.controller = MovementController::Ship(ship_controller);
                         }
                     }
@@ -2236,6 +2238,16 @@ impl Client {
                         me.velocity.clear();
                         me.status |= StatusFlags::Flash;
                     }
+                }
+            }
+            GameServerMessage::ShipReset => {
+                if let MovementController::Ship(ship_controller) = &mut self.controller {
+                    ship_controller.reset_ship(
+                        &self.settings,
+                        self.connection.get_game_tick(),
+                        ship_controller.ship.kind,
+                        game_settings.multifire_spawn,
+                    );
                 }
             }
             GameServerMessage::KothAddTime(message) => {

@@ -1,6 +1,6 @@
 use crate::{
-    arena_settings::ArenaSettings, clock::GameTick, math::Position, player::StatusFlags,
-    prize::apply_random_prizes, weapon::WeaponKind,
+    arena_settings::ArenaSettings, clock::GameTick, math::Position, prize::apply_random_prizes,
+    weapon::WeaponKind,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -182,7 +182,7 @@ impl Ship {
             return;
         }
 
-        self.status = StatusFlags::Flash;
+        self.status = 0;
 
         let ship_settings = settings.get_ship_settings(ship_kind);
 
